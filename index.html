@@ -541,7 +541,7 @@
     display: flex;
     gap: 5px;
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: hidden;
     padding-bottom: 2px;
     -webkit-overflow-scrolling: touch;
   }
@@ -868,16 +868,17 @@
 // We also compute --hand-card-h so hand cards scale to fit any phone.
 function setVh() {
   const h = window.innerHeight;
+  const w = window.innerWidth;
   document.documentElement.style.setProperty('--vh', `${h * 0.01}px`);
 
-  // Hand area contains: info-bar + label-row + action-row + padding + card row
-  // Measured from screenshots on iPhone 15 Pro Max (h≈852px usable in Chrome):
-  //   info-bar ~22px, label-row ~22px, action-row ~30px, padding ~10px = 84px overhead
-  // Card height = remaining space after board (~62% of h) and overhead
-  // Clamped: min 54px (still usable), max 76px (comfortable)
+  // Board is width-constrained on mobile portrait: height = width × 7/5
+  // Add ~14px for board's own padding (3px×2) + border (1px×2) + container padding (2px×2)
+  const boardH   = Math.ceil(w * 7 / 5) + 14;
+  // Hand area overhead: info-bar + label-row + action-row + padding (no cards)
   const overhead = 84;
-  const cardH    = Math.min(76, Math.max(54, Math.round(h * 0.38 - overhead)));
-  const handH    = overhead + cardH;
+  // Cards fill whatever is left, with a 6px safety margin so nothing clips
+  const cardH    = Math.min(76, Math.max(48, h - boardH - overhead - 6));
+  const handH    = h - boardH;
 
   document.documentElement.style.setProperty('--hand-card-h', `${cardH}px`);
   document.documentElement.style.setProperty('--hand-area-h', `${handH}px`);
