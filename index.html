@@ -201,11 +201,12 @@
   }
 
   /* ── GAME SCREEN ── */
+  /* JS sets --vh on load/resize to window.innerHeight — avoids Chrome browser-chrome issues */
   #game-screen {
     background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
     flex-direction: column;
     height: 100vh;
-    height: 100dvh;
+    height: calc(var(--vh, 1vh) * 100);
     overflow: hidden;
   }
 
@@ -265,7 +266,7 @@
     flex-shrink: 0;
   }
 
-  /* Board container — takes all remaining space after hand area */
+  /* Board container — takes all remaining height after hand area */
   .board-container {
     flex: 1 1 0;
     min-height: 0;
@@ -274,11 +275,10 @@
     align-items: center;
     justify-content: center;
     padding: 2px 1px;
-    -webkit-overflow-scrolling: touch;
     container-type: size;
   }
 
-  /* Board — sizes itself to fit inside whatever space the container has */
+  /* Board — fits inside whatever the container gives it */
   .board {
     display: grid;
     grid-template-columns: repeat(10, 1fr);
@@ -288,7 +288,6 @@
     padding: 3px;
     border-radius: 8px;
     border: 1px solid rgba(201,168,76,0.3);
-    /* Fit the smaller of full container width or full container height (5:7 ratio) */
     width: min(100cqw, calc(100cqh * 5 / 7));
     aspect-ratio: 5 / 7;
     max-width: 100%;
@@ -469,13 +468,12 @@
 
   /* playable-hint removed — player finds spots themselves */
 
-  /* Bottom hand area — fixed intrinsic height, never shrinks */
+  /* Bottom hand area — fixed intrinsic size, never shrinks */
   .hand-area {
     flex-shrink: 0;
     background: rgba(0,0,0,0.4);
     border-top: 1px solid rgba(201,168,76,0.25);
     padding: 4px 6px;
-    /* Push content above iPhone home indicator */
     padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
 
@@ -493,7 +491,6 @@
     letter-spacing: 0.08em;
   }
 
-  /* Timer lives next to YOUR HAND label */
   .turn-timer {
     flex-shrink: 0;
     min-width: 26px;
@@ -526,16 +523,16 @@
     display: flex;
     gap: 5px;
     overflow-x: auto;
+    overflow-y: visible;
     padding-bottom: 2px;
     -webkit-overflow-scrolling: touch;
   }
 
   .hand-card {
     flex-shrink: 0;
-    /* Cards scale fluidly: target ~76px on tall phones, shrink on shorter ones.
-       clamp(min, preferred, max) — preferred is viewport-height based */
-    width: clamp(44px, 8.5dvh, 58px);
-    height: clamp(62px, 12dvh, 80px);
+    /* JS sets --hand-card-h on game screen show; CSS falls back to 72px */
+    width: calc(var(--hand-card-h, 72px) * 0.71);
+    height: var(--hand-card-h, 72px);
     background: white;
     border-radius: 6px;
     border: 2px solid #ddd;
@@ -716,7 +713,6 @@
 
     .board-container { flex: 1; padding: 8px; }
 
-    /* Hand becomes a right sidebar */
     .hand-area {
       width: 210px;
       flex-shrink: 0;
@@ -733,7 +729,6 @@
     .score-badge { font-size: 0.82rem; }
     .score-dot   { width: 10px; height: 10px; }
 
-    /* Restore fixed card size on large screens */
     .hand-card { width: 60px; height: 88px; }
     .hand-card:hover    { transform: translateY(-10px); }
     .hand-card.selected { transform: translateY(-14px); }
@@ -843,6 +838,30 @@
 <div id="toast"></div>
 
 <script>
+// ── VIEWPORT HEIGHT FIX ─────────────────────────────────────────────────────
+// Chrome on mobile lies about dvh/vh — it doesn't account for its own browser UI.
+// We measure window.innerHeight (the actual usable pixels) and set a CSS custom
+// property --vh. The game screen uses height: calc(var(--vh) * 100) instead of
+// 100dvh, which gives us the true available height every time.
+// We also compute --hand-card-h so hand cards scale to fit any phone.
+function setVh() {
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+
+  // Hand area fixed cost: info-bar(~24px) + waiting-banner(~18px) +
+  //   label-row(~26px) + action-row(~34px) + paddings(~18px) = ~120px
+  // Remaining height for cards, clamped between 58px and 84px
+  const handAreaOverhead = 120;
+  const cardH = Math.min(84, Math.max(58, window.innerHeight - handAreaOverhead - window.innerHeight * 0.62));
+  // window.innerHeight * 0.62 ≈ space the board needs (board is ~62% of screen on mobile)
+  // This ensures cards + overhead fit in the remaining 38%, never below 58px or above 84px
+  document.documentElement.style.setProperty('--hand-card-h', `${Math.round(cardH)}px`);
+}
+setVh();
+window.addEventListener('resize', setVh);
+// Re-run after a short delay to catch Chrome's UI settling
+window.addEventListener('load', () => setTimeout(setVh, 100));
+
 // ═══════════════════════════════════════════════════
 // CARD DATA
 // ═══════════════════════════════════════════════════
@@ -1834,7 +1853,7 @@ let _bcId = 0; // unique clipPath id counter, increments each render
 // ───────────────────────────────────────────────────────────────────────────
 
 function _cornerBadge(rank, suit, W, H, col, sym) {
-  // Number cards: large bold corner index on white rect
+  // Number cards: large bold corner index
   const rkFS = rank === '10' ? W * 0.34 : W * 0.41;
   const stFS = W * 0.27;
   const rkX  = W * 0.25, rkY = H * 0.12;
@@ -1852,8 +1871,7 @@ function _cornerBadge(rank, suit, W, H, col, sym) {
 }
 
 function _faceCornerOverlay(rank, suit, W, H, col, sym) {
-  // Face cards: tiny pill floating over the portrait in each corner.
-  // Portrait fills 100% of cell — pill sits on top like a real playing card index.
+  // Face cards: tiny pill floating over the portrait — portrait 100% visible
   const rkFS = rank === '10' ? W * 0.26 : W * 0.30;
   const stFS = W * 0.21;
   const pad  = W * 0.04;
@@ -1880,8 +1898,7 @@ function buildBoardCardSVG(rank, suit, W, H) {
   const bdr = `<rect x=".5" y=".5" width="${W-1}" height="${H-1}" fill="none" stroke="${col}" stroke-width=".7" rx="${W*0.05}" opacity=".25"/>`;
 
   if (rank === 'K' || rank === 'Q' || rank === 'J') {
-    // Full portrait fills cell — centre 50% crop of 300×420 PNG at W/150 scale.
-    // Tiny floating corner pills drawn on top; portrait 100% visible.
+    // Full portrait, centre 50% crop, tiny corner pill on top
     const id    = 'bc' + (_bcId++);
     const scale = W / 150;
     const imgW  = (300 * scale).toFixed(1);
@@ -1898,7 +1915,7 @@ function buildBoardCardSVG(rank, suit, W, H) {
   ${idx}${bdr}</svg>`;
   }
 
-  // Number card: large centred pip + corner badge
+  // Number card: centred pip + large corner badge
   const idx   = _cornerBadge(rank, suit, W, H, col, sym);
   const pipFS = (W * 0.52).toFixed(1);
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
