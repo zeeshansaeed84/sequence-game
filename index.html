@@ -867,56 +867,22 @@
 // 100dvh, which gives us the true available height every time.
 // We also compute --hand-card-h so hand cards scale to fit any phone.
 function setVh() {
-  // Set --vh to actual usable height (avoids Chrome mobile browser-chrome issues)
   const h = window.innerHeight;
   document.documentElement.style.setProperty('--vh', `${h * 0.01}px`);
 
-  // Set card height to 0 first so we can measure the other hand-area elements cleanly
-  document.documentElement.style.setProperty('--hand-card-h', '0px');
+  // Hand area contains: info-bar + label-row + action-row + padding + card row
+  // Measured from screenshots on iPhone 15 Pro Max (h≈852px usable in Chrome):
+  //   info-bar ~22px, label-row ~22px, action-row ~30px, padding ~10px = 84px overhead
+  // Card height = remaining space after board (~62% of h) and overhead
+  // Clamped: min 54px (still usable), max 76px (comfortable)
+  const overhead = 84;
+  const cardH    = Math.min(76, Math.max(54, Math.round(h * 0.38 - overhead)));
+  const handH    = overhead + cardH;
 
-  // After layout settles, measure actual element heights and compute the exact fit
-  requestAnimationFrame(() => {
-    const safeBottom = parseInt(
-      getComputedStyle(document.documentElement)
-        .getPropertyValue('--sab') || '0'
-    ) || 0;
-
-    const handArea    = document.querySelector('.hand-area');
-    const infoBar     = document.querySelector('.hand-info-bar');
-    const labelRow    = document.querySelector('.hand-label-row');
-    const actionRow   = document.querySelector('.action-row');
-    const handCards   = document.querySelector('.hand-cards');
-
-    if (!handArea || !infoBar || !labelRow || !actionRow) {
-      // Fallback if DOM not ready
-      const cardH = Math.min(76, Math.max(54, Math.floor(h * 0.245)));
-      const handH = 86 + safeBottom + cardH;
-      document.documentElement.style.setProperty('--hand-card-h', `${cardH}px`);
-      document.documentElement.style.setProperty('--hand-area-h', `${handH}px`);
-      return;
-    }
-
-    // Sum of all fixed-height elements (card row excluded since it's 0px now)
-    const padding    = 4 + Math.max(4, safeBottom) + 4; // top + bottom + border
-    const infoH      = infoBar.getBoundingClientRect().height;
-    const labelH     = labelRow.getBoundingClientRect().height;
-    const actionH    = actionRow.getBoundingClientRect().height;
-    const overhead   = Math.ceil(infoH + labelH + actionH + padding + 6); // 6px gaps
-
-    // Card height: fill remaining screen after board takes its share
-    // Board needs ~62% of screen height on mobile portrait
-    const boardH     = Math.round(h * 0.62);
-    const available  = h - boardH - overhead;
-    const cardH      = Math.min(76, Math.max(54, available));
-    const handH      = overhead + cardH;
-
-    document.documentElement.style.setProperty('--hand-card-h', `${cardH}px`);
-    document.documentElement.style.setProperty('--hand-area-h', `${handH}px`);
-  });
+  document.documentElement.style.setProperty('--hand-card-h', `${cardH}px`);
+  document.documentElement.style.setProperty('--hand-area-h', `${handH}px`);
 }
 
-// Capture safe-area-inset-bottom as a px variable (env() not readable in JS directly)
-document.documentElement.style.setProperty('--sab', '0px');
 setVh();
 window.addEventListener('resize', setVh);
 window.addEventListener('load',   () => setTimeout(setVh, 200));
