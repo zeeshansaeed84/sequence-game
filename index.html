@@ -265,23 +265,20 @@
     flex-shrink: 0;
   }
 
-  /* Board container */
+  /* Board container — takes all remaining space after hand area */
   .board-container {
-    /* grow/shrink freely but never taller than the board itself needs —
-       any leftover screen space falls below the hand area, not between board and hand */
-    flex: 1 1 auto;
-    max-height: calc(100vw * 1.4 + 8px);
+    flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     padding: 2px 1px;
     -webkit-overflow-scrolling: touch;
     container-type: size;
   }
 
-  /* Board */
+  /* Board — sizes itself to fit inside whatever space the container has */
   .board {
     display: grid;
     grid-template-columns: repeat(10, 1fr);
@@ -291,8 +288,7 @@
     padding: 3px;
     border-radius: 8px;
     border: 1px solid rgba(201,168,76,0.3);
-    width: min(99vw, calc((97vh - 155px) * 0.7143));
-    width: min(99vw, calc((98dvh - 145px) * 0.7143));
+    /* Fit the smaller of full container width or full container height (5:7 ratio) */
     width: min(100cqw, calc(100cqh * 5 / 7));
     aspect-ratio: 5 / 7;
     max-width: 100%;
@@ -473,13 +469,13 @@
 
   /* playable-hint removed — player finds spots themselves */
 
-  /* Bottom hand area */
+  /* Bottom hand area — fixed intrinsic height, never shrinks */
   .hand-area {
     flex-shrink: 0;
     background: rgba(0,0,0,0.4);
     border-top: 1px solid rgba(201,168,76,0.25);
     padding: 4px 6px;
-    /* Push content above iPhone home indicator / notch on gesture-based iPhones */
+    /* Push content above iPhone home indicator */
     padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
 
@@ -487,7 +483,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
 
   .hand-label {
@@ -500,15 +496,15 @@
   /* Timer lives next to YOUR HAND label */
   .turn-timer {
     flex-shrink: 0;
-    min-width: 28px;
-    height: 28px;
-    border-radius: 14px;
-    padding: 0 6px;
+    min-width: 26px;
+    height: 26px;
+    border-radius: 13px;
+    padding: 0 5px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: 'Cinzel', serif;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 700;
     color: var(--gold-light);
     border: 2px solid rgba(201,168,76,0.5);
@@ -536,8 +532,10 @@
 
   .hand-card {
     flex-shrink: 0;
-    width: 54px;
-    height: 76px;
+    /* Cards scale fluidly: target ~76px on tall phones, shrink on shorter ones.
+       clamp(min, preferred, max) — preferred is viewport-height based */
+    width: clamp(44px, 8.5dvh, 58px);
+    height: clamp(62px, 12dvh, 80px);
     background: white;
     border-radius: 6px;
     border: 2px solid #ddd;
@@ -594,17 +592,17 @@
   /* Action buttons */
   .action-row {
     display: flex;
-    gap: 8px;
-    margin-top: 5px;
+    gap: 6px;
+    margin-top: 4px;
   }
 
   .btn-action {
     flex: 1;
-    padding: 7px;
+    padding: 6px;
     border: none;
     border-radius: 6px;
     font-family: 'Cinzel', serif;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 600;
     letter-spacing: 0.03em;
     cursor: pointer;
@@ -716,8 +714,9 @@
   @media (min-width: 1024px) {
     .game-main { flex-direction: row; }
 
-    .board-container { flex: 1; padding: 8px; max-height: none; }
+    .board-container { flex: 1; padding: 8px; }
 
+    /* Hand becomes a right sidebar */
     .hand-area {
       width: 210px;
       flex-shrink: 0;
@@ -734,6 +733,7 @@
     .score-badge { font-size: 0.82rem; }
     .score-dot   { width: 10px; height: 10px; }
 
+    /* Restore fixed card size on large screens */
     .hand-card { width: 60px; height: 88px; }
     .hand-card:hover    { transform: translateY(-10px); }
     .hand-card.selected { transform: translateY(-14px); }
@@ -1834,7 +1834,7 @@ let _bcId = 0; // unique clipPath id counter, increments each render
 // ───────────────────────────────────────────────────────────────────────────
 
 function _cornerBadge(rank, suit, W, H, col, sym) {
-  // Number cards: large readable index, white rect fills enough of top corner
+  // Number cards: large bold corner index on white rect
   const rkFS = rank === '10' ? W * 0.34 : W * 0.41;
   const stFS = W * 0.27;
   const rkX  = W * 0.25, rkY = H * 0.12;
@@ -1852,28 +1852,24 @@ function _cornerBadge(rank, suit, W, H, col, sym) {
 }
 
 function _faceCornerOverlay(rank, suit, W, H, col, sym) {
-  // Face cards: tiny pill floating in the top-left corner, drawn ON TOP of the portrait.
-  // Real playing cards work exactly this way — tiny index over the face image.
-  // Font is smaller than number cards (portrait identifies the face; index just confirms it).
+  // Face cards: tiny pill floating over the portrait in each corner.
+  // Portrait fills 100% of cell — pill sits on top like a real playing card index.
   const rkFS = rank === '10' ? W * 0.26 : W * 0.30;
   const stFS = W * 0.21;
-  const pad  = W * 0.04;                           // small inset from card edge
-  const rkX  = pad + W * 0.14;                     // x-centre of pill
-  const rkY  = pad + rkFS * 0.6;
+  const pad  = W * 0.04;
+  const rkX  = pad + W * 0.14;
+  const rkY  = pad + rkFS * 0.60;
   const stY  = rkY + rkFS * 0.55 + stFS * 0.55;
-  const bW   = W * 0.38;                           // pill width: 38% of card
-  const bH   = stY + stFS * 0.65;                  // tight to text bottom
+  const bW   = W * 0.38;
+  const bH   = stY + stFS * 0.65;
   const rx   = (W * 0.05).toFixed(1);
-  // Top-left pill
   const tl = `
     <rect x="${pad.toFixed(1)}" y="${pad.toFixed(1)}" width="${bW.toFixed(1)}" height="${bH.toFixed(1)}" fill="white" opacity="0.88" rx="${rx}"/>
     <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
           font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
     <text x="${rkX.toFixed(1)}" y="${stY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
           font-family="Arial,sans-serif" font-size="${stFS.toFixed(1)}" fill="${col}">${sym}</text>`;
-  // Bottom-right pill (180° rotated mirror)
-  const br = `<g transform="rotate(180,${W/2},${H/2})">${tl}</g>`;
-  return tl + br;
+  return tl + `<g transform="rotate(180,${W/2},${H/2})">${tl}</g>`;
 }
 
 function buildBoardCardSVG(rank, suit, W, H) {
@@ -1884,27 +1880,25 @@ function buildBoardCardSVG(rank, suit, W, H) {
   const bdr = `<rect x=".5" y=".5" width="${W-1}" height="${H-1}" fill="none" stroke="${col}" stroke-width=".7" rx="${W*0.05}" opacity=".25"/>`;
 
   if (rank === 'K' || rank === 'Q' || rank === 'J') {
-    // Portrait fills the FULL cell — no vertical offset, no area reserved.
-    // Centre 50% crop of 300×420 PNG, scaled so the crop width = cell width exactly.
-    // Tiny floating corner pills sit on top — portrait visible behind them.
+    // Full portrait fills cell — centre 50% crop of 300×420 PNG at W/150 scale.
+    // Tiny floating corner pills drawn on top; portrait 100% visible.
     const id    = 'bc' + (_bcId++);
     const scale = W / 150;
     const imgW  = (300 * scale).toFixed(1);
     const imgH  = (420 * scale).toFixed(1);
     const offX  = (-75 * scale).toFixed(1);
-    const offY  = '0';
     const src   = cardImgSrc(rank, suit);
     const idx   = _faceCornerOverlay(rank, suit, W, H, col, sym);
     return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
   <defs><clipPath id="${id}"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath></defs>
   ${bg}
   <g clip-path="url(#${id})">
-    <image href="${src}" x="${offX}" y="${offY}" width="${imgW}" height="${imgH}"/>
+    <image href="${src}" x="${offX}" y="0" width="${imgW}" height="${imgH}"/>
   </g>
   ${idx}${bdr}</svg>`;
   }
 
-  // Number card (A, 2–10): full-size index, centred pip
+  // Number card: large centred pip + corner badge
   const idx   = _cornerBadge(rank, suit, W, H, col, sym);
   const pipFS = (W * 0.52).toFixed(1);
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
