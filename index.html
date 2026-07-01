@@ -1883,8 +1883,9 @@ function _cornerBadge(rank, suit, W, H, col, sym) {
 
 function _faceCornerOverlay(rank, suit, W, H, col, sym) {
   // Face cards: tiny pill floating over the portrait — portrait 100% visible
+  // Top-left: full size (readable rank + suit)
   const rkFS = rank === '10' ? W * 0.26 : W * 0.30;
-  const stFS = W * 0.21;
+  const stFS = W * 0.27;
   const pad  = W * 0.04;
   const rkX  = pad + W * 0.14;
   const rkY  = pad + rkFS * 0.60;
@@ -1898,7 +1899,23 @@ function _faceCornerOverlay(rank, suit, W, H, col, sym) {
           font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
     <text x="${rkX.toFixed(1)}" y="${stY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
           font-family="Arial,sans-serif" font-size="${stFS.toFixed(1)}" fill="${col}">${sym}</text>`;
-  return tl + `<g transform="rotate(180,${W/2},${H/2})">${tl}</g>`;
+
+  // Bottom-right: smaller pill so it covers less of the portrait
+  const rkFS2 = rank === '10' ? W * 0.18 : W * 0.20;
+  const stFS2 = W * 0.17;
+  const rkX2  = pad + W * 0.10;
+  const rkY2  = pad + rkFS2 * 0.60;
+  const stY2  = rkY2 + rkFS2 * 0.55 + stFS2 * 0.55;
+  const bW2   = W * 0.28;
+  const bH2   = stY2 + stFS2 * 0.65;
+  const br_inner = `
+    <rect x="${pad.toFixed(1)}" y="${pad.toFixed(1)}" width="${bW2.toFixed(1)}" height="${bH2.toFixed(1)}" fill="white" opacity="0.88" rx="${rx}"/>
+    <text x="${rkX2.toFixed(1)}" y="${rkY2.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS2.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
+    <text x="${rkX2.toFixed(1)}" y="${stY2.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="Arial,sans-serif" font-size="${stFS2.toFixed(1)}" fill="${col}">${sym}</text>`;
+
+  return tl + `<g transform="rotate(180,${W/2},${H/2})">${br_inner}</g>`;
 }
 
 function buildBoardCardSVG(rank, suit, W, H) {
