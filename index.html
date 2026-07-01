@@ -1863,61 +1863,6 @@ let _bcId = 0; // unique clipPath id counter, increments each render
 // Both types share the same corner-index rendering.
 // ───────────────────────────────────────────────────────────────────────────
 
-function _cornerBadge(rank, suit, W, H, col, sym) {
-  // Number cards: large bold corner index
-  const rkFS = rank === '10' ? W * 0.34 : W * 0.41;
-  const stFS = W * 0.27;
-  const rkX  = W * 0.25, rkY = H * 0.12;
-  const stY  = rkY + rkFS * 0.65 + stFS * 0.55;
-  const bW   = W * 0.56;
-  const bH   = H * 0.40;
-  const rx   = (W * 0.04).toFixed(1);
-  const block = `
-    <rect x="0" y="0" width="${bW.toFixed(1)}" height="${bH.toFixed(1)}" fill="white" rx="${rx}"/>
-    <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
-    <text x="${rkX.toFixed(1)}" y="${stY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          font-family="Arial,sans-serif" font-size="${stFS.toFixed(1)}" fill="${col}">${sym}</text>`;
-  return block + `<g transform="rotate(180,${W/2},${H/2})">${block}</g>`;
-}
-
-function _faceCornerOverlay(rank, suit, W, H, col, sym) {
-  // Face cards: tiny pill floating over the portrait — portrait 100% visible
-  // Top-left: full size (readable rank + suit)
-  const rkFS = rank === '10' ? W * 0.26 : W * 0.30;
-  const stFS = W * 0.27;
-  const pad  = W * 0.04;
-  const rkX  = pad + W * 0.14;
-  const rkY  = pad + rkFS * 0.60;
-  const stY  = rkY + rkFS * 0.55 + stFS * 0.55;
-  const bW   = W * 0.38;
-  const bH   = stY + stFS * 0.65;
-  const rx   = (W * 0.05).toFixed(1);
-  const tl = `
-    <rect x="${pad.toFixed(1)}" y="${pad.toFixed(1)}" width="${bW.toFixed(1)}" height="${bH.toFixed(1)}" fill="white" opacity="0.88" rx="${rx}"/>
-    <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
-    <text x="${rkX.toFixed(1)}" y="${stY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          font-family="Arial,sans-serif" font-size="${stFS.toFixed(1)}" fill="${col}">${sym}</text>`;
-
-  // Bottom-right: smaller pill so it covers less of the portrait
-  const rkFS2 = rank === '10' ? W * 0.18 : W * 0.20;
-  const stFS2 = W * 0.17;
-  const rkX2  = pad + W * 0.10;
-  const rkY2  = pad + rkFS2 * 0.60;
-  const stY2  = rkY2 + rkFS2 * 0.55 + stFS2 * 0.55;
-  const bW2   = W * 0.28;
-  const bH2   = stY2 + stFS2 * 0.65;
-  const br_inner = `
-    <rect x="${pad.toFixed(1)}" y="${pad.toFixed(1)}" width="${bW2.toFixed(1)}" height="${bH2.toFixed(1)}" fill="white" opacity="0.88" rx="${rx}"/>
-    <text x="${rkX2.toFixed(1)}" y="${rkY2.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS2.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
-    <text x="${rkX2.toFixed(1)}" y="${stY2.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
-          font-family="Arial,sans-serif" font-size="${stFS2.toFixed(1)}" fill="${col}">${sym}</text>`;
-
-  return tl + `<g transform="rotate(180,${W/2},${H/2})">${br_inner}</g>`;
-}
-
 function buildBoardCardSVG(rank, suit, W, H) {
   const isRed = suit === 'hearts' || suit === 'diamonds';
   const col = isRed ? '#c0392b' : '#0d0d0d';
@@ -1926,31 +1871,51 @@ function buildBoardCardSVG(rank, suit, W, H) {
   const bdr = `<rect x=".5" y=".5" width="${W-1}" height="${H-1}" fill="none" stroke="${col}" stroke-width=".7" rx="${W*0.05}" opacity=".25"/>`;
 
   if (rank === 'K' || rank === 'Q' || rank === 'J') {
-    // Full portrait, centre 50% crop, tiny corner pill on top
+    // Face card: portrait slightly reduced + rank top-left + suit top-right
     const id    = 'bc' + (_bcId++);
-    const scale = W / 150;
+    // Scale portrait smaller so top labels sit above it cleanly
+    const scale = W / 190;
     const imgW  = (300 * scale).toFixed(1);
     const imgH  = (420 * scale).toFixed(1);
     const offX  = (-75 * scale).toFixed(1);
+    const offY  = (H * 0.35).toFixed(1); // push portrait down for larger header labels
     const src   = cardImgSrc(rank, suit);
-    const idx   = _faceCornerOverlay(rank, suit, W, H, col, sym);
+
+    // Rank top-left, suit top-right — larger now that portrait gives them more room
+    const rkFS  = rank === '10' ? W * 0.40 : W * 0.50;
+    const stFS  = W * 0.62;
+    const topY  = H * 0.18; // vertical centre for both labels
+    const rkX   = W * 0.26; // left side
+    const stX   = W * 0.74; // right side
+
+    const labels = `
+    <text x="${rkX.toFixed(1)}" y="${topY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
+    <text x="${stX.toFixed(1)}" y="${topY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="Arial,sans-serif" font-size="${stFS.toFixed(1)}" fill="${col}">${sym}</text>`;
+
     return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-  <defs><clipPath id="${id}"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath></defs>
+  <defs><clipPath id="${id}"><rect x="0" y="${offY}" width="${W}" height="${(H - parseFloat(offY)).toFixed(1)}"/></clipPath></defs>
   ${bg}
   <g clip-path="url(#${id})">
-    <image href="${src}" x="${offX}" y="0" width="${imgW}" height="${imgH}"/>
+    <image href="${src}" x="${offX}" y="${offY}" width="${imgW}" height="${imgH}"/>
   </g>
-  ${idx}${bdr}</svg>`;
+  ${labels}${bdr}</svg>`;
   }
 
-  // Number card: centred pip + large corner badge
-  const idx   = _cornerBadge(rank, suit, W, H, col, sym);
-  const pipFS = (W * 0.52).toFixed(1);
+  // Number card: rank top-left + one big pip. No small suit label.
+  const rkFS  = rank === '10' ? W * 0.54 : W * 0.62;
+  const rkX   = W * 0.26;
+  const rkY   = H * 0.24;
+  const pipFS = (W * 0.82).toFixed(1);
+
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
   ${bg}
-  <text x="${W/2}" y="${(H*0.54).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+  <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+        font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
+  <text x="${(W*0.62).toFixed(1)}" y="${(H*0.65).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
         font-family="Arial,sans-serif" font-size="${pipFS}" fill="${col}">${sym}</text>
-  ${idx}${bdr}</svg>`;
+  ${bdr}</svg>`;
 }
 
 function buildCellCardHTML(rank, suit) {
@@ -1997,7 +1962,7 @@ function makeHandCardHTML(card) {
     : isOneEyedJack(card)
       ? '<div class="jack-badge anti">REMOVE</div>'
       : '';
-  return `<div class="hc-svg"><img src="${cardImgSrc(card.rank, card.suit)}" draggable="false" alt="${card.rank} of ${card.suit}"></div>${jackBadge}`;
+  return `<div class="hc-svg">${buildBoardCardSVG(card.rank, card.suit, 54, 76)}</div>${jackBadge}`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -2227,9 +2192,23 @@ function isDeadCard(card, idx) {
 
 function selectCard(idx) {
   if (players[GS.currentTurn] && players[GS.currentTurn].id !== myId) return;
-  selectedCardIdx = (selectedCardIdx === idx) ? -1 : idx;
+  const wasSelected = selectedCardIdx === idx;
+  selectedCardIdx = wasSelected ? -1 : idx;
+
+  // Toggle selected class directly on existing elements — avoids destroying and
+  // recreating the DOM which would prevent the CSS transition from animating back down
+  const handEl = document.getElementById('hand-cards');
+  Array.from(handEl.children).forEach((el, i) => {
+    el.classList.toggle('selected', i === selectedCardIdx);
+  });
+
+  // Still need to update board highlights and button states
   renderBoard();
-  renderHand();
+  const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
+  const myHand = GS.hands[myId] || [];
+  const selCard = selectedCardIdx >= 0 ? myHand[selectedCardIdx] : null;
+  const isDead = selCard && isDeadCard(selCard, selectedCardIdx);
+  document.getElementById('dead-btn').disabled = !(myTurn && isDead);
 }
 
 function onCellClick(row, col) {
