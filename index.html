@@ -343,8 +343,8 @@
   }
 
   .chip {
-    width: 72%;
-    height: 72%;
+    width: 58%;
+    height: 58%;
     border-radius: 50%;
     position: relative;
     border: 2px solid rgba(255,255,255,0.4);
@@ -442,7 +442,7 @@
   /* Expanding red ring that radiates outward on chip removal */
   .jack-remove-ring {
     position: absolute;
-    width: 72%; height: 72%;
+    width: 58%; height: 58%;
     top: 50%; left: 50%;
     border-radius: 50%;
     border: 3px solid #ff1744;
@@ -459,7 +459,7 @@
   /* Second delayed ring for a double-ripple effect */
   .jack-remove-ring2 {
     position: absolute;
-    width: 72%; height: 72%;
+    width: 58%; height: 58%;
     top: 50%; left: 50%;
     border-radius: 50%;
     border: 2px solid rgba(255,100,100,0.7);
@@ -537,7 +537,8 @@
     display: flex;
     gap: 5px;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible;
+    padding-top: 14px;  /* room for cards to lift up without clipping */
     padding-bottom: 2px;
     -webkit-overflow-scrolling: touch;
   }
@@ -559,7 +560,7 @@
     flex-direction: column;
   }
 
-  .hand-card:hover { transform: translateY(-8px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+  .hand-card:hover { transform: translateY(-10px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
   .hand-card.selected {
     border-color: var(--gold);
     transform: translateY(-12px);
@@ -1361,6 +1362,9 @@ async function joinGame() {
   fbOn(roomRef.child('gameState'), 'value', snap => {
     if (!snap.val()) return;
     GS = JSON.parse(snap.val());
+    // Guard: if this is the initial game state (moveSeq=1, no moves yet),
+    // ensure lastRemoved is null so stale Firebase data can't trigger a false removal animation
+    if (GS.moveSeq === 1) GS.lastRemoved = null;
     if (!fbGameStarted) {
       fbGameStarted = true;
       showGameScreen();
@@ -1502,7 +1506,7 @@ function initGameState() {
     seqCells: [],                          // cells that are part of completed sequences
     lastMove: null,                        // {row,col} of most recently placed chip
     lastRemoved: null,                     // {row,col,team} of most recently removed chip
-    moveSeq: 0,                            // increments on every applied move, drives one-shot animations
+    moveSeq: 1,                            // starts at 1 (not 0) so !!moveSeq is always true
     newSeqCells: null,                     // cells of the sequence just completed this move (for blink)
     newSeqMoveSeq: -1,                     // moveSeq when newSeqCells was set
     turnDeadline: Date.now() + TURN_SECONDS * 1000, // host-enforced turn timer
@@ -1903,17 +1907,20 @@ function buildBoardCardSVG(rank, suit, W, H) {
   ${labels}${bdr}</svg>`;
   }
 
-  // Number card: rank top-left + one big pip. No small suit label.
-  const rkFS  = rank === '10' ? W * 0.54 : W * 0.62;
-  const rkX   = W * 0.26;
-  const rkY   = H * 0.24;
-  const pipFS = (W * 0.82).toFixed(1);
+  // Number card: rank top-left + small suit top-right + big pip (moved slightly lower)
+  const rkFS   = rank === '10' ? W * 0.54 : W * 0.62;
+  const rkX    = W * 0.26;
+  const rkY    = H * 0.24;
+  const smFS   = (W * 0.42).toFixed(1); // small suit top-right
+  const pipFS  = (W * 0.82).toFixed(1); // big pip
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
   ${bg}
   <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
         font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
-  <text x="${(W*0.62).toFixed(1)}" y="${(H*0.65).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+  <text x="${(W*0.78).toFixed(1)}" y="${(H*0.14).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+        font-family="Arial,sans-serif" font-size="${smFS}" fill="${col}">${sym}</text>
+  <text x="${(W*0.62).toFixed(1)}" y="${(H*0.72).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
         font-family="Arial,sans-serif" font-size="${pipFS}" fill="${col}">${sym}</text>
   ${bdr}</svg>`;
 }
@@ -1978,8 +1985,8 @@ function showGameScreen() {
   setVh(); // recalculate with fresh dimensions now that game screen is visible
   // Reset animation trackers so stale values from a previous game
   // don't trigger false removal animations on the first move
-  lastAnimatedSeq = -1;
-  lastBlinkSeq    = -1;
+  lastAnimatedSeq = 0;  // moveSeq now starts at 1, so first render correctly animates
+  lastBlinkSeq    = 0;
   selectedCardIdx = -1;
   jackMode = null;
   renderGame();
@@ -2065,7 +2072,7 @@ function renderBoard() {
   const selCard = selectedCardIdx >= 0 ? GS.hands[myId][selectedCardIdx] : null;
 
   // Only animate once per actual move, not on cosmetic re-renders (e.g. selecting a card)
-  const animateThisRender = !!GS.moveSeq && GS.moveSeq !== lastAnimatedSeq;
+  const animateThisRender = GS.moveSeq !== lastAnimatedSeq;
   if (animateThisRender) lastAnimatedSeq = GS.moveSeq;
 
   for (let r = 0; r < 10; r++) {
@@ -2109,7 +2116,7 @@ function renderBoard() {
 
   // Removal animation: chip already gone from state — show a spinning rocket ghost
   // plus two expanding red rings so everyone clearly sees where the one-eyed jack struck.
-  if (animateThisRender && GS.lastRemoved && GS.lastRemoved.seq === GS.moveSeq) {
+  if (animateThisRender && GS.lastRemoved && GS.lastRemoved.jackRemove && GS.lastRemoved.seq === GS.moveSeq) {
     const {row, col, team} = GS.lastRemoved;
     const cellEl = boardEl.children[row * 10 + col];
     if (cellEl && GS.chips[row][col] === null) {
@@ -2254,7 +2261,7 @@ function flyChipBetween(fromX, fromY, row, col, team, callback) {
 
   const dst = dstEl.getBoundingClientRect();
   const color = TEAM_COLORS[team];
-  const finalSize = dst.width * 0.72;
+  const finalSize = dst.width * 0.58;
   const initSize  = finalSize * 0.85;
 
   const sx = fromX, sy = fromY;
