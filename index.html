@@ -39,11 +39,22 @@
     overflow-x: hidden;
   }
 
+  /* When game is active, lock body scroll so the page can't scroll at all */
+  body.game-active {
+    overflow: hidden;
+    height: 100%;
+    position: fixed;
+    width: 100%;
+  }
+
   h1, h2, h3, .title { font-family: 'Cinzel', serif; }
 
   /* ── SCREENS ── */
   .screen { display: none; min-height: 100vh; }
   .screen.active { display: flex; flex-direction: column; }
+
+  /* Game screen never participates in page scroll */
+  #game-screen.active { min-height: unset; }
 
   /* ── LOBBY ── */
   #lobby-screen {
@@ -872,7 +883,8 @@ function setVh() {
       .getPropertyValue('--sab') || '0'
   ) || 0;
   const overhead   = 22 + 16 + 24 + 32 + 12 + safeBottom; // ~106–140px
-  const cardH      = Math.min(76, Math.max(58, Math.floor((h * 0.27) - overhead * 0.3)));
+  // Use 25% of screen height for cards, capped at 68px max (was 76px — slightly tighter)
+  const cardH      = Math.min(68, Math.max(54, Math.floor((h * 0.25) - overhead * 0.2)));
   const handH      = overhead + cardH;
 
   document.documentElement.style.setProperty('--hand-card-h', `${cardH}px`);
@@ -1002,6 +1014,8 @@ const TEAM_DOT    = ['dot-blue','dot-green','dot-red'];
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  // Lock body scroll during game to prevent page-level scrolling
+  document.body.classList.toggle('game-active', id === 'game-screen');
 }
 
 function toast(msg, dur=2500) {
