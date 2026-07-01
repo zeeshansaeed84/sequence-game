@@ -258,11 +258,14 @@
 
   /* Board container */
   .board-container {
-    flex: 1;
+    /* grow/shrink freely but never taller than the board itself needs —
+       any leftover screen space falls below the hand area, not between board and hand */
+    flex: 1 1 auto;
+    max-height: calc(100vw * 1.4 + 8px);
     min-height: 0;
-    overflow: auto;
+    overflow: hidden;
     display: flex;
-    align-items: flex-start;   /* board pins to top; gap sits below board above hand */
+    align-items: flex-start;
     justify-content: center;
     padding: 2px 1px;
     -webkit-overflow-scrolling: touch;
@@ -1841,11 +1844,18 @@ let _bcId = 0; // unique clipPath id counter, increments each render
 // ───────────────────────────────────────────────────────────────────────────
 
 function _cornerBadge(rank, suit, W, H, col, sym) {
-  const rkFS = rank === '10' ? W * 0.28 : W * 0.33;
-  const stFS = W * 0.22;
-  const rkX = W * 0.23, rkY = H * 0.11;
-  const stY = rkY + rkFS * 0.6 + stFS * 0.55;
-  const bW = W * 0.50, bH = H * 0.32;
+  // Larger text — single-pip design leaves room for bigger corner indices
+  const rkFS = rank === '10' ? W * 0.34 : W * 0.41;
+  const stFS = W * 0.27;
+  const rkX = W * 0.25, rkY = H * 0.12;
+  const stY = rkY + rkFS * 0.65 + stFS * 0.55;
+  const bW = W * 0.56;
+  // Face cards need a taller badge: suit symbol falls at stY≈23px but the portrait
+  // image starts below the card's top, so without extra height the suit text renders
+  // directly on coloured artwork — impossible to read.  Number cards are fine at 0.40
+  // because their background behind stY is always white card stock (no portrait image).
+  const isFaceRank = rank === 'K' || rank === 'Q' || rank === 'J';
+  const bH = isFaceRank ? H * 0.55 : H * 0.40;
   const rx = (W * 0.04).toFixed(1);
   const block = `
     <rect x="0" y="0" width="${bW.toFixed(1)}" height="${bH.toFixed(1)}" fill="white" rx="${rx}"/>
@@ -1872,16 +1882,19 @@ function buildBoardCardSVG(rank, suit, W, H) {
     //   → 150:252 = 5:7 exactly — fills the 5:7 cell perfectly
     // Scale factor: W / 150  (so crop width fills the cell exactly)
     const id    = 'bc' + (_bcId++);
-    const scale = W / 150;
+    // Slightly smaller crop (W/170 vs W/150) so the portrait doesn't crowd the
+    // larger corner badges — pushes it down a touch to leave natural white at top.
+    const scale = W / 170;
     const imgW  = (300 * scale).toFixed(1);
     const imgH  = (420 * scale).toFixed(1);
     const offX  = (-75 * scale).toFixed(1);
+    const offY  = (H * 0.06).toFixed(1);  // small inset — white card bg shows above portrait
     const src   = cardImgSrc(rank, suit);
     return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
   <defs><clipPath id="${id}"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath></defs>
   ${bg}
   <g clip-path="url(#${id})">
-    <image href="${src}" x="${offX}" y="0" width="${imgW}" height="${imgH}"/>
+    <image href="${src}" x="${offX}" y="${offY}" width="${imgW}" height="${imgH}"/>
   </g>
   ${idx}${bdr}</svg>`;
   }
