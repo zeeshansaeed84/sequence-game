@@ -2011,6 +2011,10 @@ let lastBlinkSeq = -1;    // tracks which GS.moveSeq has already triggered a seq
 function showGameScreen() {
   showScreen('game-screen');
   setVh(); // recalculate with fresh dimensions now that game screen is visible
+  // Reset animation trackers so stale values from a previous game
+  // don't trigger false removal animations on the first move
+  lastAnimatedSeq = -1;
+  lastBlinkSeq    = -1;
   selectedCardIdx = -1;
   jackMode = null;
   renderGame();
