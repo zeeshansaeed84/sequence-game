@@ -210,13 +210,14 @@
     overflow: hidden;
   }
 
-  /* game-main wraps board + hand; column on mobile, row on laptop */
+  /* game-main stacks board-container + hand-area; both have explicit heights */
   .game-main {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
     min-width: 0;
+    overflow: hidden;
   }
 
   /* Info bar inside hand area — replaces top-bar */
@@ -266,9 +267,10 @@
     flex-shrink: 0;
   }
 
-  /* Board container — takes all remaining height after hand area */
+  /* Board container — gets exactly the height remaining after hand area */
   .board-container {
-    flex: 1 1 0;
+    flex: 0 0 auto;
+    height: calc(var(--vh, 1vh) * 100 - var(--hand-area-h, 180px));
     min-height: 0;
     overflow: hidden;
     display: flex;
@@ -468,13 +470,18 @@
 
   /* playable-hint removed — player finds spots themselves */
 
-  /* Bottom hand area — fixed intrinsic size, never shrinks */
+  /* Bottom hand area — explicit height set by JS, never overflows */
   .hand-area {
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    height: var(--hand-area-h, 180px);
+    overflow: hidden;
     background: rgba(0,0,0,0.4);
     border-top: 1px solid rgba(201,168,76,0.25);
     padding: 4px 6px;
     padding-bottom: max(4px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
   }
 
   .hand-label-row {
@@ -709,17 +716,21 @@
      Mobile (< 1024px) is completely unchanged.
   ───────────────────────────────────────────────────────────────── */
   @media (min-width: 1024px) {
-    .game-main { flex-direction: row; }
+    .game-main { flex-direction: row; overflow: visible; }
 
-    .board-container { flex: 1; padding: 8px; }
+    /* On desktop, revert to flex-based sizing — explicit heights not needed */
+    .board-container {
+      flex: 1 1 0;
+      height: auto;
+      padding: 8px;
+    }
 
     .hand-area {
       width: 210px;
-      flex-shrink: 0;
+      height: auto;
+      flex: 0 0 210px;
       border-top: none;
       border-left: 1px solid rgba(201,168,76,0.25);
-      display: flex;
-      flex-direction: column;
       padding: 10px 12px 14px;
       overflow-y: auto;
     }
@@ -845,22 +856,34 @@
 // 100dvh, which gives us the true available height every time.
 // We also compute --hand-card-h so hand cards scale to fit any phone.
 function setVh() {
-  const vh = window.innerHeight * 0.01;
-  document.documentElement.style.setProperty('--vh', `${vh}px`);
+  // Set --vh to actual usable height (avoids Chrome mobile browser-chrome issues)
+  const h = window.innerHeight;
+  document.documentElement.style.setProperty('--vh', `${h * 0.01}px`);
 
-  // Hand area fixed cost: info-bar(~24px) + waiting-banner(~18px) +
-  //   label-row(~26px) + action-row(~34px) + paddings(~18px) = ~120px
-  // Remaining height for cards, clamped between 58px and 84px
-  const handAreaOverhead = 120;
-  const cardH = Math.min(84, Math.max(58, window.innerHeight - handAreaOverhead - window.innerHeight * 0.62));
-  // window.innerHeight * 0.62 ≈ space the board needs (board is ~62% of screen on mobile)
-  // This ensures cards + overhead fit in the remaining 38%, never below 58px or above 84px
-  document.documentElement.style.setProperty('--hand-card-h', `${Math.round(cardH)}px`);
+  // ── Hand area height budget ──────────────────────────────────────────────
+  // Fixed chrome elements inside hand-area (measured conservatively):
+  //   info-bar: ~22px  |  waiting-banner: ~16px  |  label-row: ~24px
+  //   action-row: ~32px  |  top+bottom padding: ~12px  |  safe-area: ~0-34px
+  // Card height: we pick a value that fits the remaining budget.
+  // Total hand area = overhead + cardHeight.
+  // We target cardHeight between 58px (minimum useful) and 76px (comfortable).
+  const safeBottom = parseInt(
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--sab') || '0'
+  ) || 0;
+  const overhead   = 22 + 16 + 24 + 32 + 12 + safeBottom; // ~106–140px
+  const cardH      = Math.min(76, Math.max(58, Math.floor((h * 0.27) - overhead * 0.3)));
+  const handH      = overhead + cardH;
+
+  document.documentElement.style.setProperty('--hand-card-h', `${cardH}px`);
+  document.documentElement.style.setProperty('--hand-area-h', `${handH}px`);
 }
+
+// Capture safe-area-inset-bottom as a px variable (env() not readable in JS directly)
+document.documentElement.style.setProperty('--sab', '0px');
 setVh();
 window.addEventListener('resize', setVh);
-// Re-run after a short delay to catch Chrome's UI settling
-window.addEventListener('load', () => setTimeout(setVh, 100));
+window.addEventListener('load',   () => setTimeout(setVh, 200));
 
 // ═══════════════════════════════════════════════════
 // CARD DATA
