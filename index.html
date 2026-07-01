@@ -698,8 +698,8 @@
     font-style: italic;
     color: rgba(245,240,232,0.5);
     font-size: 0.78rem;
-    padding: 1px;
-    min-height: 1.1em;
+    padding: 0;
+    min-height: 0;
     visibility: hidden;
     transition: opacity 0.2s;
   }
@@ -882,9 +882,9 @@ function setVh() {
     getComputedStyle(document.documentElement)
       .getPropertyValue('--sab') || '0'
   ) || 0;
-  const overhead   = 22 + 16 + 24 + 32 + 12 + safeBottom; // ~106–140px
-  // Use 25% of screen height for cards, capped at 68px max (was 76px — slightly tighter)
-  const cardH      = Math.min(68, Math.max(54, Math.floor((h * 0.25) - overhead * 0.2)));
+  const overhead   = 22 + 24 + 32 + 12 + safeBottom; // info-bar + label-row + action-row + padding (~90px)
+  // waiting-banner collapses to 0 when hidden, so excluded from overhead
+  const cardH      = Math.min(76, Math.max(58, Math.floor((h * 0.27) - overhead * 0.2)));
   const handH      = overhead + cardH;
 
   document.documentElement.style.setProperty('--hand-card-h', `${cardH}px`);
