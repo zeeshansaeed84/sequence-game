@@ -209,12 +209,21 @@
     overflow: hidden;
   }
 
+  /* game-main wraps board + hand; column on mobile, row on laptop */
+  .game-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+  }
+
   /* Top bar */
   .top-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 10px;
+    padding: 4px 8px;
     background: rgba(0,0,0,0.35);
     border-bottom: 1px solid rgba(201,168,76,0.25);
     flex-shrink: 0;
@@ -255,7 +264,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 4px 2px;
+    padding: 2px 1px;
     -webkit-overflow-scrolling: touch;
     container-type: size;
   }
@@ -267,13 +276,11 @@
     grid-auto-rows: 1fr;
     gap: 2px;
     background: rgba(0,0,0,0.3);
-    padding: 4px;
+    padding: 3px;
     border-radius: 8px;
     border: 1px solid rgba(201,168,76,0.3);
-    /* Fallback for browsers without container-query units: an estimate based on viewport */
-    width: min(99vw, calc((97vh - 175px) * 0.7143));
-    width: min(99vw, calc((98dvh - 165px) * 0.7143));
-    /* Precise fit: sized directly against the actual board-container box, no guessing */
+    width: min(99vw, calc((97vh - 155px) * 0.7143));
+    width: min(99vw, calc((98dvh - 145px) * 0.7143));
     width: min(100cqw, calc(100cqh * 5 / 7));
     aspect-ratio: 5 / 7;
     max-width: 100%;
@@ -305,8 +312,8 @@
   .cell.corner { cursor: default; border: 1px solid rgba(201,168,76,0.5) !important; }
 
   /* Cell SVG fills the cell exactly */
-  .cell-inner { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 2px; padding: 1%; box-sizing: border-box; }
-  .cell-inner svg, .cell-inner img { width: 100%; height: 100%; display: block; object-fit: contain; border-radius: 1px; -webkit-user-drag: none; }
+  .cell-inner { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 2px; box-sizing: border-box; }
+  .cell-inner svg, .cell-inner img { width: 100%; height: 100%; display: block; object-fit: fill; border-radius: 1px; -webkit-user-drag: none; }
 
   /* Chip overlay */
   .chip-overlay {
@@ -459,35 +466,35 @@
     flex-shrink: 0;
     background: rgba(0,0,0,0.4);
     border-top: 1px solid rgba(201,168,76,0.25);
-    padding: 6px 8px;
+    padding: 4px 6px;
   }
 
   .hand-label-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .hand-label {
     font-family: 'Cinzel', serif;
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     color: rgba(201,168,76,0.7);
     letter-spacing: 0.08em;
   }
 
-  /* Timer lives next to YOUR HAND label — big and obvious for the active player */
+  /* Timer lives next to YOUR HAND label */
   .turn-timer {
     flex-shrink: 0;
-    min-width: 32px;
-    height: 32px;
-    border-radius: 16px;
-    padding: 0 8px;
+    min-width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    padding: 0 6px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: 'Cinzel', serif;
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     font-weight: 700;
     color: var(--gold-light);
     border: 2px solid rgba(201,168,76,0.5);
@@ -507,18 +514,18 @@
 
   .hand-cards {
     display: flex;
-    gap: 6px;
+    gap: 5px;
     overflow-x: auto;
-    padding-bottom: 4px;
+    padding-bottom: 2px;
     -webkit-overflow-scrolling: touch;
   }
 
   .hand-card {
     flex-shrink: 0;
-    width: 60px;
-    height: 88px;
+    width: 54px;
+    height: 76px;
     background: white;
-    border-radius: 7px;
+    border-radius: 6px;
     border: 2px solid #ddd;
     cursor: pointer;
     transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
@@ -530,10 +537,10 @@
     flex-direction: column;
   }
 
-  .hand-card:hover { transform: translateY(-10px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+  .hand-card:hover { transform: translateY(-8px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
   .hand-card.selected {
     border-color: var(--gold);
-    transform: translateY(-14px);
+    transform: translateY(-12px);
     box-shadow: 0 12px 24px rgba(201,168,76,0.6);
   }
   .hand-card.dead-card { opacity: 0.45; border-color: rgba(220,60,60,0.7); }
@@ -574,16 +581,16 @@
   .action-row {
     display: flex;
     gap: 8px;
-    margin-top: 8px;
+    margin-top: 5px;
   }
 
   .btn-action {
     flex: 1;
-    padding: 10px;
+    padding: 7px;
     border: none;
     border-radius: 6px;
     font-family: 'Cinzel', serif;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.03em;
     cursor: pointer;
@@ -663,10 +670,10 @@
     text-align: center;
     font-style: italic;
     color: rgba(245,240,232,0.5);
-    font-size: 0.85rem;
-    padding: 2px;
-    min-height: 1.3em;     /* always occupies this space — prevents layout shift */
-    visibility: hidden;    /* hidden by default, shown via JS when waiting */
+    font-size: 0.78rem;
+    padding: 1px;
+    min-height: 1.1em;
+    visibility: hidden;
     transition: opacity 0.2s;
   }
 
@@ -686,6 +693,69 @@
   }
 
   select option { color: var(--black); background: white; }
+
+  /* ── LAPTOP / DESKTOP SIDEBAR LAYOUT ──────────────────────────────
+     At ≥1024px the hand moves to a right sidebar so the board can
+     use the full screen height — cells become ~60px wide vs ~37px.
+     Mobile (< 1024px) is completely unchanged.
+  ───────────────────────────────────────────────────────────────── */
+  @media (min-width: 1024px) {
+    .game-main {
+      flex-direction: row;
+    }
+
+    /* Board fills all available height after the top bar */
+    .board-container {
+      flex: 1;
+      padding: 8px;
+    }
+
+    /* Hand becomes a right sidebar */
+    .hand-area {
+      width: 210px;
+      flex-shrink: 0;
+      border-top: none;
+      border-left: 1px solid rgba(201,168,76,0.25);
+      display: flex;
+      flex-direction: column;
+      padding: 14px 12px;
+      overflow-y: auto;
+    }
+
+    /* Restore comfortable card size on large screens */
+    .hand-card {
+      width: 60px;
+      height: 88px;
+    }
+    .hand-card:hover  { transform: translateY(-10px); }
+    .hand-card.selected { transform: translateY(-14px); }
+
+    /* Cards wrap into a 3-per-row grid in the sidebar */
+    .hand-cards {
+      flex-wrap: wrap;
+      overflow-x: visible;
+      gap: 7px;
+      padding-bottom: 0;
+      justify-content: center;
+    }
+
+    /* Give the action buttons more breathing room */
+    .action-row { margin-top: 12px; }
+    .btn-action  { padding: 10px; font-size: 0.8rem; }
+
+    /* Waiting banner gets a bit more space */
+    .waiting-banner { font-size: 0.85rem; min-height: 1.3em; }
+
+    /* Timer can be a touch bigger */
+    .turn-timer { min-width: 32px; height: 32px; font-size: 0.85rem; }
+
+    /* Larger turn + score text */
+    .turn-info   { font-size: 0.85rem; }
+    .score-badge { font-size: 0.85rem; }
+
+    /* Board self-sizes against the container (cq units handle this automatically) */
+    .board { padding: 5px; }
+  }
 </style>
 </head>
 <body>
@@ -746,20 +816,22 @@
     <button class="btn btn-secondary btn-sm" onclick="leaveGame()" style="font-size:0.7rem;padding:5px 10px">Quit</button>
   </div>
 
-  <div class="board-container">
-    <div class="board" id="board"></div>
-  </div>
-
-  <div class="hand-area">
-    <div id="waiting-banner" class="waiting-banner"></div>
-    <div class="hand-label-row">
-      <div class="hand-label">YOUR HAND</div>
-      <div class="turn-timer" id="turn-timer">60</div>
+  <div class="game-main">
+    <div class="board-container">
+      <div class="board" id="board"></div>
     </div>
-    <div class="hand-cards" id="hand-cards"></div>
-    <div class="action-row">
-      <button class="btn-action btn-play" id="play-btn" onclick="playCard()" disabled>Play Card</button>
-      <button class="btn-action btn-dead" id="dead-btn" onclick="playDeadCard()" disabled>Dead Card</button>
+
+    <div class="hand-area">
+      <div id="waiting-banner" class="waiting-banner"></div>
+      <div class="hand-label-row">
+        <div class="hand-label">YOUR HAND</div>
+        <div class="turn-timer" id="turn-timer">60</div>
+      </div>
+      <div class="hand-cards" id="hand-cards"></div>
+      <div class="action-row">
+        <button class="btn-action btn-play" id="play-btn" onclick="playCard()" disabled>Play Card</button>
+        <button class="btn-action btn-dead" id="dead-btn" onclick="playDeadCard()" disabled>Dead Card</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1723,16 +1795,108 @@ function cardImgSrc(rank, suit) {
   return CARD_IMG[rank + SUIT_LETTER[suit]];
 }
 
+// Board cell card — custom minimal SVG optimised for readability at tiny board-cell size.
+// The real PNG artwork is kept for hand cards (larger, more enjoyable to look at);
+// board cells need to be scannable at a glance, so we use clean jumbo-index typography.
+//
+// Design rationale:
+//   • Chip covers ~70% of the cell (center circle, 72% width, 36% radius)
+//   • Chip top edge is at ~24% from the top of the cell
+//   • Rank placed at H*0.13 means ~90% of the rank letter is visible ABOVE the chip
+//   • Suit symbol just below rank, also mostly above the chip
+//   • Mirrored bottom-right corner for two-way readability
+//   • Faint centered suit: gives the card visual body when empty, almost invisible under chip
+//   • Face cards (K/Q/J) get a subtle tinted background so they stand out as face cards
+
+// Board cell card — composite design: real Bicycle-style PNG artwork at 70% scale
+// (centered, white space natural around it), with large bold corner indices on top.
+//
+// Why composite rather than just showing the PNG at full size:
+//   • At full size the PNG corner indices are ~3-4px on a phone — unreadable
+//   • Scaling the PNG to 70% and adding large SVG text gives authentic artwork
+//     AND clear readability: corner rank+suit visible above the chip, pip art below
+//   • The white corner badge ensures the text pops against any artwork behind it
+//   • Hand cards still show the full PNG — large enough to appreciate there
+let _bcId = 0; // unique clipPath id counter, increments each render
+
+// ── BOARD CARD RENDERER ─────────────────────────────────────────────────────
+//
+// Two distinct designs optimised for tiny board cells (~35–60px wide):
+//
+// A · Number cards (A, 2–10) — pure SVG, no PNG
+//     Large bold rank + suit in both corners, ONE large centred suit pip.
+//     At small cell size a single pip is instantly recognisable and the
+//     corner index is the sole source of truth for rank and suit.
+//
+// B · Face cards (K, Q, J) — top-half crop of Bicycle PNG
+//     The Bicycle court figure is cropped to show just the face / crown area
+//     (x:25%–75%, y:0%–60% of the original PNG → exact 5:7 ratio).
+//     The chip covers the bottom half of the cell in-game anyway, so showing
+//     the most distinctive part of the portrait is the right call.
+//     Corner index badge overlays as on all other cards.
+//
+// Both types share the same corner-index rendering.
+// ───────────────────────────────────────────────────────────────────────────
+
+function _cornerBadge(rank, suit, W, H, col, sym) {
+  const rkFS = rank === '10' ? W * 0.28 : W * 0.33;
+  const stFS = W * 0.22;
+  const rkX = W * 0.23, rkY = H * 0.11;
+  const stY = rkY + rkFS * 0.6 + stFS * 0.55;
+  const bW = W * 0.50, bH = H * 0.32;
+  const rx = (W * 0.04).toFixed(1);
+  const block = `
+    <rect x="0" y="0" width="${bW.toFixed(1)}" height="${bH.toFixed(1)}" fill="white" rx="${rx}"/>
+    <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
+    <text x="${rkX.toFixed(1)}" y="${stY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="Arial,sans-serif" font-size="${stFS.toFixed(1)}" fill="${col}">${sym}</text>`;
+  return block + `<g transform="rotate(180,${W/2},${H/2})">${block}</g>`;
+}
+
+function buildBoardCardSVG(rank, suit, W, H) {
+  const isRed = suit === 'hearts' || suit === 'diamonds';
+  const col = isRed ? '#c0392b' : '#0d0d0d';
+  const sym = SUIT_SYM[suit];
+  const bg  = `<rect width="${W}" height="${H}" fill="#fffdf8" rx="${W*0.06}"/>`;
+  const bdr = `<rect x=".5" y=".5" width="${W-1}" height="${H-1}" fill="none" stroke="${col}" stroke-width=".7" rx="${W*0.05}" opacity=".25"/>`;
+  const idx = _cornerBadge(rank, suit, W, H, col, sym);
+
+  if (rank === 'K' || rank === 'Q' || rank === 'J') {
+    // ── Face card: top-half portrait crop of Bicycle PNG ──────────────────
+    // Crop region within original 300×420 PNG:
+    //   x: 75 to 225 (centre 50% of width = 150px)
+    //   y: 0  to 252 (top 60% of height  = 252px)
+    //   → 150:252 = 5:7 exactly — fills the 5:7 cell perfectly
+    // Scale factor: W / 150  (so crop width fills the cell exactly)
+    const id    = 'bc' + (_bcId++);
+    const scale = W / 150;
+    const imgW  = (300 * scale).toFixed(1);
+    const imgH  = (420 * scale).toFixed(1);
+    const offX  = (-75 * scale).toFixed(1);
+    const src   = cardImgSrc(rank, suit);
+    return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  <defs><clipPath id="${id}"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath></defs>
+  ${bg}
+  <g clip-path="url(#${id})">
+    <image href="${src}" x="${offX}" y="0" width="${imgW}" height="${imgH}"/>
+  </g>
+  ${idx}${bdr}</svg>`;
+  }
+
+  // ── Number card (A, 2–10): pure SVG, single centred pip ─────────────────
+  const pipFS = (W * 0.52).toFixed(1);
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  ${bg}
+  <text x="${W/2}" y="${(H*0.54).toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+        font-family="Arial,sans-serif" font-size="${pipFS}" fill="${col}">${sym}</text>
+  ${idx}${bdr}</svg>`;
+}
+
 function buildCellCardHTML(rank, suit) {
-  // For board cells — real card artwork fills the cell, full design visible
-  // (players recognize cards by their complete look, so nothing gets cropped)
   const inner = document.createElement('div');
   inner.className = 'cell-inner';
-  const img = document.createElement('img');
-  img.src = cardImgSrc(rank, suit);
-  img.alt = `${rank} of ${suit}`;
-  img.draggable = false;
-  inner.append(img);
+  inner.innerHTML = buildBoardCardSVG(rank, suit, 40, 56);
   return inner;
 }
 
