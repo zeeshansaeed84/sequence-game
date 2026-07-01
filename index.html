@@ -218,42 +218,51 @@
     min-width: 0;
   }
 
-  /* Top bar */
-  .top-bar {
+  /* Info bar inside hand area — replaces top-bar */
+  .hand-info-bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px;
-    background: rgba(0,0,0,0.35);
-    border-bottom: 1px solid rgba(201,168,76,0.25);
-    flex-shrink: 0;
-    gap: 8px;
+    gap: 6px;
+    margin-bottom: 3px;
   }
 
   .turn-info {
     font-family: 'Cinzel', serif;
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     color: var(--gold);
     text-align: center;
     flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .team-scores {
     display: flex;
-    gap: 8px;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   .score-badge {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 0.8rem;
+    gap: 3px;
+    font-size: 0.72rem;
     font-family: 'Cinzel', serif;
+    white-space: nowrap;
   }
 
   .score-dot {
-    width: 10px; height: 10px;
+    width: 9px; height: 9px;
     border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .hand-quit-btn {
+    font-size: 0.62rem !important;
+    padding: 3px 7px !important;
+    margin-bottom: 0 !important;
+    flex-shrink: 0;
   }
 
   /* Board container */
@@ -705,17 +714,10 @@
      Mobile (< 1024px) is completely unchanged.
   ───────────────────────────────────────────────────────────────── */
   @media (min-width: 1024px) {
-    .game-main {
-      flex-direction: row;
-    }
+    .game-main { flex-direction: row; }
 
-    /* Board fills all available height after the top bar */
-    .board-container {
-      flex: 1;
-      padding: 8px;
-    }
+    .board-container { flex: 1; padding: 8px; max-height: none; }
 
-    /* Hand becomes a right sidebar */
     .hand-area {
       width: 210px;
       flex-shrink: 0;
@@ -723,19 +725,19 @@
       border-left: 1px solid rgba(201,168,76,0.25);
       display: flex;
       flex-direction: column;
-      padding: 14px 12px;
+      padding: 10px 12px 14px;
       overflow-y: auto;
     }
 
-    /* Restore comfortable card size on large screens */
-    .hand-card {
-      width: 60px;
-      height: 88px;
-    }
-    .hand-card:hover  { transform: translateY(-10px); }
+    .hand-info-bar { margin-bottom: 8px; }
+    .turn-info   { font-size: 0.82rem; }
+    .score-badge { font-size: 0.82rem; }
+    .score-dot   { width: 10px; height: 10px; }
+
+    .hand-card { width: 60px; height: 88px; }
+    .hand-card:hover    { transform: translateY(-10px); }
     .hand-card.selected { transform: translateY(-14px); }
 
-    /* Cards wrap into a 3-per-row grid in the sidebar */
     .hand-cards {
       flex-wrap: wrap;
       overflow-x: visible;
@@ -744,21 +746,10 @@
       justify-content: center;
     }
 
-    /* Give the action buttons more breathing room */
     .action-row { margin-top: 12px; }
     .btn-action  { padding: 10px; font-size: 0.8rem; }
-
-    /* Waiting banner gets a bit more space */
     .waiting-banner { font-size: 0.85rem; min-height: 1.3em; }
-
-    /* Timer can be a touch bigger */
     .turn-timer { min-width: 32px; height: 32px; font-size: 0.85rem; }
-
-    /* Larger turn + score text */
-    .turn-info   { font-size: 0.85rem; }
-    .score-badge { font-size: 0.85rem; }
-
-    /* Board self-sizes against the container (cq units handle this automatically) */
     .board { padding: 5px; }
   }
 </style>
@@ -815,18 +806,17 @@
      GAME SCREEN
 ═══════════════════════════════════════════════════ -->
 <div id="game-screen" class="screen">
-  <div class="top-bar">
-    <div class="team-scores" id="team-scores"></div>
-    <div class="turn-info" id="turn-info">—</div>
-    <button class="btn btn-secondary btn-sm" onclick="leaveGame()" style="font-size:0.7rem;padding:5px 10px">Quit</button>
-  </div>
-
   <div class="game-main">
     <div class="board-container">
       <div class="board" id="board"></div>
     </div>
 
     <div class="hand-area">
+      <div class="hand-info-bar">
+        <div class="team-scores" id="team-scores"></div>
+        <div class="turn-info" id="turn-info">—</div>
+        <button class="btn btn-secondary btn-sm hand-quit-btn" onclick="leaveGame()">Quit</button>
+      </div>
       <div id="waiting-banner" class="waiting-banner"></div>
       <div class="hand-label-row">
         <div class="hand-label">YOUR HAND</div>
@@ -1844,19 +1834,14 @@ let _bcId = 0; // unique clipPath id counter, increments each render
 // ───────────────────────────────────────────────────────────────────────────
 
 function _cornerBadge(rank, suit, W, H, col, sym) {
-  // Larger text — single-pip design leaves room for bigger corner indices
+  // Number cards: large readable index, white rect fills enough of top corner
   const rkFS = rank === '10' ? W * 0.34 : W * 0.41;
   const stFS = W * 0.27;
-  const rkX = W * 0.25, rkY = H * 0.12;
-  const stY = rkY + rkFS * 0.65 + stFS * 0.55;
-  const bW = W * 0.56;
-  // Face cards need a taller badge: suit symbol falls at stY≈23px but the portrait
-  // image starts below the card's top, so without extra height the suit text renders
-  // directly on coloured artwork — impossible to read.  Number cards are fine at 0.40
-  // because their background behind stY is always white card stock (no portrait image).
-  const isFaceRank = rank === 'K' || rank === 'Q' || rank === 'J';
-  const bH = isFaceRank ? H * 0.55 : H * 0.40;
-  const rx = (W * 0.04).toFixed(1);
+  const rkX  = W * 0.25, rkY = H * 0.12;
+  const stY  = rkY + rkFS * 0.65 + stFS * 0.55;
+  const bW   = W * 0.56;
+  const bH   = H * 0.40;
+  const rx   = (W * 0.04).toFixed(1);
   const block = `
     <rect x="0" y="0" width="${bW.toFixed(1)}" height="${bH.toFixed(1)}" fill="white" rx="${rx}"/>
     <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
@@ -1866,30 +1851,50 @@ function _cornerBadge(rank, suit, W, H, col, sym) {
   return block + `<g transform="rotate(180,${W/2},${H/2})">${block}</g>`;
 }
 
+function _faceCornerOverlay(rank, suit, W, H, col, sym) {
+  // Face cards: tiny pill floating in the top-left corner, drawn ON TOP of the portrait.
+  // Real playing cards work exactly this way — tiny index over the face image.
+  // Font is smaller than number cards (portrait identifies the face; index just confirms it).
+  const rkFS = rank === '10' ? W * 0.26 : W * 0.30;
+  const stFS = W * 0.21;
+  const pad  = W * 0.04;                           // small inset from card edge
+  const rkX  = pad + W * 0.14;                     // x-centre of pill
+  const rkY  = pad + rkFS * 0.6;
+  const stY  = rkY + rkFS * 0.55 + stFS * 0.55;
+  const bW   = W * 0.38;                           // pill width: 38% of card
+  const bH   = stY + stFS * 0.65;                  // tight to text bottom
+  const rx   = (W * 0.05).toFixed(1);
+  // Top-left pill
+  const tl = `
+    <rect x="${pad.toFixed(1)}" y="${pad.toFixed(1)}" width="${bW.toFixed(1)}" height="${bH.toFixed(1)}" fill="white" opacity="0.88" rx="${rx}"/>
+    <text x="${rkX.toFixed(1)}" y="${rkY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="'Arial Black',Arial,sans-serif" font-size="${rkFS.toFixed(1)}" font-weight="900" fill="${col}">${rank}</text>
+    <text x="${rkX.toFixed(1)}" y="${stY.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+          font-family="Arial,sans-serif" font-size="${stFS.toFixed(1)}" fill="${col}">${sym}</text>`;
+  // Bottom-right pill (180° rotated mirror)
+  const br = `<g transform="rotate(180,${W/2},${H/2})">${tl}</g>`;
+  return tl + br;
+}
+
 function buildBoardCardSVG(rank, suit, W, H) {
   const isRed = suit === 'hearts' || suit === 'diamonds';
   const col = isRed ? '#c0392b' : '#0d0d0d';
   const sym = SUIT_SYM[suit];
   const bg  = `<rect width="${W}" height="${H}" fill="#fffdf8" rx="${W*0.06}"/>`;
   const bdr = `<rect x=".5" y=".5" width="${W-1}" height="${H-1}" fill="none" stroke="${col}" stroke-width=".7" rx="${W*0.05}" opacity=".25"/>`;
-  const idx = _cornerBadge(rank, suit, W, H, col, sym);
 
   if (rank === 'K' || rank === 'Q' || rank === 'J') {
-    // ── Face card: top-half portrait crop of Bicycle PNG ──────────────────
-    // Crop region within original 300×420 PNG:
-    //   x: 75 to 225 (centre 50% of width = 150px)
-    //   y: 0  to 252 (top 60% of height  = 252px)
-    //   → 150:252 = 5:7 exactly — fills the 5:7 cell perfectly
-    // Scale factor: W / 150  (so crop width fills the cell exactly)
+    // Portrait fills the FULL cell — no vertical offset, no area reserved.
+    // Centre 50% crop of 300×420 PNG, scaled so the crop width = cell width exactly.
+    // Tiny floating corner pills sit on top — portrait visible behind them.
     const id    = 'bc' + (_bcId++);
-    // Slightly smaller crop (W/170 vs W/150) so the portrait doesn't crowd the
-    // larger corner badges — pushes it down a touch to leave natural white at top.
-    const scale = W / 170;
+    const scale = W / 150;
     const imgW  = (300 * scale).toFixed(1);
     const imgH  = (420 * scale).toFixed(1);
     const offX  = (-75 * scale).toFixed(1);
-    const offY  = (H * 0.06).toFixed(1);  // small inset — white card bg shows above portrait
+    const offY  = '0';
     const src   = cardImgSrc(rank, suit);
+    const idx   = _faceCornerOverlay(rank, suit, W, H, col, sym);
     return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
   <defs><clipPath id="${id}"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath></defs>
   ${bg}
@@ -1899,7 +1904,8 @@ function buildBoardCardSVG(rank, suit, W, H) {
   ${idx}${bdr}</svg>`;
   }
 
-  // ── Number card (A, 2–10): pure SVG, single centred pip ─────────────────
+  // Number card (A, 2–10): full-size index, centred pip
+  const idx   = _cornerBadge(rank, suit, W, H, col, sym);
   const pipFS = (W * 0.52).toFixed(1);
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
   ${bg}
