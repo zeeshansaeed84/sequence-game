@@ -934,31 +934,37 @@ function decodeSounds() {
   }
 }
 
-// Resume AudioContext on every user gesture — mobile Chrome can suspend it between taps
+// iOS WebKit (all iOS browsers) requires resume() on touchend specifically,
+// and re-suspends the context whenever the page loses focus.
+// We re-attempt resume on every touchend and click.
 function resumeCtx() {
   if (!audioCtx) return;
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
-document.addEventListener('touchstart', resumeCtx, { passive: true });
-document.addEventListener('touchend',   resumeCtx, { passive: true });
-document.addEventListener('click',      resumeCtx, { passive: true });
+document.addEventListener('touchend', resumeCtx, { passive: true });
+document.addEventListener('click',    resumeCtx, { passive: true });
 
 // Called synchronously inside a button tap — creates context, plays silent buffer,
-// and kicks off decoding. This is the only reliable way to unlock speaker output
-// on mobile Chrome. Must happen in the same call stack as the user gesture.
+// and kicks off decoding. Must happen in the same call stack as the user gesture.
+// On iOS, the silent buffer play is what actually unlocks audio output.
 function unlockSpeaker() {
   const ctx = getAudioCtx();
-  if (ctx.state === 'suspended') ctx.resume();
-  // Play a silent 1-sample buffer to activate the audio output pipeline
-  try {
-    const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-    src.start(0);
-  } catch(e) {}
-  // Now decode all sounds (no gesture needed for decoding itself)
-  decodeSounds();
+  // Resume must happen before start() on iOS
+  const doUnlock = () => {
+    try {
+      const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch(e) {}
+    decodeSounds();
+  };
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(doUnlock).catch(doUnlock);
+  } else {
+    doUnlock();
+  }
 }
 
 function playSound(name) {
@@ -2386,6 +2392,7 @@ function isDeadCard(card, idx) {
 }
 
 function selectCard(idx) {
+  resumeCtx(); // iOS re-suspends AudioContext on focus loss — recover here
   if (players[GS.currentTurn] && players[GS.currentTurn].id !== myId) return;
   const wasSelected = selectedCardIdx === idx;
   selectedCardIdx = wasSelected ? -1 : idx;
@@ -2407,6 +2414,7 @@ function selectCard(idx) {
 }
 
 function onCellClick(row, col) {
+  resumeCtx(); // iOS re-suspend recovery
   if (!GS || GS.phase === 'done') return;
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
   if (!myTurn) return;
