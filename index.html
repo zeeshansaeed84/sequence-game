@@ -489,30 +489,41 @@
 
   .turn-timer {
     flex-shrink: 0;
-    min-width: 26px;
-    height: 26px;
-    border-radius: 13px;
-    padding: 0 5px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: 'Cinzel', serif;
-    font-size: 0.72rem;
+    font-size: 0.78rem;
     font-weight: 700;
     color: var(--gold-light);
-    border: 2px solid rgba(201,168,76,0.5);
-    background: rgba(0,0,0,0.35);
-    transition: color 0.2s, border-color 0.2s, background 0.2s;
+    background: conic-gradient(var(--gold) calc(var(--pct, 100) * 1%), rgba(0,0,0,0.3) 0%);
+    box-shadow: 0 0 0 2px rgba(201,168,76,0.35), inset 0 0 0 4px rgba(0,0,0,0.5);
+    transition: color 0.3s;
+    position: relative;
+  }
+  .turn-timer::before {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: #1a2a1a;
+  }
+  .turn-timer span {
+    position: relative;
+    z-index: 1;
   }
   .turn-timer.low {
     color: #ff8a80;
-    border-color: rgba(220,38,38,0.8);
-    background: rgba(220,38,38,0.2);
+    background: conic-gradient(#ef4444 calc(var(--pct, 100) * 1%), rgba(0,0,0,0.3) 0%);
+    box-shadow: 0 0 0 2px rgba(220,38,38,0.5), inset 0 0 0 4px rgba(0,0,0,0.5);
     animation: timer-urgent 0.9s ease-in-out infinite;
   }
   @keyframes timer-urgent {
     0%, 100% { transform: scale(1); }
-    50%       { transform: scale(1.1); }
+    50%       { transform: scale(1.08); }
   }
 
   .hand-cards {
@@ -537,7 +548,7 @@
     box-shadow: 0 3px 8px rgba(0,0,0,0.45);
     position: relative;
     font-weight: 500;
-    overflow: hidden;
+    overflow: visible;
     display: flex;
     flex-direction: column;
   }
@@ -548,7 +559,7 @@
     transform: translateY(-12px);
     box-shadow: 0 12px 24px rgba(201,168,76,0.6);
   }
-  .hand-card.dead-card { opacity: 0.5; }
+  .hand-card.dead-card { /* no visual change — player discovers it themselves */ }
   .hand-card.jack-wild { border-color: rgba(201,168,76,0.8); background: #fffdf5; }
   .hand-card.jack-anti { border-color: rgba(200,40,40,0.7); }
 
@@ -583,24 +594,40 @@
   }
 
   /* Action buttons */
-  /* Inline discard button — appears next to a dead card when tapped */
+  /* Discard button — floats above the selected dead card as a bold pill */
   .discard-btn {
-    flex-shrink: 0;
-    align-self: center;
-    padding: 6px 10px;
-    border: 1px solid rgba(220,38,38,0.5);
-    border-radius: 6px;
-    background: rgba(220,38,38,0.15);
-    color: #f87171;
-    font-family: 'Cinzel', serif;
-    font-size: 0.65rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    cursor: pointer;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
     white-space: nowrap;
-    transition: all 0.15s;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1.5px solid #f87171;
+    background: linear-gradient(135deg, rgba(220,38,38,0.85), rgba(180,20,20,0.9));
+    color: white;
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(220,38,38,0.5);
+    animation: discard-appear 0.2s cubic-bezier(.34,1.4,.6,1) forwards;
+    z-index: 10;
   }
-  .discard-btn:active { background: rgba(220,38,38,0.35); }
+  @keyframes discard-appear {
+    from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.9); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0)   scale(1);   }
+  }
+  .discard-btn::after {
+    content: '';
+    position: absolute;
+    top: 100%; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #f87171;
+  }
+  .discard-btn:active { background: rgba(220,38,38,0.95); transform: translateX(-50%) scale(0.96); }
 
   /* Modal */
   .modal-backdrop {
@@ -732,7 +759,7 @@
 
     .hand-label-row { margin-bottom: 8px; }
     .waiting-banner { font-size: 0.85rem; min-height: 1.3em; }
-    .turn-timer { min-width: 32px; height: 32px; font-size: 0.85rem; }
+    .turn-timer { width: 38px; height: 38px; font-size: 0.85rem; }
     .board { padding: 5px; }
   }
 </style>
@@ -751,6 +778,16 @@
     <div id="lobby-main">
       <input id="player-name" type="text" placeholder="Your name" maxlength="16" autocomplete="off">
       <div class="error-msg" id="lobby-error"></div>
+      <div style="display:flex;gap:6px;margin-bottom:0">
+        <select id="ai-num-teams" style="flex:1">
+          <option value="2">2 Teams (vs 1 AI)</option>
+          <option value="3">3 Teams (vs 2 AIs)</option>
+        </select>
+        <select id="ai-seq-to-win" style="flex:1">
+          <option value="1">1 Sequence</option>
+          <option value="2" selected>2 Sequences</option>
+        </select>
+      </div>
       <button class="btn btn-primary" onclick="startVsAI()">▶ Play vs AI</button>
       <hr class="divider">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
@@ -772,6 +809,10 @@
       <select id="num-teams">
         <option value="2">2 Teams</option>
         <option value="3">3 Teams</option>
+      </select>
+      <select id="seq-to-win">
+        <option value="1">First to 1 Sequence</option>
+        <option value="2" selected>First to 2 Sequences</option>
       </select>
       <button class="btn btn-primary" onclick="createGame()">Create Room</button>
       <button class="btn btn-secondary" onclick="document.getElementById('lobby-create').style.display='none';document.getElementById('lobby-main').style.display='block'">Back</button>
@@ -809,7 +850,7 @@
       <div id="waiting-banner" class="waiting-banner"></div>
       <div class="hand-label-row">
         <div class="hand-label">YOUR HAND</div>
-        <div class="turn-timer" id="turn-timer">60</div>
+        <div class="turn-timer" id="turn-timer"><span>60</span></div>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
     </div>
@@ -1076,6 +1117,7 @@ let roomCode = '';
 let players = [];     // [{id, name, team}]
 let myIndex = -1;
 let numTeams = 2;
+let seqToWin = 2;
 
 // Full game state (authoritative on host, synced to clients)
 let GS = null;
@@ -1193,19 +1235,27 @@ const AI_ID = '__AI__';
 const AI_NAME = 'Dealer AI';
 
 function startVsAI() {
-  unlockSpeaker(); // must be synchronous within the tap gesture
+  unlockSpeaker();
   myName = document.getElementById('player-name').value.trim() || 'Player';
-  setError('lobby-error','');
+  setError('lobby-error', '');
   aiMode = true;
   isHost = true;
   myId = 'human';
-  numTeams = 2;
+  numTeams = parseInt(document.getElementById('ai-num-teams')?.value || '2');
+  seqToWin = parseInt(document.getElementById('ai-seq-to-win')?.value || '2');
 
-  // Human = team 0 (blue), AI = team 1 (green)
-  players = [
-    {id: myId,  name: myName, team: 0},
-    {id: AI_ID, name: AI_NAME, team: 1},
-  ];
+  if (numTeams === 3) {
+    players = [
+      {id: myId,        name: myName,   team: 0},
+      {id: AI_ID,       name: 'Magnus', team: 1},
+      {id: AI_ID + '2', name: 'Kaspar', team: 2},
+    ];
+  } else {
+    players = [
+      {id: myId,  name: myName,  team: 0},
+      {id: AI_ID, name: 'Magnus', team: 1},
+    ];
+  }
   myIndex = 0;
 
   GS = initGameState();
@@ -1220,13 +1270,13 @@ function startVsAI() {
 
 function aiTakeTurn() {
   if (!GS || GS.phase === 'done') return;
-  const aiPlayer = players.find(p => p.id === AI_ID);
-  if (!aiPlayer) return;
-  const aiTeam = aiPlayer.team;
-  const hand = GS.hands[AI_ID];
+  const cp = players[GS.currentTurn];
+  if (!cp || !cp.id.startsWith(AI_ID)) return;
+  const aiId   = cp.id;
+  const aiTeam = cp.team;
+  const hand   = GS.hands[aiId];
   if (!hand || hand.length === 0) return;
 
-  const opp = aiTeam === 0 ? 1 : 0;
   let bestScore = -Infinity;
   let bestMove  = null;
 
@@ -1244,8 +1294,9 @@ function aiTakeTurn() {
       }
     } else if (isOneEyedJack(card)) {
       for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
-        if (GS.chips[r][c] === opp && !isSequenceCellInState(r,c,GS)) {
-          const score = scoreMove(r, c, opp, 'remove', GS);
+        const ct = GS.chips[r][c];
+        if (ct !== null && ct !== aiTeam && !isSequenceCellInState(r,c,GS)) {
+          const score = scoreMove(r, c, ct, 'remove', GS);
           if (score > bestScore) { bestScore = score; bestMove = {cardIdx, dead:false, row:r, col:c}; }
         }
       }
@@ -1260,28 +1311,60 @@ function aiTakeTurn() {
     }
   });
 
-  if (bestMove) {
-    const delay = 650 + Math.random() * 400;
-    const aiCard = hand[bestMove.cardIdx];
-    const isRemoval = !bestMove.dead && aiCard && isOneEyedJack(aiCard);
-    if (bestMove.dead || isRemoval) {
-      setTimeout(() => applyMove(bestMove, AI_ID), delay);
+  if (!bestMove) return;
+  const delay = 650 + Math.random() * 400;
+  const aiCard = hand[bestMove.cardIdx];
+  const isRemoval = !bestMove.dead && aiCard && isOneEyedJack(aiCard);
+  const isWildJack = !bestMove.dead && aiCard && isTwoEyedJack(aiCard);
+
+  setTimeout(() => {
+    if (bestMove.dead) {
+      applyMove(bestMove, aiId);
+    } else if (isRemoval || isWildJack) {
+      const boardEl = document.getElementById('board');
+      const dstEl = boardEl?.children[bestMove.row * 10 + bestMove.col];
+      const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
+      let fromX = window.innerWidth * 0.5, fromY = 80;
+      if (aiBadge) {
+        const rect = aiBadge.getBoundingClientRect();
+        fromX = rect.left + rect.width / 2;
+        fromY = rect.top + rect.height / 2;
+      }
+      if (!dstEl) { applyMove(bestMove, aiId); return; }
+      const dst = dstEl.getBoundingClientRect();
+      const cardW = 40, cardH = 56;
+      const fly = document.createElement('div');
+      fly.style.cssText = `position:fixed;z-index:9999;pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.6);width:${cardW}px;height:${cardH}px;left:${fromX-cardW/2}px;top:${fromY-cardH/2}px;will-change:left,top,opacity;`;
+      fly.innerHTML = buildBoardCardSVG(aiCard.rank, aiCard.suit, cardW, cardH);
+      document.body.appendChild(fly);
+      const dstCx = dst.left + dst.width / 2;
+      const dstCy = dst.top + dst.height / 2;
+      requestAnimationFrame(() => {
+        fly.style.transition = 'left 0.7s cubic-bezier(.4,0,.2,1),top 0.7s cubic-bezier(.4,0,.2,1),opacity 0.7s';
+        fly.style.left = (dstCx - cardW/2) + 'px';
+        fly.style.top  = (dstCy - cardH/2) + 'px';
+        setTimeout(() => {
+          fly.style.opacity = '0';
+          if (isRemoval) playSound('Chip_removal_jack');
+          else playSound('Chip_placement');
+          setTimeout(() => { fly.remove(); applyMove(bestMove, aiId); }, 200);
+        }, 720);
+      });
     } else {
-      setTimeout(() => {
-        const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
-        let fromX = window.innerWidth * 0.18, fromY = 70;
-        if (aiBadge) {
-          const rect = aiBadge.getBoundingClientRect();
-          fromX = rect.left + rect.width / 2;
-          fromY = rect.top + rect.height / 2;
-        }
-        flyChipBetween(fromX, fromY, bestMove.row, bestMove.col, aiTeam, () => {
-          applyMove(bestMove, AI_ID);
-        });
-      }, delay);
+      const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
+      let fromX = window.innerWidth * 0.18, fromY = 70;
+      if (aiBadge) {
+        const rect = aiBadge.getBoundingClientRect();
+        fromX = rect.left + rect.width / 2;
+        fromY = rect.top + rect.height / 2;
+      }
+      flyChipBetween(fromX, fromY, bestMove.row, bestMove.col, aiTeam, () => {
+        applyMove(bestMove, aiId);
+      });
     }
-  }
+  }, delay);
 }
+
 
 function scoreMove(row, col, team, action, gs) {
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
@@ -1445,6 +1528,7 @@ function generateCode() {
 async function createGame() {
   if (!fbInit()) { setError('lobby-error','Firebase not configured.'); return; }
   numTeams = parseInt(document.getElementById('num-teams').value);
+  seqToWin = parseInt(document.getElementById('seq-to-win').value);
   roomCode = generateCode();
   isHost = true;
   myId = generatePlayerId();
@@ -1456,7 +1540,7 @@ async function createGame() {
   roomRef = db.ref('sq_rooms/' + roomCode);
   try {
     await roomRef.set({
-      hostId: myId, numTeams, phase: 'lobby',
+      hostId: myId, numTeams, seqToWin, phase: 'lobby',
       players: JSON.stringify(players),
       created: firebase.database.ServerValue.TIMESTAMP
     });
@@ -1505,9 +1589,17 @@ async function joinGame() {
   if (!snap.exists()) { setError('lobby-error', 'Room not found. Check the code.'); return; }
   const data = snap.val();
   if (data.phase === 'playing') { setError('lobby-error', 'Game already in progress.'); return; }
+  if (data.phase === 'abandoned') { setError('lobby-error', 'This room has ended.'); return; }
 
   numTeams = data.numTeams;
-  const existing = JSON.parse(data.players || '[]');
+  seqToWin = data.seqToWin || 2;
+
+  // Prevent duplicate join — same name already in room
+  if (existing.some(p => p.name.toLowerCase() === myName.toLowerCase())) {
+    setError('lobby-error', `"${myName}" is already in this room. Use a different name.`);
+    return;
+  }
+
   const updated = [...existing, {id: myId, name: myName, team: existing.length % numTeams}];
   try { await roomRef.child('players').set(JSON.stringify(updated)); }
   catch(e) { setError('lobby-error', 'Could not join: ' + e.message); return; }
@@ -1561,26 +1653,36 @@ function showWaitingLobby() {
 function renderWaitingPlayers() {
   const list = document.getElementById('waiting-players');
   list.innerHTML = '<div class="section-label">PLAYERS</div>';
-  players.forEach((p,i) => {
+  players.forEach((p, i) => {
     const div = document.createElement('div');
     div.className = 'player-item';
     const dot = document.createElement('div');
     dot.className = `team-dot ${TEAM_DOT[p.team]}`;
     const name = document.createElement('span');
-    name.textContent = `${p.name}${p.id===myId?' (you)':''} — ${TEAM_NAMES[p.team]}`;
+    name.textContent = `${p.name}${p.id === myId ? ' (you)' : ''} — ${TEAM_NAMES[p.team]}`;
     div.append(dot, name);
-    // Host can reassign teams
+    // Host can switch teams or remove players
     if (isHost && p.id !== myId) {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-secondary btn-sm';
-      btn.style.marginLeft='auto';
-      btn.textContent = 'Switch Team';
-      btn.onclick = () => {
+      const switchBtn = document.createElement('button');
+      switchBtn.className = 'btn btn-secondary btn-sm';
+      switchBtn.style.marginLeft = 'auto';
+      switchBtn.textContent = 'Switch Team';
+      switchBtn.onclick = () => {
         players[i].team = (players[i].team + 1) % numTeams;
         broadcastLobbyState();
         renderWaitingPlayers();
       };
-      div.append(btn);
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn btn-secondary btn-sm';
+      removeBtn.style.marginLeft = '4px';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove player';
+      removeBtn.onclick = () => {
+        players.splice(i, 1);
+        broadcastLobbyState();
+        renderWaitingPlayers();
+      };
+      div.append(switchBtn, removeBtn);
     }
     list.append(div);
   });
@@ -1626,8 +1728,13 @@ function leaveGame() {
   stopCountdownDisplay();
   stopTickSound();
   stopWinMusic();
+  // Non-host leaving lobby: remove self from player list
+  if (!isHost && roomRef && !fbGameStarted) {
+    const remaining = players.filter(p => p.id !== myId);
+    roomRef.child('players').set(JSON.stringify(remaining)).catch(() => {});
+  }
   fbOff();
-  if (roomRef && isHost) roomRef.child('phase').set('abandoned').catch(()=>{});
+  if (roomRef && isHost) roomRef.child('phase').set('abandoned').catch(() => {});
   roomRef = null;
   fbGameStarted = false;
   players = [];
@@ -1641,8 +1748,8 @@ function leaveGame() {
   document.getElementById('player-name').value = '';
   document.getElementById('join-code').value = '';
   document.getElementById('start-btn').style.display = 'none';
-  setError('lobby-error','');
-  setError('waiting-error','');
+  setError('lobby-error', '');
+  setError('waiting-error', '');
   document.getElementById('win-modal').classList.remove('open');
   showScreen('lobby-screen');
 }
@@ -1661,7 +1768,8 @@ function initGameState() {
 
   return {
     board: BOARD_LAYOUT,                   // 10×10 grid of {type,suit,rank}
-    chips: Array.from({length:10}, () => Array(10).fill(null)), // null or team index
+    chips: Array.from({length:10}, () => Array(10).fill(null)),      // null or team index
+    chipOwners: Array.from({length:10}, () => Array(10).fill(null)), // null or playerId
     sequences: [0, 0, 0],                  // sequences per team
     deck,
     discard: [],
@@ -1670,7 +1778,7 @@ function initGameState() {
     phase: 'play',                         // 'play' | 'done'
     winner: null,
     numTeams,
-    seqToWin: numTeams === 2 ? 2 : 1,
+    seqToWin: seqToWin,
     seqCells: [],                          // cells that are part of completed sequences
     lastMove: null,                        // {row,col} of most recently placed chip
     lastRemoved: null,                     // {row,col,team} of most recently removed chip
@@ -1682,10 +1790,7 @@ function initGameState() {
 }
 
 function getHandSize(n) {
-  if (n <= 4) return 6;
-  if (n <= 6) return 5;
-  if (n <= 9) return 4;
-  return 3;
+  return n > 8 ? 5 : 6;
 }
 
 // Sanitize GS for broadcast: only send the current player's hand (privacy)
@@ -1768,29 +1873,29 @@ function applyMoveInner(move, fromId) {
   const {row, col} = move;
 
   if (isOneEyedJack(card)) {
-    // Remove opponent chip
     const target = GS.chips[row][col];
     if (target === null || target === p.team) { toast('Invalid Jack target'); return; }
-    if (isSequenceCell(row, col)) return; // protected
+    if (isSequenceCell(row, col)) return;
     GS.chips[row][col] = null;
+    GS.chipOwners[row][col] = null;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastRemoved = {row, col, team: target, seq: GS.moveSeq, jackRemove: true};
   } else if (isTwoEyedJack(card)) {
-    // Place chip anywhere open
     if (GS.chips[row][col] !== null) return;
     if (GS.board[row][col].type === 'wild') return;
     GS.chips[row][col] = p.team;
+    GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
-    GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: true};
+    GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: true, fromId};
   } else {
-    // Normal card
     const cell = GS.board[row][col];
     if (cell.type === 'wild') return;
     if (cell.suit !== card.suit || cell.rank !== card.rank) return;
     if (GS.chips[row][col] !== null) return;
     GS.chips[row][col] = p.team;
+    GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
-    GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: false};
+    GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: false, fromId};
   }
 
   // Remove played card, draw new
@@ -1843,7 +1948,7 @@ function broadcastGameState() {
   // In AI mode, trigger AI if it's now the AI's turn — delayed so human's render paints first
   if (aiMode && GS.phase !== 'done') {
     const cp = players[GS.currentTurn];
-    if (cp && cp.id === AI_ID) {
+    if (cp && cp.id.startsWith(AI_ID)) {
       setTimeout(aiTakeTurn, 600);
     }
   }
@@ -2159,7 +2264,7 @@ function showGameScreen() {
   renderGame();
   startCountdownDisplay();
   // If AI has the first turn, trigger it now
-  if (aiMode && players[GS.currentTurn] && players[GS.currentTurn].id === AI_ID) {
+  if (aiMode && players[GS.currentTurn] && players[GS.currentTurn].id.startsWith(AI_ID)) {
     setTimeout(aiTakeTurn, 800);
   }
 }
@@ -2183,11 +2288,13 @@ function updateTurnTimerDisplay() {
   el.style.visibility = 'visible';
   const remainingMs = Math.max(0, (GS.turnDeadline || 0) - Date.now());
   const secs = Math.ceil(remainingMs / 1000);
-  el.textContent = secs;
+  const pct  = Math.round((secs / TURN_SECONDS) * 100);
+  const span = el.querySelector('span') || el;
+  span.textContent = secs;
+  el.style.setProperty('--pct', pct);
   const isLow = secs <= 10 && secs > 0;
   el.classList.toggle('low', isLow);
 
-  // Only tick on the local player's turn
   const cp = players[GS.currentTurn];
   const isMyTurn = cp && cp.id === myId;
   if (isLow && isMyTurn) {
@@ -2243,7 +2350,7 @@ function renderTopBar() {
   // Scores
   const scoresEl = document.getElementById('team-scores');
   scoresEl.innerHTML = '';
-  const teamLabels = ['You','AI'];
+  const teamLabels = players.map(p => p.id === myId ? 'You' : p.name);
   for (let t = 0; t < numTeams; t++) {
     const div = document.createElement('div');
     div.className = 'score-badge';
@@ -2310,8 +2417,11 @@ function renderBoard() {
           chip.classList.add('placing');
           if (GS.lastMove.jackWild) chip.classList.add('jack-wild-anim');
         }
-        const teamPlayer = players.find(p => p.team === chipTeam);
-        const initial = (!isLastPlaced && teamPlayer) ? teamPlayer.name.charAt(0).toUpperCase() : '';
+        const ownerId = GS.chipOwners?.[r]?.[c];
+        const ownerPlayer = ownerId
+          ? players.find(p => p.id === ownerId)
+          : players.find(p => p.team === chipTeam);
+        const initial = (!isLastPlaced && ownerPlayer) ? ownerPlayer.name.charAt(0).toUpperCase() : '';
         overlay.append(chip);
         cell.append(overlay);
         cell.classList.add('disabled');
@@ -2398,19 +2508,19 @@ function renderHand() {
 
     el.innerHTML = makeHandCardHTML(card);
     el.addEventListener('click', () => selectCard(i));
-    handEl.append(el);
-
-    // Inline discard button appears next to this card when it's selected AND dead AND my turn
+    // Discard button appears floating above the card when it's selected AND dead AND my turn
     if (isDead && i === selectedCardIdx && myTurn) {
       const discardBtn = document.createElement('button');
       discardBtn.className = 'discard-btn';
-      discardBtn.textContent = 'Discard';
+      discardBtn.textContent = '✕ Discard';
       discardBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         playDeadCard();
       });
-      handEl.append(discardBtn);
+      el.appendChild(discardBtn); // inside the card for absolute positioning
     }
+
+    handEl.append(el);
   });
 
   // No play-btn / dead-btn — removed in favour of inline discard
@@ -2469,11 +2579,26 @@ function onCellClick(row, col) {
 
   const moveCardIdx = selectedCardIdx;
   selectedCardIdx = -1;
+  renderHand(); // clear selection immediately
 
-  // Fly a chip from the hand card position to the board cell, then send the move
-  flyChipToCell(moveCardIdx, row, col, myTeam, isTwoEyedJack(card) || isOneEyedJack(card), () => {
-    sendMove({row, col, cardIdx: moveCardIdx, dead: false});
-  });
+  if (isTwoEyedJack(card)) {
+    // Card flies to target, then chip appears
+    flyCardToCell(moveCardIdx, row, col, card, () => {
+      playSound('Chip_placement');
+      sendMove({row, col, cardIdx: moveCardIdx, dead: false});
+    });
+  } else if (isOneEyedJack(card)) {
+    // Card flies to target, then chip removed with whoosh
+    flyCardToCell(moveCardIdx, row, col, card, () => {
+      playSound('Chip_removal_jack');
+      sendMove({row, col, cardIdx: moveCardIdx, dead: false});
+    });
+  } else {
+    // Normal card: chip flies from hand to board
+    flyChipToCell(moveCardIdx, row, col, myTeam, false, () => {
+      sendMove({row, col, cardIdx: moveCardIdx, dead: false});
+    });
+  }
 }
 
 // Core animation: fly a chip from an absolute screen position to a board cell.
@@ -2548,6 +2673,52 @@ function flyChipBetween(fromX, fromY, row, col, team, callback) {
 }
 
 // Human player convenience wrapper: source is the selected hand card element
+// Fly a card image from hand position to a board cell, then invoke callback
+function flyCardToCell(cardIdx, row, col, card, callback) {
+  const handCards = document.getElementById('hand-cards').children;
+  const srcEl = handCards[cardIdx];
+  const boardEl = document.getElementById('board');
+  const dstEl = boardEl && boardEl.children[row * 10 + col];
+  if (!srcEl || !dstEl) { callback(); return; }
+
+  const src = srcEl.getBoundingClientRect();
+  const dst = dstEl.getBoundingClientRect();
+
+  const cardW = src.width;
+  const cardH = src.height;
+
+  // Build a card SVG image to fly
+  const fly = document.createElement('div');
+  fly.style.cssText = `
+    position:fixed; z-index:9999; pointer-events:none; border-radius:6px;
+    overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.6);
+    width:${cardW}px; height:${cardH}px;
+    left:${src.left}px; top:${src.top}px;
+    transition:none; will-change:left,top,width,height,transform;
+  `;
+  fly.innerHTML = buildBoardCardSVG(card.rank, card.suit, cardW, cardH);
+  document.body.appendChild(fly);
+
+  const dstCx = dst.left + dst.width / 2;
+  const dstCy = dst.top + dst.height / 2;
+  const targetW = dst.width * 0.85;
+  const targetH = dst.height * 0.85;
+
+  requestAnimationFrame(() => {
+    fly.style.transition = 'left 0.75s cubic-bezier(.4,0,.2,1), top 0.75s cubic-bezier(.4,0,.2,1), width 0.75s, height 0.75s, opacity 0.75s';
+    fly.style.left   = (dstCx - targetW / 2) + 'px';
+    fly.style.top    = (dstCy - targetH / 2) + 'px';
+    fly.style.width  = targetW + 'px';
+    fly.style.height = targetH + 'px';
+
+    setTimeout(() => {
+      fly.style.transition = 'opacity 0.15s';
+      fly.style.opacity = '0';
+      setTimeout(() => { fly.remove(); callback(); }, 160);
+    }, 760);
+  });
+}
+
 function flyChipToCell(cardIdx, row, col, team, isJack, callback) {
   const handCards = document.getElementById('hand-cards').children;
   const srcEl = handCards[cardIdx];
@@ -2630,17 +2801,16 @@ function animateSequenceInversion(newCells, allSeqCells, isWin) {
       void chipEl.offsetWidth; // force reflow to restart animation
       chipEl.classList.add('seq-inverting');
       setTimeout(() => chipEl.classList.remove('seq-inverting'), 280);
-    }, i * 250);
+    }, i * 400);
   });
 
   // Step 2: after all chips inverted, blink the new sequence once
-  const invertDone = sorted.length * 250 + 300;
+  const invertDone = sorted.length * 400 + 400;
   setTimeout(() => {
     blinkCellsList(newCells, 1, () => {
       if (isWin) {
-        // Step 3: blink ALL sequences (both if 2nd sequence), then win modal
-        const allCells = allSeqCells || newCells;
-        blinkCellsList(allCells, 2, () => {
+        // Blink only the winning sequence(s) — not previous completed sequences
+        blinkCellsList(newCells, 2, () => {
           playSound('Sequence_complete_');
           setTimeout(() => showWinModal(), 200);
         });
@@ -2663,7 +2833,7 @@ function blinkCellsList(cells, times, onDone) {
       if (chipEl) chipEl.classList.toggle('seq-celebrating', isOn);
     });
     count++;
-    setTimeout(step, 300);
+    setTimeout(step, 450);
   }
   step();
 }
