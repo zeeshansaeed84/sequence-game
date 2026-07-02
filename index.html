@@ -894,8 +894,8 @@ function updateSoundToggleUI() {
     container.appendChild(el);
     audioEls[key] = el;
   }
-  // Win loops
-  audioEls['Win'].loop = true;
+  // Win plays once — modal appears after it finishes
+  audioEls['Win'].loop = false;
   document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(container);
   });
@@ -922,6 +922,23 @@ function playSound(name) {
   el.play().catch(() => {});
 }
 
+// Pre-activate sounds that are triggered outside user gestures (sequence complete, lose).
+// iOS blocks audio.play() from setTimeout — but if we call play()+pause() during a
+// gesture, iOS marks the element as "user-activated" and allows later timer-triggered plays.
+function primeTimerSounds() {
+  ['Sequence_complete_', 'Lose', 'Win'].forEach(name => {
+    const el = audioEls[name];
+    if (!el) return;
+    el.muted = true;
+    el.currentTime = 0;
+    el.play().then(() => {
+      el.pause();
+      el.muted = false;
+      el.currentTime = 0;
+    }).catch(() => { el.muted = false; });
+  });
+}
+
 // Timer tick management — plays once per second during last 10s
 let tickInterval = null;
 function startTickSound() {
@@ -933,19 +950,21 @@ function stopTickSound() {
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
 }
 
-// Win music loops until player exits
-function playWinMusic() {
-  if (!soundEnabled) return;
+// Win music plays once — modal appears after it ends
+function playWinMusic(onEnded) {
+  if (!soundEnabled) { onEnded?.(); return; }
   const el = audioEls['Win'];
-  if (!el) return;
+  if (!el) { onEnded?.(); return; }
+  el.loop = false;
   el.currentTime = 0;
-  el.loop = true;
-  el.play().catch(() => {});
+  el.onended = () => { el.onended = null; onEnded?.(); };
+  el.play().catch(() => { onEnded?.(); });
 }
 
 function stopWinMusic() {
   const el = audioEls['Win'];
   if (!el) return;
+  el.onended = null;
   el.pause();
   el.currentTime = 0;
 }
@@ -2423,6 +2442,7 @@ function selectCard(idx) {
 }
 
 function onCellClick(row, col) {
+  primeTimerSounds(); // prime iOS audio for timer-triggered sounds
   if (!GS || GS.phase === 'done') return;
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
   if (!myTurn) return;
@@ -2563,7 +2583,6 @@ function showWinModal() {
   const w = GS.winner;
   let title, msg;
   const iWon = aiMode ? w === 0 : w === players[myIndex]?.team;
-  if (iWon) playWinMusic(); else playSound('Lose');
   stopTickSound();
   if (aiMode) {
     if (w === 0) {
@@ -2579,7 +2598,18 @@ function showWinModal() {
   }
   document.getElementById('win-title').textContent = title;
   document.getElementById('win-msg').textContent = msg;
-  document.getElementById('win-modal').classList.add('open');
+
+  const showModal = () => document.getElementById('win-modal').classList.add('open');
+
+  if (iWon) {
+    // Play win sound once — modal appears after it finishes
+    playWinMusic(showModal);
+  } else {
+    playSound('Lose');
+    // Lose sound is short — wait for it then show modal
+    const loseDuration = (audioEls['Lose']?.duration || 2) * 1000;
+    setTimeout(showModal, loseDuration + 200);
+  }
 }
 
 // Generic cell-blink helper: blinks a given list of board cells `times` times.
