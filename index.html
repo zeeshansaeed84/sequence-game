@@ -19,9 +19,9 @@
     --card-bg: #fdf8f0;
     --red: #c0392b;
     --black: #1a1a1a;
-    --chip-blue: #61AF41;
-    --chip-green: #AE42D0;
-    --chip-red: #1E90FF;
+    --chip-blue: #1E90FF;
+    --chip-green: #61AF41;
+    --chip-red: #AE42D0;
     --chip-blue-light: #60a5fa;
     --chip-green-light: #4ade80;
     --chip-red-light: #f87171;
@@ -193,9 +193,9 @@
     flex-shrink: 0;
   }
 
-  .dot-blue { background: var(--chip-blue); }
-  .dot-green { background: var(--chip-green); }
-  .dot-red { background: var(--chip-red); }
+  .dot-t0 { background: var(--chip-blue); }
+  .dot-t1 { background: var(--chip-green); }
+  .dot-t2 { background: var(--chip-red); }
 
   .status-msg {
     font-style: italic;
@@ -370,7 +370,17 @@
   }
 
   .chip.sequence-ring {
-    filter: drop-shadow(0 0 4px var(--gold)) drop-shadow(0 2px 4px rgba(0,0,0,0.55));
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.55));
+  }
+
+  /* Temporarily applied during inversion animation — overrides inverted SVG with a brightness flash */
+  .chip.seq-inverting {
+    animation: seq-invert-flash 0.25s ease-out forwards;
+  }
+  @keyframes seq-invert-flash {
+    0%   { filter: brightness(1) drop-shadow(0 2px 4px rgba(0,0,0,0.55)); }
+    40%  { filter: brightness(3) saturate(0) drop-shadow(0 0 8px white); }
+    100% { filter: brightness(1) drop-shadow(0 2px 4px rgba(0,0,0,0.55)); }
   }
 
   /* Other players: chip drops onto the board with two brightness flashes */
@@ -1051,16 +1061,16 @@ let numTeams = 2;
 // Full game state (authoritative on host, synced to clients)
 let GS = null;
 
-const TEAM_COLORS = ['blue','green','red-chip'];
+const TEAM_COLORS = ['t0','t1','t2'];
 
 const CHIP_COLORS = {
-  'blue':     { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' },
-  'green':    { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' },
-  'red-chip': { ring: '#1E90FF', ringDark: '#0a5fa8', center: '#e8f4ff' },
+  't0': { ring: '#1E90FF', ringDark: '#0a5fa8', center: '#e8f4ff' }, // blue  — team 0
+  't1': { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // green — team 1
+  't2': { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // purple — team 2 (3-player only)
 };
 
 let _chipId = 0;
-function buildChipSVG(colorClass, initial, size, showDot = false) {
+function buildChipSVG(colorClass, initial, size, showDot = false, inverted = false) {
   const c = CHIP_COLORS[colorClass] || CHIP_COLORS['blue'];
   const gid = 'cg' + (_chipId++);
   const r = size / 2;
@@ -1070,6 +1080,13 @@ function buildChipSVG(colorClass, initial, size, showDot = false) {
   const centerR = r * 0.56;
   const id = colorClass.replace('-','') + size;
 
+  // Inverted colours for sequence chips
+  const rimColour    = inverted ? '#bbbbbb' : c.ringDark;
+  const ringColour   = inverted ? 'white'   : `url(#rg${id})`;
+  const centreColour = inverted ? c.ring     : `url(#cg${id})`;
+  const textColour   = inverted ? 'white'   : '#111111';
+  const markColour   = inverted ? c.ring     : 'white';
+
   // 4 square inlays at cardinal positions
   const marks = [];
   for (let i = 0; i < 4; i++) {
@@ -1078,7 +1095,7 @@ function buildChipSVG(colorClass, initial, size, showDot = false) {
     const mx = cx + mr * Math.cos(angle);
     const my = cy + mr * Math.sin(angle);
     const hw = r * 0.09, hh = r * 0.11;
-    marks.push(`<rect x="${(mx-hw).toFixed(2)}" y="${(my-hh).toFixed(2)}" width="${(hw*2).toFixed(2)}" height="${(hh*2).toFixed(2)}" rx="${(r*0.02).toFixed(2)}" fill="white" opacity="0.90" transform="rotate(${i*90},${mx.toFixed(2)},${my.toFixed(2)})"/>`);
+    marks.push(`<rect x="${(mx-hw).toFixed(2)}" y="${(my-hh).toFixed(2)}" width="${(hw*2).toFixed(2)}" height="${(hh*2).toFixed(2)}" rx="${(r*0.02).toFixed(2)}" fill="${markColour}" opacity="0.90" transform="rotate(${i*90},${mx.toFixed(2)},${my.toFixed(2)})"/>`);
   }
   // 8 sets of 3 dash lines between squares
   for (let i = 0; i < 4; i++) {
@@ -1089,7 +1106,7 @@ function buildChipSVG(colorClass, initial, size, showDot = false) {
       const y1 = (cy + ringR * Math.sin(a)).toFixed(2);
       const x2 = (cx + outerR * Math.cos(a)).toFixed(2);
       const y2 = (cy + outerR * Math.sin(a)).toFixed(2);
-      marks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="white" stroke-width="${(r*0.06).toFixed(2)}" opacity="0.85" stroke-linecap="round"/>`);
+      marks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${markColour}" stroke-width="${(r*0.06).toFixed(2)}" opacity="0.85" stroke-linecap="round"/>`);
     }
   }
 
@@ -1106,13 +1123,13 @@ function buildChipSVG(colorClass, initial, size, showDot = false) {
       <stop offset="100%" stop-color="${c.center}"/>
     </radialGradient>
   </defs>
-  <circle cx="${cx}" cy="${cy}" r="${outerR.toFixed(2)}" fill="${c.ringDark}"/>
-  <circle cx="${cx}" cy="${cy}" r="${(outerR-0.8).toFixed(2)}" fill="url(#rg${id})"/>
-  <circle cx="${cx}" cy="${cy}" r="${centerR.toFixed(2)}" fill="url(#cg${id})"/>
+  <circle cx="${cx}" cy="${cy}" r="${outerR.toFixed(2)}" fill="${rimColour}"/>
+  <circle cx="${cx}" cy="${cy}" r="${(outerR-0.8).toFixed(2)}" fill="${ringColour}"/>
+  <circle cx="${cx}" cy="${cy}" r="${centerR.toFixed(2)}" fill="${centreColour}"/>
   ${marks.join('\n  ')}
   ${initial ? `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
         font-family="'Arial Black',Arial,sans-serif" font-size="${fs}" font-weight="900"
-        fill="#111111" opacity="0.85">${initial}</text>` : ''}
+        fill="${textColour}" opacity="0.92">${initial}</text>` : ''}
   ${showDot ? `<circle cx="${cx}" cy="${cy}" r="${(r * 0.13).toFixed(2)}" fill="#39FF14">
     <animate attributeName="r" values="${(r*0.13).toFixed(2)};${(r*0.17).toFixed(2)};${(r*0.13).toFixed(2)}" dur="0.8s" repeatCount="indefinite"/>
     <animate attributeName="opacity" values="1;0.7;1" dur="0.8s" repeatCount="indefinite"/>
@@ -1129,7 +1146,7 @@ function lighten(hex) {
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
 const TEAM_NAMES  = ['Blue','Green','Red'];
-const TEAM_DOT    = ['dot-blue','dot-green','dot-red'];
+const TEAM_DOT    = ['dot-t0','dot-t1','dot-t2'];
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -2188,16 +2205,17 @@ function renderGame() {
     setTimeout(() => playSound('Your_turn_ting'), 300);
   }
 
-  // Single sequence completion blink (non-winning move only — win blink is in showWinModal)
-  if (GS.phase !== 'done' &&
-      GS.newSeqCells && GS.newSeqCells.length > 0 &&
+  // Sequence completion animation
+  if (GS.newSeqCells && GS.newSeqCells.length > 0 &&
       GS.newSeqMoveSeq === GS.moveSeq &&
       GS.newSeqMoveSeq !== lastBlinkSeq) {
     lastBlinkSeq = GS.newSeqMoveSeq;
-    setTimeout(() => blinkCellsList(GS.newSeqCells, 3), 550);
+    const isWin = GS.phase === 'done';
+    // Delay slightly so chip placement animation finishes first
+    setTimeout(() => animateSequenceInversion(GS.newSeqCells, GS.seqCells, isWin), 600);
   }
 
-  if (GS.phase === 'done') {
+  if (GS.phase === 'done' && !GS.newSeqCells?.length) {
     showWinModal();
   }
 }
@@ -2274,17 +2292,22 @@ function renderBoard() {
           if (GS.lastMove.jackWild) chip.classList.add('jack-wild-anim');
         }
         const teamPlayer = players.find(p => p.team === chipTeam);
-        // Show initial only when NOT last-placed (last-placed shows gold dot instead)
         const initial = (!isLastPlaced && teamPlayer) ? teamPlayer.name.charAt(0).toUpperCase() : '';
-        requestAnimationFrame(() => {
-          const chipSize = Math.round(cell.getBoundingClientRect().width * 0.75);
-          chip.style.width  = chipSize + 'px';
-          chip.style.height = chipSize + 'px';
-          chip.innerHTML = buildChipSVG(colorClass, initial, chipSize, isLastPlaced);
-        });
         overlay.append(chip);
         cell.append(overlay);
         cell.classList.add('disabled');
+        // Capture loop vars for rAF closure — cell must be in DOM first
+        ;(([_chip, _colorClass, _initial, _isLastPlaced, _isSeqCell]) => {
+          requestAnimationFrame(() => {
+            // Cell is in DOM now — measure it directly
+            const cellEl = _chip.parentElement?.parentElement;
+            const cellW = cellEl ? cellEl.getBoundingClientRect().width : 40;
+            const chipSize = Math.round(cellW * 0.75);
+            _chip.style.width  = chipSize + 'px';
+            _chip.style.height = chipSize + 'px';
+            _chip.innerHTML = buildChipSVG(_colorClass, _initial, chipSize, _isLastPlaced, _isSeqCell);
+          });
+        })([chip, colorClass, initial, isLastPlaced, isSeqCell]);
       }
 
       // No cell hints — player finds the spot themselves
@@ -2556,23 +2579,57 @@ function showWinModal() {
   }
   document.getElementById('win-title').textContent = title;
   document.getElementById('win-msg').textContent = msg;
-
-  // Blink the winning sequence chips 3 times, then show modal
-  blinkWinningSequences(3, () => {
-    document.getElementById('win-modal').classList.add('open');
-  });
+  document.getElementById('win-modal').classList.add('open');
 }
 
 // Generic cell-blink helper: blinks a given list of board cells `times` times.
-function blinkCellsList(cells, times) {
+// Invert sequence chips one by one left-to-right, then blink, then win if applicable
+function animateSequenceInversion(newCells, allSeqCells, isWin) {
   const boardEl = document.getElementById('board');
-  if (!boardEl || !cells || !cells.length) return;
+  if (!boardEl || !newCells?.length) { if (isWin) showWinModal(); return; }
+
+  // Sort left-to-right (by col, then row for vertical sequences)
+  const sorted = [...newCells].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+
+  // Step 1: flash each chip one by one at 150ms intervals
+  sorted.forEach(([r, c], i) => {
+    setTimeout(() => {
+      const chipEl = boardEl.children[r * 10 + c]?.querySelector('.chip');
+      if (!chipEl) return;
+      chipEl.classList.remove('seq-inverting');
+      void chipEl.offsetWidth; // force reflow to restart animation
+      chipEl.classList.add('seq-inverting');
+      setTimeout(() => chipEl.classList.remove('seq-inverting'), 280);
+    }, i * 150);
+  });
+
+  // Step 2: after all chips inverted, blink the new sequence once
+  const invertDone = sorted.length * 150 + 300;
+  setTimeout(() => {
+    blinkCellsList(newCells, 1, () => {
+      if (isWin) {
+        // Step 3: blink ALL sequences (both if 2nd sequence), then win modal
+        const allCells = allSeqCells || newCells;
+        blinkCellsList(allCells, 2, () => {
+          playSound('Sequence_complete_');
+          setTimeout(() => showWinModal(), 200);
+        });
+      } else {
+        playSound('Sequence_complete_');
+      }
+    });
+  }, invertDone);
+}
+
+function blinkCellsList(cells, times, onDone) {
+  const boardEl = document.getElementById('board');
+  if (!boardEl || !cells?.length) { onDone?.(); return; }
   let count = 0, total = times * 2;
   function step() {
-    if (count >= total) return;
+    if (count >= total) { onDone?.(); return; }
     const isOn = count % 2 === 0;
-    cells.forEach(([r,c]) => {
-      const chipEl = boardEl.children[r*10+c]?.querySelector('.chip');
+    cells.forEach(([r, c]) => {
+      const chipEl = boardEl.children[r * 10 + c]?.querySelector('.chip');
       if (chipEl) chipEl.classList.toggle('seq-celebrating', isOn);
     });
     count++;
@@ -2581,30 +2638,17 @@ function blinkCellsList(cells, times) {
   step();
 }
 
-// Win celebration: blink only the WINNING team's sequence cells, then open modal.
+// Win celebration — now handled by animateSequenceInversion for sequence wins
+// Kept for edge cases where win modal needs to show directly
 function blinkWinningSequences(times, onDone) {
   const boardEl = document.getElementById('board');
   const w = GS.winner;
-  // Filter to cells that belong to the winner (wild corners count for everyone but
-  // we only include them if no non-wild chip is present — they always help any team)
-  const winnerCells = (GS.seqCells || []).filter(([r,c]) => {
+  const winnerCells = (GS.seqCells || []).filter(([r, c]) => {
     const chip = GS.chips[r][c];
     return chip === w || GS.board[r][c].type === 'wild';
   });
   if (!winnerCells.length || !boardEl) { onDone(); return; }
-
-  let blinks = 0, total = times * 2;
-  function step() {
-    if (blinks >= total) { onDone(); return; }
-    const isOn = blinks % 2 === 0;
-    winnerCells.forEach(([r,c]) => {
-      const chipEl = boardEl.children[r*10+c]?.querySelector('.chip');
-      if (chipEl) chipEl.classList.toggle('seq-celebrating', isOn);
-    });
-    blinks++;
-    setTimeout(step, 320);
-  }
-  setTimeout(step, 150);
+  blinkCellsList(winnerCells, times, onDone);
 }
 </script>
 </body>
