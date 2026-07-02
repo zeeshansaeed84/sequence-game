@@ -19,9 +19,9 @@
     --card-bg: #fdf8f0;
     --red: #c0392b;
     --black: #1a1a1a;
-    --chip-blue: #2563eb;
-    --chip-green: #16a34a;
-    --chip-red: #dc2626;
+    --chip-blue: #61AF41;
+    --chip-green: #D7301F;
+    --chip-red: #AE42D0;
     --chip-blue-light: #60a5fa;
     --chip-green-light: #4ade80;
     --chip-red-light: #f87171;
@@ -342,61 +342,35 @@
     justify-content: center;
   }
 
+  /* Chip is now an SVG inside a sized div */
   .chip {
-    width: 58%;
-    height: 58%;
     border-radius: 50%;
     position: relative;
-    border: 2px solid rgba(255,255,255,0.4);
-    box-shadow:
-      0 3px 8px rgba(0,0,0,0.6),
-      inset 0 2px 3px rgba(255,255,255,0.25),
-      inset 0 -5px 8px rgba(0,0,0,0.45),
-      0 0 0 3px rgba(0,0,0,0.18);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.55));
+    user-select: none;
   }
+  .chip svg { display: block; overflow: visible; }
 
-  /* Solid dark chip colors — clearly distinct from board card colors */
-  .chip.blue     { background: radial-gradient(circle at 35% 30%, #2563c8, #0c1f6b); }
-  .chip.green    { background: radial-gradient(circle at 35% 30%, #16782a, #063b10); }
-  .chip.red-chip { background: radial-gradient(circle at 35% 30%, #c41a1a, #6b0707); }
-
-  /* Last-placed chip: same dark color, but a bright red pulsing dot in the center
-     so the most recent move stands out clearly against ALL backgrounds */
-  .chip.last-placed::after {
-    content: '';
+  /* Last-placed dot is injected as a real DOM element for precise centering */
+  .chip-last-dot {
     position: absolute;
-    width: 28%; height: 28%;
     border-radius: 50%;
-    background: #ff1744;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 7px 2px rgba(255,23,68,0.85), 0 0 2px rgba(255,255,255,0.7);
-    animation: red-dot-pulse 1s ease-in-out infinite;
+    background: #39FF14;
     pointer-events: none;
     z-index: 2;
+    animation: neon-dot-pulse 0.8s ease-in-out infinite;
   }
-  @keyframes red-dot-pulse {
-    0%, 100% { transform: translate(-50%,-50%) scale(1);   opacity: 1;   }
-    50%       { transform: translate(-50%,-50%) scale(1.45); opacity: 0.6; }
+  @keyframes neon-dot-pulse {
+    0%, 100% { opacity: 1;   transform: scale(1);   }
+    50%       { opacity: 0.7; transform: scale(1.3); }
   }
 
   .chip.sequence-ring {
-    box-shadow: inset 0 2px 3px rgba(255,255,255,0.25), inset 0 -5px 8px rgba(0,0,0,0.45),
-                0 0 0 2.5px var(--gold), 0 0 10px rgba(201,168,76,0.7);
-    border-color: var(--gold);
-  }
-
-  /* Casino-chip edge notches */
-  .chip::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: repeating-conic-gradient(rgba(255,255,255,0.92) 0deg 9deg, transparent 9deg 27deg);
-    -webkit-mask: radial-gradient(circle, transparent 60%, #000 63%, #000 80%, transparent 83%);
-            mask: radial-gradient(circle, transparent 60%, #000 63%, #000 80%, transparent 83%);
-    pointer-events: none;
-    opacity: 0.85;
+    filter: drop-shadow(0 0 4px var(--gold)) drop-shadow(0 2px 4px rgba(0,0,0,0.55));
   }
 
   /* Other players: chip drops onto the board with two brightness flashes */
@@ -442,7 +416,6 @@
   /* Expanding red ring that radiates outward on chip removal */
   .jack-remove-ring {
     position: absolute;
-    width: 58%; height: 58%;
     top: 50%; left: 50%;
     border-radius: 50%;
     border: 3px solid #ff1744;
@@ -459,7 +432,6 @@
   /* Second delayed ring for a double-ripple effect */
   .jack-remove-ring2 {
     position: absolute;
-    width: 58%; height: 58%;
     top: 50%; left: 50%;
     border-radius: 50%;
     border: 2px solid rgba(255,100,100,0.7);
@@ -566,7 +538,7 @@
     transform: translateY(-12px);
     box-shadow: 0 12px 24px rgba(201,168,76,0.6);
   }
-  .hand-card.dead-card { opacity: 0.45; border-color: rgba(220,60,60,0.7); }
+  .hand-card.dead-card { opacity: 0.5; }
   .hand-card.jack-wild { border-color: rgba(201,168,76,0.8); background: #fffdf5; }
   .hand-card.jack-anti { border-color: rgba(200,40,40,0.7); }
 
@@ -601,35 +573,24 @@
   }
 
   /* Action buttons */
-  .action-row {
-    display: flex;
-    gap: 6px;
-    margin-top: 4px;
-  }
-
-  .btn-action {
-    flex: 1;
-    padding: 6px;
-    border: none;
+  /* Inline discard button — appears next to a dead card when tapped */
+  .discard-btn {
+    flex-shrink: 0;
+    align-self: center;
+    padding: 6px 10px;
+    border: 1px solid rgba(220,38,38,0.5);
     border-radius: 6px;
+    background: rgba(220,38,38,0.15);
+    color: #f87171;
     font-family: 'Cinzel', serif;
-    font-size: 0.72rem;
+    font-size: 0.65rem;
     font-weight: 600;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
     cursor: pointer;
+    white-space: nowrap;
     transition: all 0.15s;
   }
-  .btn-play {
-    background: linear-gradient(135deg, var(--gold), #a8863a);
-    color: var(--black);
-  }
-  .btn-play:disabled { opacity: 0.4; cursor: default; }
-  .btn-dead {
-    background: rgba(220,38,38,0.2);
-    color: #f87171;
-    border: 1px solid rgba(220,38,38,0.4);
-  }
-  .btn-dead:disabled { opacity: 0.3; cursor: default; }
+  .discard-btn:active { background: rgba(220,38,38,0.35); }
 
   /* Modal */
   .modal-backdrop {
@@ -759,8 +720,7 @@
       justify-content: center;
     }
 
-    .action-row { margin-top: 12px; }
-    .btn-action  { padding: 10px; font-size: 0.8rem; }
+    .hand-label-row { margin-bottom: 8px; }
     .waiting-banner { font-size: 0.85rem; min-height: 1.3em; }
     .turn-timer { min-width: 32px; height: 32px; font-size: 0.85rem; }
     .board { padding: 5px; }
@@ -842,10 +802,6 @@
         <div class="turn-timer" id="turn-timer">60</div>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
-      <div class="action-row">
-        <button class="btn-action btn-play" id="play-btn" onclick="playCard()" disabled>Play Card</button>
-        <button class="btn-action btn-dead" id="dead-btn" onclick="playDeadCard()" disabled>Dead Card</button>
-      </div>
     </div>
   </div>
 </div>
@@ -893,9 +849,11 @@ const SOUND_DATA = {
   Lose: "data:audio/mp3;base64,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VVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xO2CSJUO9qSYYwj9jJ7EYJnAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xOkDhxQA7QGMa4j0IBWEMAzRVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//s0xMIDwAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
 };
 // ── SOUND SYSTEM ─────────────────────────────────────────────────────────────
+// Using HTML <audio> elements — far more reliable on iOS than Web Audio API.
+// iOS WebKit (used by ALL iOS browsers including Chrome) blocks Web Audio API
+// reliably but allows <audio> playback after any user gesture.
 let soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
-const audioBuffers = {};
-let audioCtx = null;
+const audioEls = {}; // name -> <audio> element
 
 function getSoundEnabled() { return soundEnabled; }
 
@@ -912,76 +870,46 @@ function updateSoundToggleUI() {
   });
 }
 
-// Create AudioContext only on demand — never at page load, as Chrome
-// may permanently mark a pre-gesture context as policy-blocked
-function getAudioCtx() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  return audioCtx;
-}
-
-// Decode all sounds — called once inside the first user gesture (unlockSpeaker)
-let soundsDecoded = false;
-function decodeSounds() {
-  if (soundsDecoded) return;
-  soundsDecoded = true;
-  const ctx = getAudioCtx();
+// Build one <audio> element per sound and append to DOM (hidden)
+// iOS requires elements to be in the DOM to play reliably
+(function buildAudioElements() {
+  const container = document.createElement('div');
+  container.style.display = 'none';
+  container.id = 'audio-pool';
   for (const [key, dataUri] of Object.entries(SOUND_DATA)) {
-    const b64 = dataUri.split(',')[1];
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    ctx.decodeAudioData(bytes.buffer.slice(0)).then(buf => {
-      audioBuffers[key] = buf;
-    }).catch(() => {});
+    const el = document.createElement('audio');
+    el.src = dataUri;
+    el.preload = 'auto';
+    el.id = 'snd-' + key;
+    container.appendChild(el);
+    audioEls[key] = el;
   }
-}
+  // Win loops
+  audioEls['Win'].loop = true;
+  document.addEventListener('DOMContentLoaded', () => {
+    document.body.appendChild(container);
+  });
+  // If DOM already loaded, append immediately
+  if (document.body) document.body.appendChild(container);
+})();
 
-// iOS WebKit (all iOS browsers) requires resume() on touchend specifically,
-// and re-suspends the context whenever the page loses focus.
-// We re-attempt resume on every touchend and click.
-function resumeCtx() {
-  if (!audioCtx) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-}
-document.addEventListener('touchend', resumeCtx, { passive: true });
-document.addEventListener('click',    resumeCtx, { passive: true });
-
-// Called synchronously inside a button tap — creates context, plays silent buffer,
-// and kicks off decoding. Must happen in the same call stack as the user gesture.
-// On iOS, the silent buffer play is what actually unlocks audio output.
+// iOS requires a .load() call inside a user gesture before .play() will work.
+// We do this once on the first meaningful button tap (Play vs AI / Start Game).
+let audioUnlocked = false;
 function unlockSpeaker() {
-  const ctx = getAudioCtx();
-  // Resume must happen before start() on iOS
-  const doUnlock = () => {
-    try {
-      const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      src.start(0);
-    } catch(e) {}
-    decodeSounds();
-  };
-  if (ctx.state === 'suspended') {
-    ctx.resume().then(doUnlock).catch(doUnlock);
-  } else {
-    doUnlock();
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  for (const el of Object.values(audioEls)) {
+    el.load();
   }
 }
 
 function playSound(name) {
-  if (!soundEnabled || !audioCtx) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  const buf = audioBuffers[name];
-  if (!buf) return;
-  _playBuffer(buf);
-}
-
-function _playBuffer(buf) {
-  try {
-    const src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(audioCtx.destination);
-    src.start(0);
-  } catch(e) {}
+  if (!soundEnabled) return;
+  const el = audioEls[name];
+  if (!el) return;
+  el.currentTime = 0;
+  el.play().catch(() => {});
 }
 
 // Timer tick management — plays once per second during last 10s
@@ -995,34 +923,21 @@ function stopTickSound() {
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
 }
 
-// Win music loops until player exits — lose plays once
-let winMusicSource = null;
-
+// Win music loops until player exits
 function playWinMusic() {
-  if (!soundEnabled || !audioCtx) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  const buf = audioBuffers['Win'];
-  if (!buf) return;
-  _playWinLoop(buf);
-}
-
-function _playWinLoop(buf) {
-  stopWinMusic();
-  try {
-    const src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    src.loop = true;
-    src.connect(audioCtx.destination);
-    src.start(0);
-    winMusicSource = src;
-  } catch(e) {}
+  if (!soundEnabled) return;
+  const el = audioEls['Win'];
+  if (!el) return;
+  el.currentTime = 0;
+  el.loop = true;
+  el.play().catch(() => {});
 }
 
 function stopWinMusic() {
-  if (winMusicSource) {
-    try { winMusicSource.stop(); } catch(e) {}
-    winMusicSource = null;
-  }
+  const el = audioEls['Win'];
+  if (!el) return;
+  el.pause();
+  el.currentTime = 0;
 }
 
 
@@ -1137,6 +1052,78 @@ let numTeams = 2;
 let GS = null;
 
 const TEAM_COLORS = ['blue','green','red-chip'];
+
+const CHIP_COLORS = {
+  'blue':     { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' },
+  'green':    { ring: '#D7301F', ringDark: '#8f1a0f', center: '#fdecea' },
+  'red-chip': { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' },
+};
+
+let _chipId = 0;
+function buildChipSVG(colorClass, initial, size) {
+  const c = CHIP_COLORS[colorClass] || CHIP_COLORS['blue'];
+  const gid = 'cg' + (_chipId++);
+  const r = size / 2;
+  const cx = r, cy = r;
+  const outerR  = r * 0.97;
+  const ringR   = r * 0.80;
+  const centerR = r * 0.56;
+  const id = colorClass.replace('-','') + size;
+
+  // 4 square inlays at cardinal positions
+  const marks = [];
+  for (let i = 0; i < 4; i++) {
+    const angle = (i * 90 - 90) * Math.PI / 180;
+    const mr = (ringR + outerR) / 2;
+    const mx = cx + mr * Math.cos(angle);
+    const my = cy + mr * Math.sin(angle);
+    const hw = r * 0.09, hh = r * 0.11;
+    marks.push(`<rect x="${(mx-hw).toFixed(2)}" y="${(my-hh).toFixed(2)}" width="${(hw*2).toFixed(2)}" height="${(hh*2).toFixed(2)}" rx="${(r*0.02).toFixed(2)}" fill="white" opacity="0.90" transform="rotate(${i*90},${mx.toFixed(2)},${my.toFixed(2)})"/>`);
+  }
+  // 8 sets of 3 dash lines between squares
+  for (let i = 0; i < 4; i++) {
+    const baseAngle = (i * 90 - 45) * Math.PI / 180;
+    for (let d = -1; d <= 1; d++) {
+      const a = baseAngle + d * (6 * Math.PI / 180);
+      const x1 = (cx + ringR * Math.cos(a)).toFixed(2);
+      const y1 = (cy + ringR * Math.sin(a)).toFixed(2);
+      const x2 = (cx + outerR * Math.cos(a)).toFixed(2);
+      const y2 = (cy + outerR * Math.sin(a)).toFixed(2);
+      marks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="white" stroke-width="${(r*0.06).toFixed(2)}" opacity="0.85" stroke-linecap="round"/>`);
+    }
+  }
+
+  const fs = (size * 0.28).toFixed(1);
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="rg${id}" cx="38%" cy="32%" r="65%">
+      <stop offset="0%" stop-color="${lighten(c.ring)}"/>
+      <stop offset="100%" stop-color="${c.ring}"/>
+    </radialGradient>
+    <radialGradient id="cg${id}" cx="40%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="white"/>
+      <stop offset="100%" stop-color="${c.center}"/>
+    </radialGradient>
+  </defs>
+  <circle cx="${cx}" cy="${cy}" r="${outerR.toFixed(2)}" fill="${c.ringDark}"/>
+  <circle cx="${cx}" cy="${cy}" r="${(outerR-0.8).toFixed(2)}" fill="url(#rg${id})"/>
+  <circle cx="${cx}" cy="${cy}" r="${centerR.toFixed(2)}" fill="url(#cg${id})"/>
+  ${marks.join('\n  ')}
+  ${initial ? `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+        font-family="'Arial Black',Arial,sans-serif" font-size="${fs}" font-weight="900"
+        fill="#111111" opacity="0.85">${initial}</text>` : ''}
+</svg>`;
+}
+
+function lighten(hex) {
+  // Lighten a hex colour by ~35% for the gradient highlight
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, ((n >> 16) & 0xff) + 90);
+  const g = Math.min(255, ((n >>  8) & 0xff) + 90);
+  const b = Math.min(255, ( n        & 0xff) + 90);
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
 const TEAM_NAMES  = ['Blue','Green','Red'];
 const TEAM_DOT    = ['dot-blue','dot-green','dot-red'];
 
@@ -1338,8 +1325,10 @@ function scoreMove(row, col, team, action, gs) {
     }
 
   } else if (action === 'remove') {
-    // Removing opponent chip — score by how much it disrupts their sequences
+    // Removing opponent chip — only worthwhile when disrupting a run of 2+
+    // A lone chip scores 0 so AI never wastes a jack on it early game
     const oppTeam = team;
+    let maxRun = 0;
     for (const [dr,dc] of dirs) {
       let oppCount = 0;
       for (let k = 1; k < 5; k++) {
@@ -1354,10 +1343,13 @@ function scoreMove(row, col, team, action, gs) {
         if (chips[nr][nc] === oppTeam || board[nr][nc].type === 'wild') oppCount++;
         else break;
       }
+      maxRun = Math.max(maxRun, oppCount);
       if (oppCount >= 3) score += 200;
       else if (oppCount === 2) score += 60;
-      else score += 10;
+      // lone chip (oppCount=0): score += 0 — not worth using a jack
     }
+    // Hard floor: if no run of 2+ exists, this removal is nearly worthless
+    if (maxRun < 2) score = Math.max(score, 2);
   }
 
   // Small random jitter to avoid repetitive patterns
@@ -1656,7 +1648,7 @@ function initGameState() {
     deck,
     discard: [],
     hands,
-    currentTurn: 0,                        // index into players[]
+    currentTurn: Math.floor(Math.random() * players.length), // random first turn
     phase: 'play',                         // 'play' | 'done'
     winner: null,
     numTeams,
@@ -1830,11 +1822,11 @@ function broadcastGameState() {
   }
   renderGame();
 
-  // In AI mode, trigger AI if it's now the AI's turn
+  // In AI mode, trigger AI if it's now the AI's turn — delayed so human's render paints first
   if (aiMode && GS.phase !== 'done') {
     const cp = players[GS.currentTurn];
     if (cp && cp.id === AI_ID) {
-      aiTakeTurn();
+      setTimeout(aiTakeTurn, 600);
     }
   }
 }
@@ -2141,15 +2133,17 @@ let lastBlinkSeq = -1;    // tracks which GS.moveSeq has already triggered a seq
 
 function showGameScreen() {
   showScreen('game-screen');
-  setVh(); // recalculate with fresh dimensions now that game screen is visible
-  // Reset animation trackers so stale values from a previous game
-  // don't trigger false removal animations on the first move
-  lastAnimatedSeq = 0;  // moveSeq now starts at 1, so first render correctly animates
+  setVh();
+  lastAnimatedSeq = 0;
   lastBlinkSeq    = 0;
   selectedCardIdx = -1;
   jackMode = null;
   renderGame();
   startCountdownDisplay();
+  // If AI has the first turn, trigger it now
+  if (aiMode && players[GS.currentTurn] && players[GS.currentTurn].id === AI_ID) {
+    setTimeout(aiTakeTurn, 800);
+  }
 }
 
 let countdownHandle = null;
@@ -2290,12 +2284,35 @@ function renderBoard() {
         overlay.className = 'chip-overlay';
         const chip = document.createElement('div');
         const isLastPlaced = GS.lastMove && GS.lastMove.row === r && GS.lastMove.col === c;
-        chip.className = `chip ${TEAM_COLORS[chipTeam]}${isLastPlaced ? ' last-placed' : ''}`;
+        const colorClass = TEAM_COLORS[chipTeam];
+        chip.className = `chip ${colorClass}${isLastPlaced ? ' last-placed' : ''}`;
         if (isSeqCell) chip.classList.add('sequence-ring');
         if (animateThisRender && GS.lastMove && GS.lastMove.row === r && GS.lastMove.col === c && GS.lastMove.seq === GS.moveSeq) {
           chip.classList.add('placing');
           if (GS.lastMove.jackWild) chip.classList.add('jack-wild-anim');
         }
+        const teamPlayer = players.find(p => p.team === chipTeam);
+        // Show initial only when NOT last-placed (last-placed shows gold dot instead)
+        const initial = (!isLastPlaced && teamPlayer) ? teamPlayer.name.charAt(0).toUpperCase() : '';
+        requestAnimationFrame(() => {
+          const chipSize = Math.round(cell.getBoundingClientRect().width * 0.75);
+          chip.style.width  = chipSize + 'px';
+          chip.style.height = chipSize + 'px';
+          chip.innerHTML = buildChipSVG(colorClass, initial, chipSize);
+          // Inject neon dot as real DOM element — centred precisely over the chip
+          if (isLastPlaced) {
+            const dotSize = Math.round(chipSize * 0.22);
+            const dot = document.createElement('div');
+            dot.className = 'chip-last-dot';
+            Object.assign(dot.style, {
+              width:  dotSize + 'px',
+              height: dotSize + 'px',
+              top:    Math.round((chipSize - dotSize) / 2) + 'px',
+              left:   Math.round((chipSize - dotSize) / 2) + 'px',
+            });
+            chip.appendChild(dot);
+          }
+        });
         overlay.append(chip);
         cell.append(overlay);
         cell.classList.add('disabled');
@@ -2314,12 +2331,16 @@ function renderBoard() {
     const {row, col, team} = GS.lastRemoved;
     const cellEl = boardEl.children[row * 10 + col];
     if (cellEl && GS.chips[row][col] === null) {
+      const chipSize = Math.round(cellEl.getBoundingClientRect().width * 0.75);
+      const szPx = chipSize + 'px';
       // Double ripple rings
       const ring1 = document.createElement('div');
       ring1.className = 'jack-remove-ring';
+      ring1.style.width = ring1.style.height = szPx;
       cellEl.append(ring1);
       const ring2 = document.createElement('div');
       ring2.className = 'jack-remove-ring2';
+      ring2.style.width = ring2.style.height = szPx;
       cellEl.append(ring2);
       setTimeout(() => { ring1.remove && ring1.remove(); ring2.remove && ring2.remove(); }, 900);
       // Spinning ghost chip rockets off screen
@@ -2327,6 +2348,8 @@ function renderBoard() {
       overlay.className = 'chip-overlay';
       const ghost = document.createElement('div');
       ghost.className = `chip ${TEAM_COLORS[team]} removing`;
+      ghost.style.width = ghost.style.height = szPx;
+      ghost.innerHTML = buildChipSVG(TEAM_COLORS[team], '', chipSize);
       overlay.append(ghost);
       cellEl.append(overlay);
       setTimeout(() => overlay.remove && overlay.remove(), 700);
@@ -2363,17 +2386,23 @@ function renderHand() {
     if (isDead) el.classList.add('dead-card');
 
     el.innerHTML = makeHandCardHTML(card);
-
     el.addEventListener('click', () => selectCard(i));
     handEl.append(el);
+
+    // Inline discard button appears next to this card when it's selected AND dead AND my turn
+    if (isDead && i === selectedCardIdx && myTurn) {
+      const discardBtn = document.createElement('button');
+      discardBtn.className = 'discard-btn';
+      discardBtn.textContent = 'Discard';
+      discardBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        playDeadCard();
+      });
+      handEl.append(discardBtn);
+    }
   });
 
-  // Update buttons
-  const myTurnAndSelected = myTurn && selectedCardIdx >= 0;
-  document.getElementById('play-btn').disabled = true; // enabled via cell click
-  const selCard = selectedCardIdx >= 0 ? myHand[selectedCardIdx] : null;
-  const isDead = selCard && isDeadCard(selCard, selectedCardIdx);
-  document.getElementById('dead-btn').disabled = !(myTurn && isDead);
+  // No play-btn / dead-btn — removed in favour of inline discard
 }
 
 function isDeadCard(card, idx) {
@@ -2392,29 +2421,16 @@ function isDeadCard(card, idx) {
 }
 
 function selectCard(idx) {
-  resumeCtx(); // iOS re-suspends AudioContext on focus loss — recover here
   if (players[GS.currentTurn] && players[GS.currentTurn].id !== myId) return;
   const wasSelected = selectedCardIdx === idx;
   selectedCardIdx = wasSelected ? -1 : idx;
 
-  // Toggle selected class directly on existing elements — avoids destroying and
-  // recreating the DOM which would prevent the CSS transition from animating back down
-  const handEl = document.getElementById('hand-cards');
-  Array.from(handEl.children).forEach((el, i) => {
-    el.classList.toggle('selected', i === selectedCardIdx);
-  });
-
-  // Still need to update board highlights and button states
+  // Re-render hand — needed to show/hide inline discard button
+  renderHand();
   renderBoard();
-  const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
-  const myHand = GS.hands[myId] || [];
-  const selCard = selectedCardIdx >= 0 ? myHand[selectedCardIdx] : null;
-  const isDead = selCard && isDeadCard(selCard, selectedCardIdx);
-  document.getElementById('dead-btn').disabled = !(myTurn && isDead);
 }
 
 function onCellClick(row, col) {
-  resumeCtx(); // iOS re-suspend recovery
   if (!GS || GS.phase === 'done') return;
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
   if (!myTurn) return;
@@ -2457,7 +2473,7 @@ function flyChipBetween(fromX, fromY, row, col, team, callback) {
 
   const dst = dstEl.getBoundingClientRect();
   const color = TEAM_COLORS[team];
-  const finalSize = dst.width * 0.58;
+  const finalSize = dst.width * 0.75;
   const initSize  = finalSize * 0.85;
 
   const sx = fromX, sy = fromY;
@@ -2471,16 +2487,18 @@ function flyChipBetween(fromX, fromY, row, col, team, callback) {
 
   const fly = document.createElement('div');
   fly.className = `chip ${color}`;
+  const flyPlayer = players.find(p => p.team === team);
+  const flyInitial = flyPlayer ? flyPlayer.name.charAt(0).toUpperCase() : '';
+  fly.innerHTML = buildChipSVG(color, flyInitial, Math.round(initSize));
   Object.assign(fly.style, {
-    position:    'fixed',
-    borderRadius:'50%',
+    position:     'fixed',
+    borderRadius: '50%',
     pointerEvents:'none',
-    zIndex:      '9999',
-    willChange:  'left, top, width, height, filter',
-    boxShadow:   '0 6px 20px rgba(0,0,0,0.65), 0 0 28px rgba(255,255,255,0.35)',
-    border:      '2px solid rgba(255,255,255,0.55)',
-    left: `${sx - initSize/2}px`,
-    top:  `${sy - initSize/2}px`,
+    zIndex:       '9999',
+    willChange:   'left, top, width, height',
+    filter:       'drop-shadow(0 4px 10px rgba(0,0,0,0.6))',
+    left:   `${sx - initSize/2}px`,
+    top:    `${sy - initSize/2}px`,
     width:  `${initSize}px`,
     height: `${initSize}px`,
   });
