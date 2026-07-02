@@ -939,6 +939,21 @@ document.addEventListener('touchstart', resumeCtx, { passive: true });
 document.addEventListener('touchend',   resumeCtx, { passive: true });
 document.addEventListener('click',      resumeCtx, { passive: true });
 
+// Play a silent 1-sample buffer synchronously within a user gesture.
+// This is the only reliable way to unlock speaker output on mobile Chrome —
+// AudioContext.resume() alone is not enough without an actual audio output.
+function unlockSpeaker() {
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  try {
+    const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+  } catch(e) {}
+}
+
 function playSound(name) {
   if (!soundEnabled) return;
   const ctx = getAudioCtx();
@@ -1142,6 +1157,7 @@ const AI_ID = '__AI__';
 const AI_NAME = 'Dealer AI';
 
 function startVsAI() {
+  unlockSpeaker(); // must be synchronous within the tap gesture
   myName = document.getElementById('player-name').value.trim() || 'Player';
   setError('lobby-error','');
   aiMode = true;
@@ -1566,6 +1582,7 @@ function broadcastLobbyState() {
 }
 
 function startGame() {
+  unlockSpeaker();
   if (!isHost) return;
   if (players.length < 2) { setError('waiting-error','Need at least 2 players.'); return; }
 
