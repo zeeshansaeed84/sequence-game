@@ -2600,11 +2600,11 @@ function animateSequenceInversion(newCells, allSeqCells, isWin) {
       void chipEl.offsetWidth; // force reflow to restart animation
       chipEl.classList.add('seq-inverting');
       setTimeout(() => chipEl.classList.remove('seq-inverting'), 280);
-    }, i * 150);
+    }, i * 250);
   });
 
   // Step 2: after all chips inverted, blink the new sequence once
-  const invertDone = sorted.length * 150 + 300;
+  const invertDone = sorted.length * 250 + 300;
   setTimeout(() => {
     blinkCellsList(newCells, 1, () => {
       if (isWin) {
