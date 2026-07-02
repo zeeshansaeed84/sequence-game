@@ -629,7 +629,17 @@
   }
   .discard-btn:active { background: rgba(220,38,38,0.95); transform: translateX(-50%) scale(0.96); }
 
-  /* Modal */
+  /* Spectator banner */
+  .spectator-banner {
+    background: rgba(201,168,76,0.15);
+    border-top: 1px solid rgba(201,168,76,0.3);
+    color: var(--gold-light);
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-align: center;
+    padding: 6px;
+  }
   .modal-backdrop {
     display: none;
     position: fixed;
@@ -801,7 +811,10 @@
       <div class="section-label">JOIN EXISTING GAME</div>
       <input id="join-code" type="text" placeholder="Room code (e.g. ABC123)" maxlength="6"
              style="text-transform:uppercase;letter-spacing:0.2em" autocomplete="off">
-      <button class="btn btn-secondary" onclick="joinGame()">Join Game</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary" style="flex:1" onclick="joinGame()">Join Game</button>
+        <button class="btn btn-secondary" style="flex:1" onclick="spectateGame()">👁 Watch</button>
+      </div>
     </div>
 
     <div id="lobby-create" style="display:none">
@@ -847,6 +860,7 @@
         <button class="sound-toggle btn btn-secondary btn-sm hand-quit-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
         <button class="btn btn-secondary btn-sm hand-quit-btn" onclick="leaveGame()">Quit</button>
       </div>
+      <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
       <div id="waiting-banner" class="waiting-banner"></div>
       <div class="hand-label-row">
         <div class="hand-label">YOUR HAND</div>
@@ -1113,6 +1127,7 @@ let fbGameStarted = false;
 let myId = null;
 let myName = '';
 let isHost = false;
+let isSpectator = false;
 let roomCode = '';
 let players = [];     // [{id, name, team}]
 let myIndex = -1;
@@ -1261,7 +1276,7 @@ function startVsAI() {
   GS = initGameState();
   showGameScreen();
   scheduleTurnTimer();
-}
+  logGameStart(); // analytics
 
 // ── AI BRAIN ──────────────────────────────────────
 // Evaluates every legal move and picks the best one.
@@ -1642,7 +1657,63 @@ async function joinGame() {
   document.getElementById('waiting-status').textContent = 'Joined! Waiting for host to start…';
 }
 
-function showWaitingLobby() {
+async function spectateGame() {
+  const code = document.getElementById('join-code').value.trim().toUpperCase();
+  if (code.length !== 6) { setError('lobby-error','Enter a valid 6-character room code.'); return; }
+  if (!fbInit()) { setError('lobby-error','Firebase not configured.'); return; }
+  setError('lobby-error','');
+
+  isSpectator = true;
+  isHost = false;
+  myId = 'spectator_' + generatePlayerId();
+  roomCode = code;
+  fbGameStarted = false;
+
+  roomRef = db.ref('sq_rooms/' + code);
+  let snap;
+  try { snap = await roomRef.once('value'); }
+  catch(e) { setError('lobby-error', 'Connection error: ' + e.message); isSpectator = false; return; }
+
+  if (!snap.exists()) { setError('lobby-error', 'Room not found.'); isSpectator = false; return; }
+
+  const data = snap.val();
+  numTeams = data.numTeams || 2;
+  seqToWin = data.seqToWin || 2;
+  players = JSON.parse(data.players || '[]');
+
+  // If game already started, go straight to game screen
+  if (data.phase === 'playing' && data.gameState) {
+    GS = JSON.parse(data.gameState);
+    if (GS.moveSeq === 1) GS.lastRemoved = null;
+    fbGameStarted = true;
+    showGameScreen();
+  } else {
+    // Wait in lobby for game to start
+    showWaitingLobby();
+    document.getElementById('waiting-status').textContent = '👁 Spectating — waiting for game to start…';
+    document.getElementById('start-btn').style.display = 'none';
+  }
+
+  // Watch players
+  fbOn(roomRef.child('players'), 'value', snap => {
+    if (!snap.val()) return;
+    players = JSON.parse(snap.val());
+    if (!fbGameStarted) renderWaitingPlayers();
+  });
+
+  // Watch game state
+  fbOn(roomRef.child('gameState'), 'value', snap => {
+    if (!snap.val()) return;
+    GS = JSON.parse(snap.val());
+    if (GS.moveSeq === 1) GS.lastRemoved = null;
+    if (!fbGameStarted) {
+      fbGameStarted = true;
+      showGameScreen();
+    } else {
+      renderGame();
+    }
+  });
+}
   document.getElementById('lobby-main').style.display = 'none';
   document.getElementById('lobby-create').style.display = 'none';
   document.getElementById('lobby-waiting').style.display = 'block';
@@ -1721,6 +1792,7 @@ function startGame() {
 
   showGameScreen();
   scheduleTurnTimer();
+  logGameStart(); // analytics
 }
 
 function leaveGame() {
@@ -1728,6 +1800,8 @@ function leaveGame() {
   stopCountdownDisplay();
   stopTickSound();
   stopWinMusic();
+  // Log abandoned if game was in progress and not yet won
+  if (GS && GS.phase !== 'done' && isHost) logGameAbandoned();
   // Non-host leaving lobby: remove self from player list
   if (!isHost && roomRef && !fbGameStarted) {
     const remaining = players.filter(p => p.id !== myId);
@@ -1740,6 +1814,7 @@ function leaveGame() {
   players = [];
   GS = null;
   isHost = false;
+  isSpectator = false;
   aiMode = false;
   // Reset lobby UI
   document.getElementById('lobby-main').style.display = 'block';
@@ -1755,8 +1830,71 @@ function leaveGame() {
 }
 
 // ═══════════════════════════════════════════════════
-// GAME STATE INIT
+// ANALYTICS
 // ═══════════════════════════════════════════════════
+let analyticsGameId = null;
+let analyticsStartTime = null;
+let analyticsMoveCount = 0;
+
+async function getApproxLocation() {
+  try {
+    const r = await fetch('https://ipapi.co/json/');
+    const d = await r.json();
+    return { city: d.city || '', country: d.country_name || '', region: d.region || '' };
+  } catch(e) { return { city: '', country: '', region: '' }; }
+}
+
+async function logGameStart() {
+  if (!fbInit()) return;
+  analyticsGameId = 'game_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+  analyticsStartTime = Date.now();
+  analyticsMoveCount = 0;
+  const loc = await getApproxLocation();
+  const entry = {
+    gameId:      analyticsGameId,
+    startedAt:   analyticsStartTime,
+    mode:        aiMode ? 'vs_ai' : 'multiplayer',
+    numPlayers:  players.length,
+    numTeams,
+    seqToWin,
+    players:     players.map(p => ({ name: p.name, team: p.team, isAI: p.id.startsWith(AI_ID) })),
+    location:    loc,
+    device:      /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+    browser:     navigator.userAgent.slice(0, 80),
+    status:      'started',
+  };
+  try {
+    await firebase.database().ref('sq_analytics/' + analyticsGameId).set(entry);
+  } catch(e) {}
+}
+
+async function logGameEnd(winnerId, winnerName, totalSequences) {
+  if (!fbInit() || !analyticsGameId) return;
+  const duration = Math.round((Date.now() - analyticsStartTime) / 1000); // seconds
+  try {
+    await firebase.database().ref('sq_analytics/' + analyticsGameId).update({
+      status:          'completed',
+      endedAt:         Date.now(),
+      durationSecs:    duration,
+      winnerId,
+      winnerName,
+      totalSequences,
+      totalMoves:      analyticsMoveCount,
+    });
+  } catch(e) {}
+}
+
+async function logGameAbandoned() {
+  if (!fbInit() || !analyticsGameId) return;
+  try {
+    await firebase.database().ref('sq_analytics/' + analyticsGameId).update({
+      status:       'abandoned',
+      endedAt:      Date.now(),
+      durationSecs: Math.round((Date.now() - analyticsStartTime) / 1000),
+      totalMoves:   analyticsMoveCount,
+    });
+  } catch(e) {}
+}
 function initGameState() {
   const deck = shuffle([...makeDeck(), ...makeDeck()]); // two decks
   const hands = {};
@@ -1917,6 +2055,15 @@ function applyMoveInner(move, fromId) {
   if (GS.sequences[p.team] >= GS.seqToWin) {
     GS.phase = 'done';
     GS.winner = p.team;
+  }
+
+  analyticsMoveCount++; // track total moves
+
+  // Log win to analytics (host only)
+  if (isHost && GS.phase === 'done') {
+    const winner = players[GS.winner] || players.find(pl => pl.team === GS.winner);
+    const totalSeq = GS.sequences.reduce((a, b) => a + b, 0);
+    logGameEnd(winner?.id || '', winner?.name || '', totalSeq);
   }
 
   // Advance turn
@@ -2261,9 +2408,23 @@ function showGameScreen() {
   lastBlinkSeq    = 0;
   selectedCardIdx = -1;
   jackMode = null;
+
+  // Show/hide spectator banner and hand area
+  const spectatorBanner = document.getElementById('spectator-banner');
+  const handLabel = document.querySelector('.hand-label-row');
+  const handCards = document.getElementById('hand-cards');
+  if (isSpectator) {
+    if (spectatorBanner) spectatorBanner.style.display = 'block';
+    if (handLabel) handLabel.style.display = 'none';
+    if (handCards) handCards.style.display = 'none';
+  } else {
+    if (spectatorBanner) spectatorBanner.style.display = 'none';
+    if (handLabel) handLabel.style.display = '';
+    if (handCards) handCards.style.display = '';
+  }
+
   renderGame();
   startCountdownDisplay();
-  // If AI has the first turn, trigger it now
   if (aiMode && players[GS.currentTurn] && players[GS.currentTurn].id.startsWith(AI_ID)) {
     setTimeout(aiTakeTurn, 800);
   }

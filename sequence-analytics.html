@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sequence Game — Analytics</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1f0f;
+    color: #e8e0d0;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 {
+    font-family: Georgia, serif;
+    color: #c9a84c;
+    font-size: 1.6rem;
+    margin-bottom: 4px;
+    letter-spacing: 0.05em;
+  }
+  .subtitle { color: rgba(232,224,208,0.5); font-size: 0.85rem; margin-bottom: 24px; }
+
+  /* Password gate */
+  #auth-gate {
+    max-width: 320px;
+    margin: 80px auto;
+    text-align: center;
+  }
+  #auth-gate input {
+    width: 100%; padding: 10px 14px;
+    border-radius: 8px; border: 1px solid rgba(201,168,76,0.4);
+    background: rgba(255,255,255,0.06); color: white;
+    font-size: 1rem; margin-bottom: 10px;
+  }
+  #auth-gate button {
+    width: 100%; padding: 10px;
+    border-radius: 8px; border: none;
+    background: #c9a84c; color: #0f1f0f;
+    font-weight: 700; font-size: 1rem; cursor: pointer;
+  }
+  #auth-error { color: #f87171; font-size: 0.85rem; margin-top: 8px; }
+
+  /* Dashboard */
+  #dashboard { display: none; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #c9a84c;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat-label { font-size: 0.72rem; color: rgba(232,224,208,0.55); letter-spacing: 0.05em; text-transform: uppercase; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th {
+    text-align: left; padding: 8px 10px;
+    border-bottom: 1px solid rgba(201,168,76,0.3);
+    color: rgba(201,168,76,0.8); font-weight: 600;
+    font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  tr:hover td { background: rgba(255,255,255,0.04); }
+  .badge {
+    display: inline-block; padding: 2px 8px;
+    border-radius: 20px; font-size: 0.7rem; font-weight: 600;
+  }
+  .badge-done     { background: rgba(97,175,65,0.2);  color: #61AF41; border: 1px solid rgba(97,175,65,0.4); }
+  .badge-started  { background: rgba(30,144,255,0.2); color: #69b4ff; border: 1px solid rgba(30,144,255,0.4); }
+  .badge-abandoned{ background: rgba(220,38,38,0.15); color: #f87171; border: 1px solid rgba(220,38,38,0.3); }
+  .mode-ai   { color: rgba(232,224,208,0.5); font-size: 0.75rem; }
+  .mode-multi{ color: #c9a84c; font-size: 0.75rem; }
+
+  .section-title {
+    font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: rgba(201,168,76,0.7); margin: 24px 0 10px;
+    border-bottom: 1px solid rgba(201,168,76,0.15); padding-bottom: 6px;
+  }
+  .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); }
+
+  .refresh-btn {
+    float: right; padding: 6px 14px;
+    border-radius: 6px; border: 1px solid rgba(201,168,76,0.4);
+    background: transparent; color: #c9a84c;
+    cursor: pointer; font-size: 0.8rem;
+  }
+  .refresh-btn:hover { background: rgba(201,168,76,0.1); }
+  .loading { color: rgba(232,224,208,0.4); text-align: center; padding: 24px; }
+</style>
+</head>
+<body>
+
+<!-- Password gate -->
+<div id="auth-gate">
+  <h1>📊 Sequence Analytics</h1>
+  <p class="subtitle" style="margin-bottom:20px">Enter password to view</p>
+  <input type="password" id="pw-input" placeholder="Password" onkeydown="if(event.key==='Enter')checkPw()">
+  <button onclick="checkPw()">View Dashboard</button>
+  <div id="auth-error"></div>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <h1>📊 Sequence Analytics</h1>
+    <button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
+  </div>
+  <p class="subtitle" id="last-updated">Loading…</p>
+
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card"><div class="stat-value" id="s-total">—</div><div class="stat-label">Total Games</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-completed">—</div><div class="stat-label">Completed</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-abandoned">—</div><div class="stat-label">Abandoned</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-players">—</div><div class="stat-label">Unique Players</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-sequences">—</div><div class="stat-label">Total Sequences</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-avg-dur">—</div><div class="stat-label">Avg Duration</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-mobile">—</div><div class="stat-label">Mobile %</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-countries">—</div><div class="stat-label">Countries</div></div>
+  </div>
+
+  <div class="section-title">Recent Games</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Mode</th>
+          <th>Players</th>
+          <th>Winner</th>
+          <th>Sequences</th>
+          <th>Moves</th>
+          <th>Duration</th>
+          <th>Location</th>
+          <th>Device</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="games-tbody">
+        <tr><td colspan="10" class="loading">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title">Top Player Names</div>
+  <div id="top-players" class="loading">Loading…</div>
+
+  <div class="section-title">Countries</div>
+  <div id="countries-list" class="loading">Loading…</div>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDNTc973eY-dt1UQSJqs0kCTLAZF14xuG4",
+  authDomain:        "sequence-game-5a793.firebaseapp.com",
+  databaseURL:       "https://sequence-game-5a793-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "sequence-game-5a793",
+  storageBucket:     "sequence-game-5a793.firebasestorage.app",
+  appId:             "1:957529800610:web:6983060a3f83b15367bcfb"
+};
+
+// Set your dashboard password here
+const DASHBOARD_PASSWORD = 'sequence2024';
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.database();
+
+function checkPw() {
+  const pw = document.getElementById('pw-input').value;
+  if (pw === DASHBOARD_PASSWORD) {
+    document.getElementById('auth-gate').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    loadData();
+  } else {
+    document.getElementById('auth-error').textContent = 'Incorrect password';
+  }
+}
+
+function fmtDur(secs) {
+  if (!secs) return '—';
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-GB', {day:'numeric',month:'short'}) + ' ' +
+         d.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
+}
+
+async function loadData() {
+  document.getElementById('last-updated').textContent = 'Loading…';
+  const snap = await db.ref('sq_analytics').orderByChild('startedAt').limitToLast(200).once('value');
+  const raw = snap.val() || {};
+  const games = Object.values(raw).sort((a,b) => (b.startedAt||0) - (a.startedAt||0));
+
+  // ── Stats ───────────────────────────────────────
+  const completed  = games.filter(g => g.status === 'completed');
+  const abandoned  = games.filter(g => g.status === 'abandoned');
+  const allPlayers = new Set();
+  let totalSeq = 0, totalDur = 0, durCount = 0, mobileCount = 0;
+  const countryCounts = {}, playerCounts = {};
+
+  games.forEach(g => {
+    (g.players || []).forEach(p => {
+      if (!p.isAI) {
+        allPlayers.add(p.name.toLowerCase());
+        playerCounts[p.name] = (playerCounts[p.name] || 0) + 1;
+      }
+    });
+    totalSeq += g.totalSequences || 0;
+    if (g.durationSecs) { totalDur += g.durationSecs; durCount++; }
+    if (g.device === 'mobile') mobileCount++;
+    const country = g.location?.country;
+    if (country) countryCounts[country] = (countryCounts[country] || 0) + 1;
+  });
+
+  document.getElementById('s-total').textContent     = games.length;
+  document.getElementById('s-completed').textContent = completed.length;
+  document.getElementById('s-abandoned').textContent = abandoned.length;
+  document.getElementById('s-players').textContent   = allPlayers.size;
+  document.getElementById('s-sequences').textContent = totalSeq;
+  document.getElementById('s-avg-dur').textContent   = durCount ? fmtDur(Math.round(totalDur/durCount)) : '—';
+  document.getElementById('s-mobile').textContent    = games.length ? Math.round(mobileCount/games.length*100)+'%' : '—';
+  document.getElementById('s-countries').textContent = Object.keys(countryCounts).length;
+
+  // ── Games table ─────────────────────────────────
+  const tbody = document.getElementById('games-tbody');
+  if (!games.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="loading">No games yet</td></tr>';
+  } else {
+    tbody.innerHTML = games.map(g => {
+      const playerNames = (g.players||[]).filter(p=>!p.isAI).map(p=>p.name).join(', ') || '—';
+      const statusClass = g.status === 'completed' ? 'badge-done' : g.status === 'abandoned' ? 'badge-abandoned' : 'badge-started';
+      const loc = [g.location?.city, g.location?.country].filter(Boolean).join(', ') || '—';
+      return `<tr>
+        <td>${fmtDate(g.startedAt)}</td>
+        <td><span class="${g.mode==='vs_ai'?'mode-ai':'mode-multi'}">${g.mode==='vs_ai'?'vs AI':'Multi'}</span></td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${playerNames}">${playerNames}</td>
+        <td>${g.winnerName || '—'}</td>
+        <td style="text-align:center">${g.totalSequences ?? '—'}</td>
+        <td style="text-align:center">${g.totalMoves ?? '—'}</td>
+        <td>${fmtDur(g.durationSecs)}</td>
+        <td>${loc}</td>
+        <td>${g.device || '—'}</td>
+        <td><span class="badge ${statusClass}">${g.status||'—'}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Top players ─────────────────────────────────
+  const sortedPlayers = Object.entries(playerCounts).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  document.getElementById('top-players').innerHTML = sortedPlayers.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">${
+        sortedPlayers.map(([name,count]) =>
+          `<span style="background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.25);border-radius:20px;padding:4px 12px;font-size:0.8rem">
+            ${name} <span style="color:#c9a84c;font-weight:700">${count}</span>
+          </span>`
+        ).join('')
+      }</div>`
+    : '<div class="loading">No data yet</div>';
+
+  // ── Countries ────────────────────────────────────
+  const sortedCountries = Object.entries(countryCounts).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('countries-list').innerHTML = sortedCountries.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">${
+        sortedCountries.map(([country,count]) =>
+          `<span style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 12px;font-size:0.8rem">
+            ${country} <span style="color:rgba(232,224,208,0.5)">${count}</span>
+          </span>`
+        ).join('')
+      }</div>`
+    : '<div class="loading">No location data yet</div>';
+
+  document.getElementById('last-updated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+}
+</script>
+</body>
+</html>
