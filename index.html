@@ -1971,6 +1971,11 @@ function skipTurn() {
   GS.moveSeq = (GS.moveSeq || 0) + 1;
   broadcastToast(`⏱ ${skipped ? skipped.name : 'Player'}'s turn timed out — skipped`);
   hostAdvanceAndBroadcast();
+  // Re-trigger AI if it's now the AI's turn after skip
+  if (aiMode && GS.phase !== 'done') {
+    const cp = players[GS.currentTurn];
+    if (cp && cp.id.startsWith(AI_ID)) setTimeout(aiTakeTurn, 600);
+  }
 }
 
 function hostAdvanceAndBroadcast() {
@@ -2431,13 +2436,34 @@ function showGameScreen() {
 }
 
 let countdownHandle = null;
+let aiWatchdogHandle = null;
+
 function startCountdownDisplay() {
-  if (countdownHandle) return; // already running
-  countdownHandle = setInterval(updateTurnTimerDisplay, 250);
+  if (countdownHandle) return;
+  countdownHandle = setInterval(() => {
+    updateTurnTimerDisplay();
+    // AI watchdog: if it's AI's turn and no move in 3s, re-trigger
+    if (aiMode && GS && GS.phase !== 'done' && !applyMoveInProgress) {
+      const cp = players[GS.currentTurn];
+      if (cp && cp.id.startsWith(AI_ID)) {
+        if (!aiWatchdogHandle) {
+          aiWatchdogHandle = setTimeout(() => {
+            aiWatchdogHandle = null;
+            const cp2 = players[GS?.currentTurn];
+            if (cp2 && cp2.id.startsWith(AI_ID)) aiTakeTurn();
+          }, 3000);
+        }
+      } else {
+        // Human's turn — clear watchdog
+        if (aiWatchdogHandle) { clearTimeout(aiWatchdogHandle); aiWatchdogHandle = null; }
+      }
+    }
+  }, 250);
   updateTurnTimerDisplay();
 }
 function stopCountdownDisplay() {
   if (countdownHandle) { clearInterval(countdownHandle); countdownHandle = null; }
+  if (aiWatchdogHandle) { clearTimeout(aiWatchdogHandle); aiWatchdogHandle = null; }
 }
 function updateTurnTimerDisplay() {
   const el = document.getElementById('turn-timer');
@@ -2525,7 +2551,7 @@ function renderTopBar() {
   const turnEl = document.getElementById('turn-info');
   const cp = players[GS.currentTurn];
   const isMe = cp && cp.id === myId;
-  const isAI = cp && cp.id === AI_ID;
+  const isAI = cp && cp.id.startsWith(AI_ID);
   if (isMe) {
     turnEl.textContent = 'Your Turn';
     turnEl.style.color = '#e8cc7a';
