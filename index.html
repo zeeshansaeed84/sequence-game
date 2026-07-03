@@ -213,7 +213,12 @@
     text-transform: uppercase;
     margin-bottom: 3px;
     margin-top: 2px;
+    text-align: left;
   }
+  .field-wrap { margin-bottom: 12px; }
+  .field-wrap select { margin-bottom: 0; }
+
+  .error-msg {
     color: #f87171;
     font-size: 0.9rem;
     margin: 8px 0;
@@ -786,22 +791,22 @@
       <div style="display:flex;gap:6px;margin-bottom:0">
         <div style="flex:1">
           <div class="field-label">Opponents</div>
-          <select id="ai-num-teams" style="width:100%">
+          <select id="ai-num-teams" style="width:100%;margin-bottom:0">
             <option value="2">1 AI</option>
             <option value="3">2 AIs</option>
           </select>
         </div>
         <div style="flex:1">
           <div class="field-label">Sequences to Win</div>
-          <select id="ai-seq-to-win" style="width:100%">
+          <select id="ai-seq-to-win" style="width:100%;margin-bottom:0">
             <option value="1">1 Sequence</option>
             <option value="2" selected>2 Sequences</option>
           </select>
         </div>
       </div>
-      <div>
+      <div class="field-wrap" style="margin-top:12px">
         <div class="field-label">Level</div>
-        <select id="ai-difficulty" style="width:100%">
+        <select id="ai-difficulty" style="width:100%;margin-bottom:0">
           <option value="easy">🟢 Easy</option>
           <option value="medium" selected>🟡 Medium</option>
           <option value="hard">🔴 Hard</option>
@@ -828,16 +833,16 @@
 
     <div id="lobby-create" style="display:none">
       <div class="section-label">GAME SETTINGS</div>
-      <div>
+      <div class="field-wrap">
         <div class="field-label">Teams</div>
-        <select id="num-teams" style="width:100%">
+        <select id="num-teams" style="width:100%;margin-bottom:0">
           <option value="2">2 Teams</option>
           <option value="3">3 Teams</option>
         </select>
       </div>
-      <div>
+      <div class="field-wrap">
         <div class="field-label">Sequences to Win</div>
-        <select id="seq-to-win" style="width:100%">
+        <select id="seq-to-win" style="width:100%;margin-bottom:0">
           <option value="1">First to 1 Sequence</option>
           <option value="2" selected>First to 2 Sequences</option>
         </select>
@@ -2608,43 +2613,43 @@ function updateTurnTimerDisplay() {
 
 function renderGame() {
   if (!GS) return;
-
-  // ── Sound triggers (keyed by moveSeq so they fire once per move) ──
-  if (GS.moveSeq !== lastAnimatedSeq) { // new move
-    if (GS.lastRemoved && GS.lastRemoved.jackRemove && GS.lastRemoved.seq === GS.moveSeq) {
-      playSound('Chip_removal_jack');
-    } else if (GS.lastMove && GS.lastMove.seq === GS.moveSeq) {
-      playSound('Chip_placement');
+  try {
+    // ── Sound triggers (keyed by moveSeq so they fire once per move) ──
+    if (GS.moveSeq !== lastAnimatedSeq) { // new move
+      if (GS.lastRemoved && GS.lastRemoved.jackRemove && GS.lastRemoved.seq === GS.moveSeq) {
+        playSound('Chip_removal_jack');
+      } else if (GS.lastMove && GS.lastMove.seq === GS.moveSeq) {
+        playSound('Chip_placement');
+      }
+      if (GS.phase !== 'done' && GS.newSeqCells && GS.newSeqCells.length > 0 && GS.newSeqMoveSeq === GS.moveSeq) {
+        setTimeout(() => playSound('Sequence_complete_'), 600);
+      }
     }
-    // Sequence completed this move
-    if (GS.phase !== 'done' && GS.newSeqCells && GS.newSeqCells.length > 0 && GS.newSeqMoveSeq === GS.moveSeq) {
-      setTimeout(() => playSound('Sequence_complete_'), 600);
+
+    renderBoard();
+    renderHand();
+    renderTopBar();
+
+    const cp = players[GS.currentTurn];
+    const isMyTurn = cp && cp.id === myId;
+    if (isMyTurn && GS.moveSeq !== lastAnimatedSeq) {
+      setTimeout(() => playSound('Your_turn_ting'), 300);
     }
-  }
 
-  renderBoard();
-  renderHand();
-  renderTopBar();
+    if (GS.newSeqCells && GS.newSeqCells.length > 0 &&
+        GS.newSeqMoveSeq === GS.moveSeq &&
+        GS.newSeqMoveSeq !== lastBlinkSeq) {
+      lastBlinkSeq = GS.newSeqMoveSeq;
+      const isWin = GS.phase === 'done';
+      setTimeout(() => animateSequenceInversion(GS.newSeqCells, GS.seqCells, isWin), 600);
+    }
 
-  // Your turn ting — fires when turn switches TO the local player
-  const cp = players[GS.currentTurn];
-  const isMyTurn = cp && cp.id === myId;
-  if (isMyTurn && GS.moveSeq !== lastAnimatedSeq) {
-    setTimeout(() => playSound('Your_turn_ting'), 300);
-  }
-
-  // Sequence completion animation
-  if (GS.newSeqCells && GS.newSeqCells.length > 0 &&
-      GS.newSeqMoveSeq === GS.moveSeq &&
-      GS.newSeqMoveSeq !== lastBlinkSeq) {
-    lastBlinkSeq = GS.newSeqMoveSeq;
-    const isWin = GS.phase === 'done';
-    // Delay slightly so chip placement animation finishes first
-    setTimeout(() => animateSequenceInversion(GS.newSeqCells, GS.seqCells, isWin), 600);
-  }
-
-  if (GS.phase === 'done' && !GS.newSeqCells?.length) {
-    showWinModal();
+    if (GS.phase === 'done' && !GS.newSeqCells?.length) {
+      showWinModal();
+    }
+  } catch(e) {
+    console.error('renderGame error:', e);
+    toast('Render error: ' + e.message, 4000);
   }
 }
 
