@@ -1246,6 +1246,8 @@ function setError(id, msg) {
 // AI MODE
 // ═══════════════════════════════════════════════════
 let aiMode = false;
+let aiTurnHandle = null;
+let aiIsMoving = false;
 const AI_ID = '__AI__';
 const AI_NAME = 'Dealer AI';
 
@@ -1277,6 +1279,7 @@ function startVsAI() {
   showGameScreen();
   scheduleTurnTimer();
   logGameStart(); // analytics
+}
 
 // ── AI BRAIN ──────────────────────────────────────
 // Evaluates every legal move and picks the best one.
@@ -1285,8 +1288,10 @@ function startVsAI() {
 
 function aiTakeTurn() {
   if (!GS || GS.phase === 'done') return;
+  if (aiIsMoving) return; // prevent double move
   const cp = players[GS.currentTurn];
   if (!cp || !cp.id.startsWith(AI_ID)) return;
+  aiIsMoving = true;
   const aiId   = cp.id;
   const aiTeam = cp.team;
   const hand   = GS.hands[aiId];
@@ -1326,45 +1331,24 @@ function aiTakeTurn() {
     }
   });
 
-  if (!bestMove) return;
+  // Fallback: if no move found (shouldn't happen), discard first card
+  if (!bestMove) {
+    bestMove = { cardIdx: 0, dead: true, row: 0, col: 0 };
+  }
+
   const delay = 650 + Math.random() * 400;
   const aiCard = hand[bestMove.cardIdx];
   const isRemoval = !bestMove.dead && aiCard && isOneEyedJack(aiCard);
   const isWildJack = !bestMove.dead && aiCard && isTwoEyedJack(aiCard);
 
   setTimeout(() => {
+    aiIsMoving = false; // reset before applying so broadcastGameState can re-trigger correctly
     if (bestMove.dead) {
       applyMove(bestMove, aiId);
     } else if (isRemoval || isWildJack) {
-      const boardEl = document.getElementById('board');
-      const dstEl = boardEl?.children[bestMove.row * 10 + bestMove.col];
-      const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
-      let fromX = window.innerWidth * 0.5, fromY = 80;
-      if (aiBadge) {
-        const rect = aiBadge.getBoundingClientRect();
-        fromX = rect.left + rect.width / 2;
-        fromY = rect.top + rect.height / 2;
-      }
-      if (!dstEl) { applyMove(bestMove, aiId); return; }
-      const dst = dstEl.getBoundingClientRect();
-      const cardW = 40, cardH = 56;
-      const fly = document.createElement('div');
-      fly.style.cssText = `position:fixed;z-index:9999;pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.6);width:${cardW}px;height:${cardH}px;left:${fromX-cardW/2}px;top:${fromY-cardH/2}px;will-change:left,top,opacity;`;
-      fly.innerHTML = buildBoardCardSVG(aiCard.rank, aiCard.suit, cardW, cardH);
-      document.body.appendChild(fly);
-      const dstCx = dst.left + dst.width / 2;
-      const dstCy = dst.top + dst.height / 2;
-      requestAnimationFrame(() => {
-        fly.style.transition = 'left 0.7s cubic-bezier(.4,0,.2,1),top 0.7s cubic-bezier(.4,0,.2,1),opacity 0.7s';
-        fly.style.left = (dstCx - cardW/2) + 'px';
-        fly.style.top  = (dstCy - cardH/2) + 'px';
-        setTimeout(() => {
-          fly.style.opacity = '0';
-          if (isRemoval) playSound('Chip_removal_jack');
-          else playSound('Chip_placement');
-          setTimeout(() => { fly.remove(); applyMove(bestMove, aiId); }, 200);
-        }, 720);
-      });
+      if (isRemoval) playSound('Chip_removal_jack');
+      else playSound('Chip_placement');
+      applyMove(bestMove, aiId);
     } else {
       const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
       let fromX = window.innerWidth * 0.18, fromY = 70;
@@ -1499,6 +1483,7 @@ function fbIsConfigured() {
 function fbInit() {
   if (db) return true;
   if (!fbIsConfigured()) return false;
+  if (typeof firebase === 'undefined') return false; // SDK not loaded (e.g. VS AI mode offline)
   try {
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
@@ -1714,6 +1699,8 @@ async function spectateGame() {
     }
   });
 }
+
+function showWaitingLobby() {
   document.getElementById('lobby-main').style.display = 'none';
   document.getElementById('lobby-create').style.display = 'none';
   document.getElementById('lobby-waiting').style.display = 'block';
@@ -1802,7 +1789,8 @@ function leaveGame() {
   stopWinMusic();
   // Log abandoned if game was in progress and not yet won
   if (GS && GS.phase !== 'done' && isHost) logGameAbandoned();
-  // Non-host leaving lobby: remove self from player list
+  if (aiTurnHandle) { clearTimeout(aiTurnHandle); aiTurnHandle = null; }
+  aiIsMoving = false;
   if (!isHost && roomRef && !fbGameStarted) {
     const remaining = players.filter(p => p.id !== myId);
     roomRef.child('players').set(JSON.stringify(remaining)).catch(() => {});
@@ -1845,7 +1833,7 @@ async function getApproxLocation() {
 }
 
 async function logGameStart() {
-  if (!fbInit()) return;
+  if (!fbInit() || !db) return; // skip in VS AI mode — no Firebase connection
   analyticsGameId = 'game_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
   analyticsStartTime = Date.now();
   analyticsMoveCount = 0;
@@ -1864,15 +1852,15 @@ async function logGameStart() {
     status:      'started',
   };
   try {
-    await firebase.database().ref('sq_analytics/' + analyticsGameId).set(entry);
+    await db.ref('sq_analytics/' + analyticsGameId).set(entry);
   } catch(e) {}
 }
 
 async function logGameEnd(winnerId, winnerName, totalSequences) {
-  if (!fbInit() || !analyticsGameId) return;
-  const duration = Math.round((Date.now() - analyticsStartTime) / 1000); // seconds
+  if (!db || !analyticsGameId) return;
+  const duration = Math.round((Date.now() - analyticsStartTime) / 1000);
   try {
-    await firebase.database().ref('sq_analytics/' + analyticsGameId).update({
+    await db.ref('sq_analytics/' + analyticsGameId).update({
       status:          'completed',
       endedAt:         Date.now(),
       durationSecs:    duration,
@@ -1885,9 +1873,9 @@ async function logGameEnd(winnerId, winnerName, totalSequences) {
 }
 
 async function logGameAbandoned() {
-  if (!fbInit() || !analyticsGameId) return;
+  if (!db || !analyticsGameId) return;
   try {
-    await firebase.database().ref('sq_analytics/' + analyticsGameId).update({
+    await db.ref('sq_analytics/' + analyticsGameId).update({
       status:       'abandoned',
       endedAt:      Date.now(),
       durationSecs: Math.round((Date.now() - analyticsStartTime) / 1000),
@@ -1984,10 +1972,16 @@ function hostAdvanceAndBroadcast() {
 }
 
 function applyMove(move, fromId) {
-  if (applyMoveInProgress) return; // guard against re-entrant/double-fired calls
+  if (applyMoveInProgress) {
+    // Safety: if stuck for some reason, reset the guard
+    console.warn('applyMove re-entered, resetting guard');
+    applyMoveInProgress = false;
+  }
   applyMoveInProgress = true;
   try {
     applyMoveInner(move, fromId);
+  } catch(e) {
+    console.error('applyMoveInner error:', e);
   } finally {
     applyMoveInProgress = false;
   }
@@ -2097,11 +2091,12 @@ function broadcastGameState() {
   }
   renderGame();
 
-  // In AI mode, trigger AI if it's now the AI's turn — delayed so human's render paints first
+  // In AI mode, trigger AI if it's now the AI's turn
   if (aiMode && GS.phase !== 'done') {
     const cp = players[GS.currentTurn];
     if (cp && cp.id.startsWith(AI_ID)) {
-      setTimeout(aiTakeTurn, 600);
+      if (aiTurnHandle) clearTimeout(aiTurnHandle);
+      aiTurnHandle = setTimeout(() => { aiTurnHandle = null; aiTakeTurn(); }, 600);
     }
   }
 }
@@ -2428,10 +2423,11 @@ function showGameScreen() {
     if (handCards) handCards.style.display = '';
   }
 
+  if (aiTurnHandle) { clearTimeout(aiTurnHandle); aiTurnHandle = null; }
   renderGame();
   startCountdownDisplay();
   if (aiMode && players[GS.currentTurn] && players[GS.currentTurn].id.startsWith(AI_ID)) {
-    setTimeout(aiTakeTurn, 800);
+    aiTurnHandle = setTimeout(() => { aiTurnHandle = null; aiTakeTurn(); }, 800);
   }
 }
 
@@ -2440,30 +2436,11 @@ let aiWatchdogHandle = null;
 
 function startCountdownDisplay() {
   if (countdownHandle) return;
-  countdownHandle = setInterval(() => {
-    updateTurnTimerDisplay();
-    // AI watchdog: if it's AI's turn and no move in 3s, re-trigger
-    if (aiMode && GS && GS.phase !== 'done' && !applyMoveInProgress) {
-      const cp = players[GS.currentTurn];
-      if (cp && cp.id.startsWith(AI_ID)) {
-        if (!aiWatchdogHandle) {
-          aiWatchdogHandle = setTimeout(() => {
-            aiWatchdogHandle = null;
-            const cp2 = players[GS?.currentTurn];
-            if (cp2 && cp2.id.startsWith(AI_ID)) aiTakeTurn();
-          }, 3000);
-        }
-      } else {
-        // Human's turn — clear watchdog
-        if (aiWatchdogHandle) { clearTimeout(aiWatchdogHandle); aiWatchdogHandle = null; }
-      }
-    }
-  }, 250);
+  countdownHandle = setInterval(updateTurnTimerDisplay, 250);
   updateTurnTimerDisplay();
 }
 function stopCountdownDisplay() {
   if (countdownHandle) { clearInterval(countdownHandle); countdownHandle = null; }
-  if (aiWatchdogHandle) { clearTimeout(aiWatchdogHandle); aiWatchdogHandle = null; }
 }
 function updateTurnTimerDisplay() {
   const el = document.getElementById('turn-timer');
