@@ -1330,6 +1330,7 @@ function aiTakeTurn() {
 
   const diff = aiDifficulty || 'medium';
   const jitter = diff==='easy' ? 60 : diff==='medium' ? 8 : 1;
+  const earlyGame = (GS.moveSeq || 1) <= 6; // first 6 moves — jacks never worth it
 
   // ── Step 1: Find best NORMAL card move ──────────────────────────
   let bestNormalScore = -Infinity;
@@ -1352,12 +1353,13 @@ function aiTakeTurn() {
   let bestRemoveMove  = null;
   let bestRemoveCardIdx = -1;
 
-  hand.forEach((card, cardIdx) => {
+  if (!earlyGame) hand.forEach((card, cardIdx) => {
     if (!isOneEyedJack(card)) return;
     for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
       const ct = GS.chips[r][c];
       if (ct === null || ct === aiTeam || isSequenceCellInState(r,c,GS)) continue;
-      const threat = maxOppRunThrough(r, c, ct, GS);
+      // Measure how dangerous THIS chip is — its own team's run through this cell
+      const threat = runLengthAt(r, c, ct, GS);
       const score = evalRemoval(r, c, ct, threat, diff);
       if (score > bestRemoveScore) { bestRemoveScore = score; bestRemoveMove = {cardIdx, dead:false, row:r, col:c}; bestRemoveCardIdx = cardIdx; }
     }
@@ -1367,7 +1369,7 @@ function aiTakeTurn() {
   let bestWildScore = -Infinity;
   let bestWildMove  = null;
 
-  hand.forEach((card, cardIdx) => {
+  if (!earlyGame) hand.forEach((card, cardIdx) => {
     if (!isTwoEyedJack(card)) return;
     for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
       if (GS.chips[r][c] !== null || GS.board[r][c].type === 'wild') continue;
@@ -1483,10 +1485,22 @@ function bestWindow(r, c, dr, dc, t, gs) {
   return best;
 }
 
-// Maximum run any opponent team has through (r,c)
-function maxOppRunThrough(r, c, team, gs) {
+// Count the run length of team t through (r,c) in all directions
+function runLengthAt(r, c, t, gs) {
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
-  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==team);
+  let max = 0;
+  for (const [dr,dc] of dirs) {
+    const fwd = countRun(r,c,dr,dc,t,gs);
+    const bwd = countRun(r,c,-dr,-dc,t,gs);
+    max = Math.max(max, fwd+bwd);
+  }
+  return max;
+}
+
+// Maximum run any opponent team has through (r,c) — for defensive placement scoring
+function maxOppRunThrough(r, c, aiTeam, gs) {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==aiTeam);
   let max = 0;
   for (const [dr,dc] of dirs) {
     for (const opp of oppTeams) {
@@ -1563,24 +1577,17 @@ function evalPlacement(r, c, team, gs, diff) {
   return offScore + defScore + centralBonus;
 }
 
-// Evaluate removing a chip at (r,c) — strict thresholds per difficulty
+// Evaluate removing a chip at (r,c) — only justified when opponent is 4-deep
 function evalRemoval(r, c, oppTeam, threat, diff) {
-  // Core rule: one-eyed jack is ONLY for breaking near-complete sequences
-  // Easy: fires at 4; Medium: fires at 4 (or 3 if desperate); Hard: fires at 3+
-  if (diff==='easy') {
-    if (threat>=4) return 8000;  // emergency — opponent about to win
-    return 0; // easy never uses jack for anything less
-  } else if (diff==='medium') {
-    if (threat>=4) return 9000;
-    if (threat===3) return 1200; // only if normal move is weak
-    return 0;
-  } else {
-    // Hard: thorough evaluation
-    if (threat>=4) return 10000; // always block a 4-chain
-    if (threat===3) return 2500; // strong threat, worth removing
-    if (threat===2) return 80;   // very reluctant — almost never
-    return 0;
+  // Core rule across ALL levels: one-eyed jack only makes sense when opponent
+  // has 4 chips in a line — one away from completing a sequence.
+  // Using it on a 3-chain just delays them one turn and wastes the jack.
+  if (threat >= 4) {
+    // Emergency — opponent about to complete. Always block.
+    return diff==='hard' ? 10000 : diff==='medium' ? 9000 : 8000;
   }
+  // Everything below 4: never worth it
+  return 0;
 }
 
 // Evaluate wild jack placement — must justify wasting the card
