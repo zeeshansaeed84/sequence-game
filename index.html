@@ -1582,8 +1582,8 @@ async function joinGame() {
   const code = document.getElementById('join-code').value.trim().toUpperCase();
   if (!myName) { setError('lobby-error','Enter your name first.'); return; }
   if (code.length !== 6) { setError('lobby-error','Enter a valid 6-character room code.'); return; }
-  if (!fbInit()) { setError('lobby-error','Firebase not configured.'); return; }
-  setError('lobby-error','');
+  if (!fbInit()) { setError('lobby-error','Firebase not available. Check your connection.'); return; }
+  setError('lobby-error', 'Connecting…');
 
   isHost = false;
   roomCode = code;
@@ -1595,12 +1595,12 @@ async function joinGame() {
   try { snap = await roomRef.once('value'); }
   catch(e) { setError('lobby-error', 'Connection error: ' + e.message); return; }
 
-  if (!snap.exists()) { setError('lobby-error', 'Room not found. Check the code.'); return; }
+  if (!snap.exists()) { setError('lobby-error', 'Room not found. Check the code and try again.'); return; }
   const data = snap.val();
-  if (data.phase === 'playing') { setError('lobby-error', 'Game already in progress.'); return; }
+  if (data.phase === 'playing') { setError('lobby-error', 'Game already in progress. Use 👁 Watch to spectate.'); return; }
   if (data.phase === 'abandoned') { setError('lobby-error', 'This room has ended.'); return; }
 
-  numTeams = data.numTeams;
+  numTeams = data.numTeams || 2;
   seqToWin = data.seqToWin || 2;
   const existing = JSON.parse(data.players || '[]');
 
@@ -1611,13 +1611,18 @@ async function joinGame() {
   }
 
   const updated = [...existing, {id: myId, name: myName, team: existing.length % numTeams}];
-  try { await roomRef.child('players').set(JSON.stringify(updated)); }
-  catch(e) { setError('lobby-error', 'Could not join: ' + e.message); return; }
+  try {
+    await roomRef.child('players').set(JSON.stringify(updated));
+  } catch(e) {
+    setError('lobby-error', 'Could not join: ' + e.message);
+    return;
+  }
 
   players = updated;
   myIndex = players.findIndex(p => p.id === myId);
+  setError('lobby-error', '');
 
-  // Client: watch players list
+  // Watch players list
   fbOn(roomRef.child('players'), 'value', snap => {
     if (!snap.val()) return;
     players = JSON.parse(snap.val());
@@ -1625,12 +1630,10 @@ async function joinGame() {
     if (!fbGameStarted) renderWaitingPlayers();
   });
 
-  // Client: watch game state — handles both game start and ongoing updates
+  // Watch game state
   fbOn(roomRef.child('gameState'), 'value', snap => {
     if (!snap.val()) return;
     GS = JSON.parse(snap.val());
-    // Guard: if this is the initial game state (moveSeq=1, no moves yet),
-    // ensure lastRemoved is null so stale Firebase data can't trigger a false removal animation
     if (GS.moveSeq === 1) GS.lastRemoved = null;
     if (!fbGameStarted) {
       fbGameStarted = true;
@@ -1640,7 +1643,7 @@ async function joinGame() {
     }
   });
 
-  // Client: watch toasts from host
+  // Watch toasts
   const joinTime = Date.now();
   fbOn(roomRef.child('toasts'), 'child_added', snap => {
     const d = snap.val();
