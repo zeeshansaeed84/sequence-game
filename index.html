@@ -897,8 +897,17 @@ function setVh() {
 
 setVh();
 window.addEventListener('resize', setVh);
-window.addEventListener('load',   () => setTimeout(setVh, 200));
-window.addEventListener('load',   () => updateSoundToggleUI());
+window.addEventListener('load', () => setTimeout(setVh, 200));
+window.addEventListener('load', () => {
+  updateSoundToggleUI();
+  // Auto-spectate if ?watch=CODE in URL
+  const params = new URLSearchParams(window.location.search);
+  const watchCode = params.get('watch');
+  if (watchCode) {
+    document.getElementById('join-code').value = watchCode.toUpperCase();
+    spectateGame();
+  }
+});
 
 // ═══════════════════════════════════════════════════
 // SOUND SYSTEM
@@ -1849,6 +1858,7 @@ async function logGameStart() {
     location:    loc,
     device:      /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
     browser:     navigator.userAgent.slice(0, 80),
+    roomCode:    roomCode || '',
     status:      'started',
   };
   try {
@@ -2573,7 +2583,7 @@ function renderBoard() {
         const overlay = document.createElement('div');
         overlay.className = 'chip-overlay';
         const chip = document.createElement('div');
-        const isLastPlaced = GS.lastMove && GS.lastMove.row === r && GS.lastMove.col === c;
+        const isLastPlaced = GS.lastMove && GS.lastMove.row === r && GS.lastMove.col === c && !isSeqCell;
         const colorClass = TEAM_COLORS[chipTeam];
         chip.className = `chip ${colorClass}${isLastPlaced ? ' last-placed' : ''}`;
         if (isSeqCell) chip.classList.add('sequence-ring');

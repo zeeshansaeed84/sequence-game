@@ -150,10 +150,11 @@
           <th>Location</th>
           <th>Device</th>
           <th>Status</th>
+          <th>Room</th>
         </tr>
       </thead>
       <tbody id="games-tbody">
-        <tr><td colspan="10" class="loading">Loading…</td></tr>
+        <tr><td colspan="11" class="loading">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -245,7 +246,7 @@ async function loadData() {
   // ── Games table ─────────────────────────────────
   const tbody = document.getElementById('games-tbody');
   if (!games.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="loading">No games yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="loading">No games yet</td></tr>';
   } else {
     tbody.innerHTML = games.map(g => {
       const playerNames = (g.players||[]).filter(p=>!p.isAI).map(p=>p.name).join(', ') || '—';
@@ -262,6 +263,15 @@ async function loadData() {
         <td>${loc}</td>
         <td>${g.device || '—'}</td>
         <td><span class="badge ${statusClass}">${g.status||'—'}</span></td>
+        <td>${g.roomCode && g.status === 'started'
+          ? `<a href="/?watch=${g.roomCode}" target="_blank"
+               style="color:#c9a84c;font-family:monospace;font-size:0.75rem;text-decoration:none;
+                      background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.3);
+                      border-radius:4px;padding:2px 6px" title="Watch this game">
+               👁 ${g.roomCode}</a>`
+          : g.roomCode
+            ? `<span style="font-family:monospace;font-size:0.75rem;color:rgba(232,224,208,0.4)">${g.roomCode}</span>`
+            : '—'}</td>
       </tr>`;
     }).join('');
   }
