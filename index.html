@@ -2825,11 +2825,14 @@ function renderHand() {
 
   const selCard = selectedCardIdx >= 0 ? myHand[selectedCardIdx] : null;
   if (selCard && isDeadCard(selCard, selectedCardIdx) && myTurn && labelRow) {
+    const deadIdx = selectedCardIdx; // capture index
     const discardBtn = document.createElement('button');
     discardBtn.className = 'discard-btn';
     discardBtn.textContent = '✕ Discard';
     discardBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      e.preventDefault();
+      selectedCardIdx = deadIdx; // ensure it's set correctly
       playDeadCard();
     });
     labelRow.appendChild(discardBtn);
