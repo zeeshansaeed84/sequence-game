@@ -1319,64 +1319,98 @@ function startVsAI() {
 
 function aiTakeTurn() {
   if (!GS || GS.phase === 'done') return;
-  if (aiIsMoving) return; // prevent double move
+  if (aiIsMoving) return;
   const cp = players[GS.currentTurn];
   if (!cp || !cp.id.startsWith(AI_ID)) return;
   aiIsMoving = true;
   const aiId   = cp.id;
   const aiTeam = cp.team;
   const hand   = GS.hands[aiId];
-  if (!hand || hand.length === 0) return;
+  if (!hand || hand.length === 0) { aiIsMoving = false; return; }
 
-  let bestScore = -Infinity;
-  let bestMove  = null;
+  const diff = aiDifficulty || 'medium';
+  const jitter = diff==='easy' ? 60 : diff==='medium' ? 8 : 1;
+
+  // ── Step 1: Find best NORMAL card move ──────────────────────────
+  let bestNormalScore = -Infinity;
+  let bestNormalMove  = null;
 
   hand.forEach((card, cardIdx) => {
-    if (card.rank !== 'J' && isDeadCardForState(card, GS)) {
-      if (-5 > bestScore) { bestScore = -5; bestMove = {cardIdx, dead:true, row:0, col:0}; }
-      return;
-    }
-    if (isTwoEyedJack(card)) {
-      for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
-        if (GS.chips[r][c] === null && GS.board[r][c].type !== 'wild') {
-          const score = scoreMove(r, c, aiTeam, 'place', GS);
-          if (score > bestScore) {
-            const move = {cardIdx, dead:false, row:r, col:c};
-            if (jackIsWorthPlaying(card, move, GS, aiTeam)) {
-              bestScore = score; bestMove = move;
-            }
-          }
-        }
-      }
-    } else if (isOneEyedJack(card)) {
-      for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
-        const ct = GS.chips[r][c];
-        if (ct !== null && ct !== aiTeam && !isSequenceCellInState(r,c,GS)) {
-          const score = scoreMove(r, c, ct, 'remove', GS);
-          if (score > bestScore) {
-            const move = {cardIdx, dead:false, row:r, col:c};
-            if (jackIsWorthPlaying(card, move, GS, aiTeam)) {
-              bestScore = score; bestMove = move;
-            }
-          }
-        }
-      }
-    } else {
-      for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
-        const cell = GS.board[r][c];
-        if (cell.type==='card' && cell.suit===card.suit && cell.rank===card.rank && GS.chips[r][c]===null) {
-          const score = scoreMove(r, c, aiTeam, 'place', GS);
-          if (score > bestScore) { bestScore = score; bestMove = {cardIdx, dead:false, row:r, col:c}; }
-        }
+    if (card.rank === 'J') return; // jacks handled separately
+    if (isDeadCardForState(card, GS)) return; // skip dead cards here
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      const cell = GS.board[r][c];
+      if (cell.type==='card' && cell.suit===card.suit && cell.rank===card.rank && GS.chips[r][c]===null) {
+        const score = evalPlacement(r, c, aiTeam, GS, diff) + Math.random()*jitter;
+        if (score > bestNormalScore) { bestNormalScore = score; bestNormalMove = {cardIdx, dead:false, row:r, col:c}; }
       }
     }
   });
 
-  // Fallback: if no move found (shouldn't happen), discard first card
-  if (!bestMove) {
-    bestMove = { cardIdx: 0, dead: true, row: 0, col: 0 };
+  // ── Step 2: Evaluate ONE-EYED jack (removal) ────────────────────
+  let bestRemoveScore = -Infinity;
+  let bestRemoveMove  = null;
+  let bestRemoveCardIdx = -1;
+
+  hand.forEach((card, cardIdx) => {
+    if (!isOneEyedJack(card)) return;
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      const ct = GS.chips[r][c];
+      if (ct === null || ct === aiTeam || isSequenceCellInState(r,c,GS)) continue;
+      const threat = maxOppRunThrough(r, c, ct, GS);
+      const score = evalRemoval(r, c, ct, threat, diff);
+      if (score > bestRemoveScore) { bestRemoveScore = score; bestRemoveMove = {cardIdx, dead:false, row:r, col:c}; bestRemoveCardIdx = cardIdx; }
+    }
+  });
+
+  // ── Step 3: Evaluate TWO-EYED jack (wild placement) ─────────────
+  let bestWildScore = -Infinity;
+  let bestWildMove  = null;
+
+  hand.forEach((card, cardIdx) => {
+    if (!isTwoEyedJack(card)) return;
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      if (GS.chips[r][c] !== null || GS.board[r][c].type === 'wild') continue;
+      // Only consider if cell is unreachable by any normal card in hand
+      const reachable = hand.some((nc,ni) => ni!==cardIdx && nc.rank!=='J' && !isDeadCardForState(nc,GS) &&
+        GS.board[r][c].type==='card' && GS.board[r][c].suit===nc.suit && GS.board[r][c].rank===nc.rank);
+      const score = evalWildJack(r, c, aiTeam, GS, diff, reachable);
+      if (score > bestWildScore) { bestWildScore = score; bestWildMove = {cardIdx, dead:false, row:r, col:c}; }
+    }
+  });
+
+  // ── Step 4: Dead card discard (last resort) ──────────────────────
+  let deadMove = null;
+  hand.forEach((card, cardIdx) => {
+    if (card.rank !== 'J' && isDeadCardForState(card, GS) && !deadMove) {
+      deadMove = {cardIdx, dead:true, row:0, col:0};
+    }
+  });
+
+  // ── Step 5: Decision — pick the best action ──────────────────────
+  // Jacks only beat normal moves if their strategic value is overwhelming
+  // Thresholds: how much better must a jack be vs the best normal card?
+  const removeThreshold = diff==='easy' ? 0 : diff==='medium' ? 200 : 100;
+  const wildThreshold   = diff==='easy' ? 0 : diff==='medium' ? 300 : 150;
+
+  let bestMove = bestNormalMove;
+
+  // Should we use a one-eyed jack?
+  if (bestRemoveMove && bestRemoveScore > (bestNormalScore + removeThreshold)) {
+    bestMove = bestRemoveMove;
   }
 
+  // Should we use a two-eyed jack? (only beats removal if significantly better)
+  if (bestWildMove && bestWildScore > (bestNormalScore + wildThreshold)) {
+    if (!bestMove || bestWildScore > bestRemoveScore + 200) {
+      bestMove = bestWildMove;
+    }
+  }
+
+  // Fallback chain: dead card → discard first card
+  if (!bestMove) bestMove = deadMove || {cardIdx:0, dead:true, row:0, col:0};
+
+  // ── Execute move ─────────────────────────────────────────────────
   const delay = 650 + Math.random() * 400;
   const aiCard = hand[bestMove.cardIdx];
   const isRemoval = !bestMove.dead && aiCard && isOneEyedJack(aiCard);
@@ -1387,194 +1421,210 @@ function aiTakeTurn() {
       aiIsMoving = false;
       applyMove(bestMove, aiId);
     } else if (isRemoval || isWildJack) {
-      // Fly the jack card image to the target, then apply move
       const boardEl = document.getElementById('board');
       const dstEl = boardEl?.children[bestMove.row * 10 + bestMove.col];
       const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
       let fromX = window.innerWidth * 0.5, fromY = 80;
-      if (aiBadge) {
-        const rect = aiBadge.getBoundingClientRect();
-        fromX = rect.left + rect.width / 2;
-        fromY = rect.top + rect.height / 2;
-      }
-      if (!dstEl) {
-        aiIsMoving = false;
-        applyMove(bestMove, aiId);
-        return;
-      }
+      if (aiBadge) { const rect = aiBadge.getBoundingClientRect(); fromX = rect.left + rect.width/2; fromY = rect.top + rect.height/2; }
+      if (!dstEl) { aiIsMoving = false; applyMove(bestMove, aiId); return; }
       const dst = dstEl.getBoundingClientRect();
       const cardW = 40, cardH = 56;
       const fly = document.createElement('div');
       fly.style.cssText = `position:fixed;z-index:9999;pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.6);width:${cardW}px;height:${cardH}px;left:${fromX-cardW/2}px;top:${fromY-cardH/2}px;will-change:left,top,opacity;`;
       fly.innerHTML = buildBoardCardSVG(aiCard.rank, aiCard.suit, cardW, cardH);
       document.body.appendChild(fly);
-      const dstCx = dst.left + dst.width / 2;
-      const dstCy = dst.top + dst.height / 2;
+      const dstCx = dst.left + dst.width/2, dstCy = dst.top + dst.height/2;
       requestAnimationFrame(() => {
         fly.style.transition = 'left 0.7s cubic-bezier(.4,0,.2,1),top 0.7s cubic-bezier(.4,0,.2,1),opacity 0.2s';
-        fly.style.left = (dstCx - cardW/2) + 'px';
-        fly.style.top  = (dstCy - cardH/2) + 'px';
+        fly.style.left = (dstCx-cardW/2)+'px'; fly.style.top = (dstCy-cardH/2)+'px';
         setTimeout(() => {
           fly.style.opacity = '0';
-          if (isRemoval) playSound('Chip_removal_jack');
-          else playSound('Chip_placement');
-          setTimeout(() => {
-            fly.remove();
-            aiIsMoving = false; // reset only after animation completes
-            applyMove(bestMove, aiId);
-          }, 200);
+          if (isRemoval) playSound('Chip_removal_jack'); else playSound('Chip_placement');
+          setTimeout(() => { fly.remove(); aiIsMoving = false; applyMove(bestMove, aiId); }, 200);
         }, 720);
       });
     } else {
       const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
       let fromX = window.innerWidth * 0.18, fromY = 70;
-      if (aiBadge) {
-        const rect = aiBadge.getBoundingClientRect();
-        fromX = rect.left + rect.width / 2;
-        fromY = rect.top + rect.height / 2;
-      }
-      flyChipBetween(fromX, fromY, bestMove.row, bestMove.col, aiTeam, () => {
-        aiIsMoving = false;
-        applyMove(bestMove, aiId);
-      });
+      if (aiBadge) { const rect = aiBadge.getBoundingClientRect(); fromX = rect.left+rect.width/2; fromY = rect.top+rect.height/2; }
+      flyChipBetween(fromX, fromY, bestMove.row, bestMove.col, aiTeam, () => { aiIsMoving = false; applyMove(bestMove, aiId); });
     }
   }, delay);
 }
 
+// ── BOARD EVALUATION HELPERS ─────────────────────────────────────────
 
-function scoreMove(row, col, team, action, gs) {
-  const dirs  = [[0,1],[1,0],[1,1],[1,-1]];
-  const chips = gs.chips;
-  const board = gs.board;
-  const diff  = aiDifficulty || 'medium';
-  let score   = 0;
-
-  function runThrough(r, c, dr, dc, t) {
-    let n = 0;
-    for (let k = 1; k < 5; k++) { const nr=r+dr*k,nc=c+dc*k; if(nr<0||nr>=10||nc<0||nc>=10)break; if(chips[nr][nc]===t||board[nr][nc].type==='wild')n++; else break; }
-    for (let k = 1; k < 5; k++) { const nr=r-dr*k,nc=c-dc*k; if(nr<0||nr>=10||nc<0||nc>=10)break; if(chips[nr][nc]===t||board[nr][nc].type==='wild')n++; else break; }
-    return n;
+// Count chips of team t in direction dr,dc from r,c (not including r,c)
+function countRun(r, c, dr, dc, t, gs) {
+  let n = 0;
+  for (let k = 1; k < 5; k++) {
+    const nr=r+dr*k, nc=c+dc*k;
+    if (nr<0||nr>=10||nc<0||nc>=10) break;
+    if (gs.chips[nr][nc]===t || gs.board[nr][nc].type==='wild') n++;
+    else break;
   }
-
-  function bestWindowScore(r, c, dr, dc, t) {
-    let best = -1;
-    for (let offset = -4; offset <= 0; offset++) {
-      let friendly = 0, blocked = false;
-      for (let k = 0; k < 5; k++) {
-        const nr=r+(offset+k)*dr, nc=c+(offset+k)*dc;
-        if(nr<0||nr>=10||nc<0||nc>=10){blocked=true;break;}
-        const ch=chips[nr][nc];
-        if(nr===r&&nc===c||ch===t||board[nr][nc].type==='wild') friendly++;
-        else if(ch!==null){blocked=true;break;}
-      }
-      if(!blocked) best=Math.max(best,friendly);
-    }
-    return best;
-  }
-
-  function windowDensity(r, c, t) {
-    let count = 0;
-    for (const [dr,dc] of dirs) if(bestWindowScore(r,c,dr,dc,t)>=0) count++;
-    return count;
-  }
-
-  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==team);
-
-  if (action === 'place') {
-    let maxFriendly = 0, maxOppThreat = 0;
-    for (const [dr,dc] of dirs) {
-      const f = bestWindowScore(row,col,dr,dc,team);
-      if(f>maxFriendly) maxFriendly=f;
-      for (const opp of oppTeams) { const r=runThrough(row,col,dr,dc,opp); if(r>maxOppThreat) maxOppThreat=r; }
-    }
-
-    if (diff === 'easy') {
-      if      (maxFriendly>=5) score+=100000;
-      else if (maxFriendly===4) score+=2000;
-      else if (maxFriendly===3) score+=300;
-      else if (maxFriendly===2) score+=60;
-      else score+=10;
-      if (maxOppThreat>=4) score+=1000;
-      score += Math.random()*80;
-    } else if (diff === 'medium') {
-      if      (maxFriendly>=5) score+=100000;
-      else if (maxFriendly===4) score+=3000;
-      else if (maxFriendly===3) score+=500;
-      else if (maxFriendly===2) score+=90;
-      else if (maxFriendly===1) score+=20;
-      else score+=5;
-      if      (maxOppThreat>=4) score+=4000;
-      else if (maxOppThreat===3) score+=400;
-      else if (maxOppThreat===2) score+=50;
-      const d=Math.abs(row-4.5)+Math.abs(col-4.5); score+=Math.max(0,8-d);
-      score+=Math.random()*4;
-    } else {
-      if      (maxFriendly>=5) score+=100000;
-      else if (maxFriendly===4) score+=5000;
-      else if (maxFriendly===3) score+=800;
-      else if (maxFriendly===2) score+=150;
-      else if (maxFriendly===1) score+=30;
-      else score+=5;
-      if      (maxOppThreat>=4) score+=8000;
-      else if (maxOppThreat===3) score+=900;
-      else if (maxOppThreat===2) score+=120;
-      else if (maxOppThreat===1) score+=15;
-      score+=windowDensity(row,col,team)*25;
-      const d=Math.abs(row-4.5)+Math.abs(col-4.5); score+=Math.max(0,12-d);
-      score+=Math.random()*2;
-    }
-
-  } else if (action === 'remove') {
-    let maxThreat = 0;
-    for (const [dr,dc] of dirs) for (const opp of oppTeams) { const r=runThrough(row,col,dr,dc,opp); if(r>maxThreat) maxThreat=r; }
-
-    if (diff === 'easy') {
-      if      (maxThreat>=4) score+=3000;
-      else if (maxThreat===3) score+=400;
-      else if (maxThreat===2) score+=100;
-      else if (maxThreat===1) score+=30;
-      score+=Math.random()*60;
-    } else if (diff === 'medium') {
-      if      (maxThreat>=4) score+=6000;
-      else if (maxThreat===3) score+=900;
-      else if (maxThreat===2) score+=180;
-    } else {
-      if      (maxThreat>=4) score+=10000;
-      else if (maxThreat===3) score+=2000;
-      else if (maxThreat===2) score+=50;
-    }
-  }
-
-  return score;
+  return n;
 }
 
-function jackIsWorthPlaying(card, bestMove, gs, team) {
-  const diff = aiDifficulty || 'medium';
-  if (diff === 'easy') return true;
-  if (isTwoEyedJack(card)) {
-    const threshold = diff==='hard' ? 4 : 3;
-    const dirs=[[0,1],[1,0],[1,1],[1,-1]];
-    let maxWindow=0;
+// Best open window of 5 through (r,c) for team t — returns count of friendly+wild, or -1 if blocked
+function bestWindow(r, c, dr, dc, t, gs) {
+  let best = -1;
+  for (let off = -4; off <= 0; off++) {
+    let friendly=0, blocked=false;
+    for (let k=0; k<5; k++) {
+      const nr=r+(off+k)*dr, nc=c+(off+k)*dc;
+      if (nr<0||nr>=10||nc<0||nc>=10) { blocked=true; break; }
+      const ch=gs.chips[nr][nc];
+      if ((nr===r&&nc===c)||ch===t||gs.board[nr][nc].type==='wild') friendly++;
+      else if (ch!==null) { blocked=true; break; }
+    }
+    if (!blocked) best=Math.max(best,friendly);
+  }
+  return best;
+}
+
+// Maximum run any opponent team has through (r,c)
+function maxOppRunThrough(r, c, team, gs) {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==team);
+  let max = 0;
+  for (const [dr,dc] of dirs) {
+    for (const opp of oppTeams) {
+      const fwd = countRun(r,c,dr,dc,opp,gs);
+      const bwd = countRun(r,c,-dr,-dc,opp,gs);
+      max = Math.max(max, fwd+bwd);
+    }
+  }
+  return max;
+}
+
+// Scan entire board: find the single most dangerous opponent line (highest chip count in any window)
+function boardMaxThreat(aiTeam, gs) {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==aiTeam);
+  let maxThreat = 0;
+  for (let r=0; r<10; r++) for (let c=0; c<10; c++) {
+    if (gs.chips[r][c] !== null) continue; // only open cells matter
     for (const [dr,dc] of dirs) {
-      let f=1;
-      for(let k=1;k<5;k++){const nr=bestMove.row+dr*k,nc=bestMove.col+dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===team||gs.board[nr][nc].type==='wild')f++;else break;}
-      for(let k=1;k<5;k++){const nr=bestMove.row-dr*k,nc=bestMove.col-dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===team||gs.board[nr][nc].type==='wild')f++;else break;}
-      maxWindow=Math.max(maxWindow,f);
+      for (const opp of oppTeams) {
+        const w = bestWindow(r,c,dr,dc,opp,gs);
+        if (w > maxThreat) maxThreat = w;
+      }
     }
-    return maxWindow>=threshold;
   }
-  if (isOneEyedJack(card)) {
-    const dirs=[[0,1],[1,0],[1,1],[1,-1]];
-    const oppTeams=[...new Set(players.map(p=>p.team))].filter(t=>t!==team);
-    for(const [dr,dc] of dirs) for(const opp of oppTeams){
-      let run=0;
-      for(let k=1;k<5;k++){const nr=bestMove.row+dr*k,nc=bestMove.col+dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===opp||gs.board[nr][nc].type==='wild')run++;else break;}
-      for(let k=1;k<5;k++){const nr=bestMove.row-dr*k,nc=bestMove.col-dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===opp||gs.board[nr][nc].type==='wild')run++;else break;}
-      if(run>=3) return true;
+  return maxThreat;
+}
+
+// Evaluate placing a chip at (r,c) for team
+function evalPlacement(r, c, team, gs, diff) {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==team);
+  let offScore = 0, defScore = 0, maxFriendly = 0, maxOppThreat = 0;
+
+  for (const [dr,dc] of dirs) {
+    const w = bestWindow(r,c,dr,dc,team,gs);
+    if (w > maxFriendly) maxFriendly = w;
+    for (const opp of oppTeams) {
+      const fwd = countRun(r,c,dr,dc,opp,gs);
+      const bwd = countRun(r,c,-dr,-dc,opp,gs);
+      const run = fwd+bwd;
+      if (run > maxOppThreat) maxOppThreat = run;
     }
-    return false;
   }
-  return true;
+
+  // Offensive scoring
+  if      (maxFriendly>=5) offScore = 100000; // completes sequence!
+  else if (maxFriendly===4) offScore = diff==='hard' ? 6000 : 3000; // one away
+  else if (maxFriendly===3) offScore = diff==='hard' ? 900 : 500;
+  else if (maxFriendly===2) offScore = diff==='hard' ? 160 : 90;
+  else if (maxFriendly===1) offScore = diff==='hard' ? 35 : 20;
+  else offScore = diff==='easy' ? 10 : 5;
+
+  // Defensive scoring — block opponent runs
+  if      (maxOppThreat>=4) defScore = diff==='hard' ? 9000 : diff==='medium' ? 5000 : 1500; // MUST block
+  else if (maxOppThreat===3) defScore = diff==='hard' ? 1000 : diff==='medium' ? 500 : 80;
+  else if (maxOppThreat===2) defScore = diff==='hard' ? 130 : diff==='medium' ? 60 : 10;
+  else if (maxOppThreat===1) defScore = diff==='hard' ? 18 : 5;
+
+  // Centrality bonus (hard only)
+  let centralBonus = 0;
+  if (diff==='hard') {
+    const dist = Math.abs(r-4.5)+Math.abs(c-4.5);
+    centralBonus = Math.max(0, 14-dist*2);
+    // Window density bonus — cells that appear in more open windows are more flexible
+    let density = 0;
+    for (const [dr,dc] of dirs) if(bestWindow(r,c,dr,dc,team,gs)>=0) density++;
+    centralBonus += density * 8;
+  } else if (diff==='medium') {
+    const dist = Math.abs(r-4.5)+Math.abs(c-4.5);
+    centralBonus = Math.max(0, 8-dist);
+  }
+
+  return offScore + defScore + centralBonus;
+}
+
+// Evaluate removing a chip at (r,c) — strict thresholds per difficulty
+function evalRemoval(r, c, oppTeam, threat, diff) {
+  // Core rule: one-eyed jack is ONLY for breaking near-complete sequences
+  // Easy: fires at 4; Medium: fires at 4 (or 3 if desperate); Hard: fires at 3+
+  if (diff==='easy') {
+    if (threat>=4) return 8000;  // emergency — opponent about to win
+    return 0; // easy never uses jack for anything less
+  } else if (diff==='medium') {
+    if (threat>=4) return 9000;
+    if (threat===3) return 1200; // only if normal move is weak
+    return 0;
+  } else {
+    // Hard: thorough evaluation
+    if (threat>=4) return 10000; // always block a 4-chain
+    if (threat===3) return 2500; // strong threat, worth removing
+    if (threat===2) return 80;   // very reluctant — almost never
+    return 0;
+  }
+}
+
+// Evaluate wild jack placement — must justify wasting the card
+function evalWildJack(r, c, team, gs, diff, reachable) {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  let maxFriendly = 0;
+  for (const [dr,dc] of dirs) {
+    const w = bestWindow(r,c,dr,dc,team,gs);
+    if (w>maxFriendly) maxFriendly=w;
+  }
+
+  if (diff==='easy') {
+    // Easy: only play wild jack to complete a sequence
+    if (maxFriendly>=5) return 100000;
+    return 0;
+  } else if (diff==='medium') {
+    // Medium: complete OR create 4-in-a-line on unreachable cell
+    if (maxFriendly>=5) return 100000;
+    if (maxFriendly===4 && !reachable) return 7000;
+    if (maxFriendly===4 && reachable) return 1000; // reachable — save the jack
+    return 0;
+  } else {
+    // Hard: complete, or 4-chain on unreachable, or 3-chain on unreachable if board threat is high
+    if (maxFriendly>=5) return 100000;
+    if (maxFriendly===4 && !reachable) return 8000;
+    if (maxFriendly===4 && reachable) return 800;
+    if (maxFriendly===3 && !reachable) {
+      // Only if overall board threat is high (opponent close to winning)
+      const threat = boardMaxThreat(team, gs);
+      return threat>=3 ? 600 : 0;
+    }
+    return 0;
+  }
+}
+
+// scoreMove kept for compatibility (used nowhere critical now but may be referenced)
+function scoreMove(row, col, team, action, gs) {
+  const diff = aiDifficulty || 'medium';
+  if (action==='place') return evalPlacement(row, col, team, gs, diff);
+  if (action==='remove') {
+    const threat = maxOppRunThrough(row, col, team, gs);
+    return evalRemoval(row, col, team, threat, diff);
+  }
+  return 0;
 }
 
 
