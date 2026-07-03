@@ -2528,7 +2528,7 @@ function renderTopBar() {
   // Scores
   const scoresEl = document.getElementById('team-scores');
   scoresEl.innerHTML = '';
-  const teamLabels = players.map(p => p.id === myId ? 'You' : p.name);
+  const teamLabels = players.map(p => p.name.slice(0, 7));
   for (let t = 0; t < numTeams; t++) {
     const div = document.createElement('div');
     div.className = 'score-badge';
