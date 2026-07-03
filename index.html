@@ -2031,6 +2031,10 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = null;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastRemoved = {row, col, team: target, seq: GS.moveSeq, jackRemove: true};
+    // Announce one-eyed jack to all players
+    const targetCell = GS.board[row][col];
+    const cellName = targetCell.type === 'card' ? `${targetCell.rank}${SUIT_SYM[targetCell.suit]}` : '★';
+    broadcastToast(`🗡️ ${p.name} used Remove Jack on ${cellName}`, 3500);
   } else if (isTwoEyedJack(card)) {
     if (GS.chips[row][col] !== null) return;
     if (GS.board[row][col].type === 'wild') return;
@@ -2038,6 +2042,10 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: true, fromId};
+    // Announce two-eyed jack to all players
+    const targetCell = GS.board[row][col];
+    const cellName = targetCell.type === 'card' ? `${targetCell.rank}${SUIT_SYM[targetCell.suit]}` : '★';
+    broadcastToast(`🃏 ${p.name} used Wild Jack on ${cellName}`, 3500);
   } else {
     const cell = GS.board[row][col];
     if (cell.type === 'wild') return;
@@ -2115,8 +2123,8 @@ function broadcastGameState() {
   }
 }
 
-function broadcastToast(msg) {
-  toast(msg);
+function broadcastToast(msg, dur = 2500) {
+  toast(msg, dur);
   if (isHost && roomRef) {
     roomRef.child('toasts').push({msg, timestamp: Date.now()});
   }
