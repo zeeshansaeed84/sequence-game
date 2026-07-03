@@ -1602,6 +1602,7 @@ async function joinGame() {
 
   numTeams = data.numTeams;
   seqToWin = data.seqToWin || 2;
+  const existing = JSON.parse(data.players || '[]');
 
   // Prevent duplicate join — same name already in room
   if (existing.some(p => p.name.toLowerCase() === myName.toLowerCase())) {
