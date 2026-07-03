@@ -204,7 +204,16 @@
     margin: 8px 0;
   }
 
-  .error-msg {
+  .field-label {
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: rgba(201,168,76,0.7);
+    text-transform: uppercase;
+    margin-bottom: 3px;
+    margin-top: 2px;
+  }
     color: #f87171;
     font-size: 0.9rem;
     margin: 8px 0;
@@ -548,7 +557,7 @@
     box-shadow: 0 3px 8px rgba(0,0,0,0.45);
     position: relative;
     font-weight: 500;
-    overflow: visible;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
   }
@@ -594,40 +603,26 @@
   }
 
   /* Action buttons */
-  /* Discard button — floats above the selected dead card as a bold pill */
+  /* Discard button — sits in label row, never clips */
   .discard-btn {
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    white-space: nowrap;
-    padding: 5px 12px;
-    border-radius: 20px;
+    padding: 4px 10px;
+    border-radius: 12px;
     border: 1.5px solid #f87171;
-    background: linear-gradient(135deg, rgba(220,38,38,0.85), rgba(180,20,20,0.9));
-    color: white;
+    background: rgba(220,38,38,0.2);
+    color: #f87171;
     font-family: 'Cinzel', serif;
     font-size: 0.6rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(220,38,38,0.5);
-    animation: discard-appear 0.2s cubic-bezier(.34,1.4,.6,1) forwards;
-    z-index: 10;
+    white-space: nowrap;
+    animation: discard-appear 0.15s ease-out forwards;
   }
   @keyframes discard-appear {
-    from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.9); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0)   scale(1);   }
+    from { opacity: 0; transform: scale(0.9); }
+    to   { opacity: 1; transform: scale(1); }
   }
-  .discard-btn::after {
-    content: '';
-    position: absolute;
-    top: 100%; left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-top-color: #f87171;
-  }
-  .discard-btn:active { background: rgba(220,38,38,0.95); transform: translateX(-50%) scale(0.96); }
+  .discard-btn:active { background: rgba(220,38,38,0.5); }
 
   /* Spectator banner */
   .spectator-banner {
@@ -789,13 +784,27 @@
       <input id="player-name" type="text" placeholder="Your name" maxlength="16" autocomplete="off">
       <div class="error-msg" id="lobby-error"></div>
       <div style="display:flex;gap:6px;margin-bottom:0">
-        <select id="ai-num-teams" style="flex:1">
-          <option value="2">2 Teams (vs 1 AI)</option>
-          <option value="3">3 Teams (vs 2 AIs)</option>
-        </select>
-        <select id="ai-seq-to-win" style="flex:1">
-          <option value="1">1 Sequence</option>
-          <option value="2" selected>2 Sequences</option>
+        <div style="flex:1">
+          <div class="field-label">Opponents</div>
+          <select id="ai-num-teams" style="width:100%">
+            <option value="2">1 AI</option>
+            <option value="3">2 AIs</option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <div class="field-label">Sequences to Win</div>
+          <select id="ai-seq-to-win" style="width:100%">
+            <option value="1">1 Sequence</option>
+            <option value="2" selected>2 Sequences</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">Level</div>
+        <select id="ai-difficulty" style="width:100%">
+          <option value="easy">🟢 Easy</option>
+          <option value="medium" selected>🟡 Medium</option>
+          <option value="hard">🔴 Hard</option>
         </select>
       </div>
       <button class="btn btn-primary" onclick="startVsAI()">▶ Play vs AI</button>
@@ -819,14 +828,20 @@
 
     <div id="lobby-create" style="display:none">
       <div class="section-label">GAME SETTINGS</div>
-      <select id="num-teams">
-        <option value="2">2 Teams</option>
-        <option value="3">3 Teams</option>
-      </select>
-      <select id="seq-to-win">
-        <option value="1">First to 1 Sequence</option>
-        <option value="2" selected>First to 2 Sequences</option>
-      </select>
+      <div>
+        <div class="field-label">Teams</div>
+        <select id="num-teams" style="width:100%">
+          <option value="2">2 Teams</option>
+          <option value="3">3 Teams</option>
+        </select>
+      </div>
+      <div>
+        <div class="field-label">Sequences to Win</div>
+        <select id="seq-to-win" style="width:100%">
+          <option value="1">First to 1 Sequence</option>
+          <option value="2" selected>First to 2 Sequences</option>
+        </select>
+      </div>
       <button class="btn btn-primary" onclick="createGame()">Create Room</button>
       <button class="btn btn-secondary" onclick="document.getElementById('lobby-create').style.display='none';document.getElementById('lobby-main').style.display='block'">Back</button>
     </div>
@@ -1255,6 +1270,7 @@ function setError(id, msg) {
 // AI MODE
 // ═══════════════════════════════════════════════════
 let aiMode = false;
+let aiDifficulty = 'medium'; // 'easy' | 'medium' | 'hard'
 let aiTurnHandle = null;
 let aiIsMoving = false;
 const AI_ID = '__AI__';
@@ -1269,6 +1285,7 @@ function startVsAI() {
   myId = 'human';
   numTeams = parseInt(document.getElementById('ai-num-teams')?.value || '2');
   seqToWin = parseInt(document.getElementById('ai-seq-to-win')?.value || '2');
+  aiDifficulty = document.getElementById('ai-difficulty')?.value || 'medium';
 
   if (numTeams === 3) {
     players = [
@@ -1318,7 +1335,12 @@ function aiTakeTurn() {
       for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
         if (GS.chips[r][c] === null && GS.board[r][c].type !== 'wild') {
           const score = scoreMove(r, c, aiTeam, 'place', GS);
-          if (score > bestScore) { bestScore = score; bestMove = {cardIdx, dead:false, row:r, col:c}; }
+          if (score > bestScore) {
+            const move = {cardIdx, dead:false, row:r, col:c};
+            if (jackIsWorthPlaying(card, move, GS, aiTeam)) {
+              bestScore = score; bestMove = move;
+            }
+          }
         }
       }
     } else if (isOneEyedJack(card)) {
@@ -1326,7 +1348,12 @@ function aiTakeTurn() {
         const ct = GS.chips[r][c];
         if (ct !== null && ct !== aiTeam && !isSequenceCellInState(r,c,GS)) {
           const score = scoreMove(r, c, ct, 'remove', GS);
-          if (score > bestScore) { bestScore = score; bestMove = {cardIdx, dead:false, row:r, col:c}; }
+          if (score > bestScore) {
+            const move = {cardIdx, dead:false, row:r, col:c};
+            if (jackIsWorthPlaying(card, move, GS, aiTeam)) {
+              bestScore = score; bestMove = move;
+            }
+          }
         }
       }
     } else {
@@ -1351,13 +1378,48 @@ function aiTakeTurn() {
   const isWildJack = !bestMove.dead && aiCard && isTwoEyedJack(aiCard);
 
   setTimeout(() => {
-    aiIsMoving = false; // reset before applying so broadcastGameState can re-trigger correctly
     if (bestMove.dead) {
+      aiIsMoving = false;
       applyMove(bestMove, aiId);
     } else if (isRemoval || isWildJack) {
-      if (isRemoval) playSound('Chip_removal_jack');
-      else playSound('Chip_placement');
-      applyMove(bestMove, aiId);
+      // Fly the jack card image to the target, then apply move
+      const boardEl = document.getElementById('board');
+      const dstEl = boardEl?.children[bestMove.row * 10 + bestMove.col];
+      const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
+      let fromX = window.innerWidth * 0.5, fromY = 80;
+      if (aiBadge) {
+        const rect = aiBadge.getBoundingClientRect();
+        fromX = rect.left + rect.width / 2;
+        fromY = rect.top + rect.height / 2;
+      }
+      if (!dstEl) {
+        aiIsMoving = false;
+        applyMove(bestMove, aiId);
+        return;
+      }
+      const dst = dstEl.getBoundingClientRect();
+      const cardW = 40, cardH = 56;
+      const fly = document.createElement('div');
+      fly.style.cssText = `position:fixed;z-index:9999;pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.6);width:${cardW}px;height:${cardH}px;left:${fromX-cardW/2}px;top:${fromY-cardH/2}px;will-change:left,top,opacity;`;
+      fly.innerHTML = buildBoardCardSVG(aiCard.rank, aiCard.suit, cardW, cardH);
+      document.body.appendChild(fly);
+      const dstCx = dst.left + dst.width / 2;
+      const dstCy = dst.top + dst.height / 2;
+      requestAnimationFrame(() => {
+        fly.style.transition = 'left 0.7s cubic-bezier(.4,0,.2,1),top 0.7s cubic-bezier(.4,0,.2,1),opacity 0.2s';
+        fly.style.left = (dstCx - cardW/2) + 'px';
+        fly.style.top  = (dstCy - cardH/2) + 'px';
+        setTimeout(() => {
+          fly.style.opacity = '0';
+          if (isRemoval) playSound('Chip_removal_jack');
+          else playSound('Chip_placement');
+          setTimeout(() => {
+            fly.remove();
+            aiIsMoving = false; // reset only after animation completes
+            applyMove(bestMove, aiId);
+          }, 200);
+        }, 720);
+      });
     } else {
       const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
       let fromX = window.innerWidth * 0.18, fromY = 70;
@@ -1367,6 +1429,7 @@ function aiTakeTurn() {
         fromY = rect.top + rect.height / 2;
       }
       flyChipBetween(fromX, fromY, bestMove.row, bestMove.col, aiTeam, () => {
+        aiIsMoving = false;
         applyMove(bestMove, aiId);
       });
     }
@@ -1375,97 +1438,141 @@ function aiTakeTurn() {
 
 
 function scoreMove(row, col, team, action, gs) {
-  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  const dirs  = [[0,1],[1,0],[1,1],[1,-1]];
   const chips = gs.chips;
-  const board  = gs.board;
-  const opp    = team === 0 ? 1 : 0;
-  let score    = 0;
+  const board = gs.board;
+  const diff  = aiDifficulty || 'medium';
+  let score   = 0;
 
-  // Count chips of team t passing through (r,c) in direction (dr,dc) — excluding (r,c) itself
   function runThrough(r, c, dr, dc, t) {
     let n = 0;
-    for (let k = 1; k < 5; k++) {
-      const nr = r+dr*k, nc = c+dc*k;
-      if (nr<0||nr>=10||nc<0||nc>=10) break;
-      if (chips[nr][nc] === t || board[nr][nc].type === 'wild') n++;
-      else break;
-    }
-    for (let k = 1; k < 5; k++) {
-      const nr = r-dr*k, nc = c-dc*k;
-      if (nr<0||nr>=10||nc<0||nc>=10) break;
-      if (chips[nr][nc] === t || board[nr][nc].type === 'wild') n++;
-      else break;
-    }
+    for (let k = 1; k < 5; k++) { const nr=r+dr*k,nc=c+dc*k; if(nr<0||nr>=10||nc<0||nc>=10)break; if(chips[nr][nc]===t||board[nr][nc].type==='wild')n++; else break; }
+    for (let k = 1; k < 5; k++) { const nr=r-dr*k,nc=c-dc*k; if(nr<0||nr>=10||nc<0||nc>=10)break; if(chips[nr][nc]===t||board[nr][nc].type==='wild')n++; else break; }
     return n;
   }
 
-  // Evaluate a line of 5 through (r,c) in direction (dr,dc) for team t after placing there.
-  // Returns number of friendly+wild chips in the best open window, or -1 if fully blocked.
   function bestWindowScore(r, c, dr, dc, t) {
     let best = -1;
-    // Slide a window of 5 that includes (r,c)
     for (let offset = -4; offset <= 0; offset++) {
       let friendly = 0, blocked = false;
       for (let k = 0; k < 5; k++) {
-        const nr = r + (offset+k)*dr, nc = c + (offset+k)*dc;
-        if (nr<0||nr>=10||nc<0||nc>=10) { blocked = true; break; }
-        const ch = chips[nr][nc];
-        const isThis = (nr===r && nc===c);
-        if (isThis || ch === t || board[nr][nc].type === 'wild') friendly++;
-        else if (ch !== null) { blocked = true; break; } // enemy chip blocks window
+        const nr=r+(offset+k)*dr, nc=c+(offset+k)*dc;
+        if(nr<0||nr>=10||nc<0||nc>=10){blocked=true;break;}
+        const ch=chips[nr][nc];
+        if(nr===r&&nc===c||ch===t||board[nr][nc].type==='wild') friendly++;
+        else if(ch!==null){blocked=true;break;}
       }
-      if (!blocked) best = Math.max(best, friendly);
+      if(!blocked) best=Math.max(best,friendly);
     }
     return best;
   }
 
-  if (action === 'place') {
-    let maxFriendly = 0;
-    let maxOppThreat = 0;
-
-    for (const [dr, dc] of dirs) {
-      const f = bestWindowScore(row, col, dr, dc, team);
-      if (f > maxFriendly) maxFriendly = f;
-
-      // Measure opponent threat at this position
-      const oppRun = runThrough(row, col, dr, dc, opp);
-      if (oppRun > maxOppThreat) maxOppThreat = oppRun;
-    }
-
-    // Offensive value
-    if      (maxFriendly >= 5) score += 100000; // completes sequence
-    else if (maxFriendly === 4) score += 3000;  // one chip away from sequence
-    else if (maxFriendly === 3) score += 500;
-    else if (maxFriendly === 2) score += 90;
-    else if (maxFriendly === 1) score += 20;
-    else                        score += 5;
-
-    // Defensive value — block opponent near-sequences
-    if      (maxOppThreat >= 4) score += 4000; // must block — opponent about to win
-    else if (maxOppThreat === 3) score += 400;
-    else if (maxOppThreat === 2) score += 50;
-
-    // Centrality bonus — central cells have more sequence opportunities
-    const distFromCentre = Math.abs(row - 4.5) + Math.abs(col - 4.5);
-    score += Math.max(0, 8 - distFromCentre);
-
-  } else if (action === 'remove') {
-    // Jack removal: only strategic when disrupting a genuine threat (run of 2+)
-    // Lone chips score 0 — never waste a jack on them
-    let maxThreat = 0;
-    for (const [dr, dc] of dirs) {
-      const run = runThrough(row, col, dr, dc, opp);
-      if (run > maxThreat) maxThreat = run;
-    }
-    if      (maxThreat >= 4) score += 6000; // enemy about to complete sequence — emergency
-    else if (maxThreat === 3) score += 900;
-    else if (maxThreat === 2) score += 180;
-    // maxThreat <= 1: score stays 0
+  function windowDensity(r, c, t) {
+    let count = 0;
+    for (const [dr,dc] of dirs) if(bestWindowScore(r,c,dr,dc,t)>=0) count++;
+    return count;
   }
 
-  score += Math.random() * 2; // tiny jitter to break ties
+  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==team);
+
+  if (action === 'place') {
+    let maxFriendly = 0, maxOppThreat = 0;
+    for (const [dr,dc] of dirs) {
+      const f = bestWindowScore(row,col,dr,dc,team);
+      if(f>maxFriendly) maxFriendly=f;
+      for (const opp of oppTeams) { const r=runThrough(row,col,dr,dc,opp); if(r>maxOppThreat) maxOppThreat=r; }
+    }
+
+    if (diff === 'easy') {
+      if      (maxFriendly>=5) score+=100000;
+      else if (maxFriendly===4) score+=2000;
+      else if (maxFriendly===3) score+=300;
+      else if (maxFriendly===2) score+=60;
+      else score+=10;
+      if (maxOppThreat>=4) score+=1000;
+      score += Math.random()*80;
+    } else if (diff === 'medium') {
+      if      (maxFriendly>=5) score+=100000;
+      else if (maxFriendly===4) score+=3000;
+      else if (maxFriendly===3) score+=500;
+      else if (maxFriendly===2) score+=90;
+      else if (maxFriendly===1) score+=20;
+      else score+=5;
+      if      (maxOppThreat>=4) score+=4000;
+      else if (maxOppThreat===3) score+=400;
+      else if (maxOppThreat===2) score+=50;
+      const d=Math.abs(row-4.5)+Math.abs(col-4.5); score+=Math.max(0,8-d);
+      score+=Math.random()*4;
+    } else {
+      if      (maxFriendly>=5) score+=100000;
+      else if (maxFriendly===4) score+=5000;
+      else if (maxFriendly===3) score+=800;
+      else if (maxFriendly===2) score+=150;
+      else if (maxFriendly===1) score+=30;
+      else score+=5;
+      if      (maxOppThreat>=4) score+=8000;
+      else if (maxOppThreat===3) score+=900;
+      else if (maxOppThreat===2) score+=120;
+      else if (maxOppThreat===1) score+=15;
+      score+=windowDensity(row,col,team)*25;
+      const d=Math.abs(row-4.5)+Math.abs(col-4.5); score+=Math.max(0,12-d);
+      score+=Math.random()*2;
+    }
+
+  } else if (action === 'remove') {
+    let maxThreat = 0;
+    for (const [dr,dc] of dirs) for (const opp of oppTeams) { const r=runThrough(row,col,dr,dc,opp); if(r>maxThreat) maxThreat=r; }
+
+    if (diff === 'easy') {
+      if      (maxThreat>=4) score+=3000;
+      else if (maxThreat===3) score+=400;
+      else if (maxThreat===2) score+=100;
+      else if (maxThreat===1) score+=30;
+      score+=Math.random()*60;
+    } else if (diff === 'medium') {
+      if      (maxThreat>=4) score+=6000;
+      else if (maxThreat===3) score+=900;
+      else if (maxThreat===2) score+=180;
+    } else {
+      if      (maxThreat>=4) score+=10000;
+      else if (maxThreat===3) score+=2000;
+      else if (maxThreat===2) score+=50;
+    }
+  }
+
   return score;
 }
+
+function jackIsWorthPlaying(card, bestMove, gs, team) {
+  const diff = aiDifficulty || 'medium';
+  if (diff === 'easy') return true;
+  if (isTwoEyedJack(card)) {
+    const threshold = diff==='hard' ? 4 : 3;
+    const dirs=[[0,1],[1,0],[1,1],[1,-1]];
+    let maxWindow=0;
+    for (const [dr,dc] of dirs) {
+      let f=1;
+      for(let k=1;k<5;k++){const nr=bestMove.row+dr*k,nc=bestMove.col+dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===team||gs.board[nr][nc].type==='wild')f++;else break;}
+      for(let k=1;k<5;k++){const nr=bestMove.row-dr*k,nc=bestMove.col-dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===team||gs.board[nr][nc].type==='wild')f++;else break;}
+      maxWindow=Math.max(maxWindow,f);
+    }
+    return maxWindow>=threshold;
+  }
+  if (isOneEyedJack(card)) {
+    const dirs=[[0,1],[1,0],[1,1],[1,-1]];
+    const oppTeams=[...new Set(players.map(p=>p.team))].filter(t=>t!==team);
+    for(const [dr,dc] of dirs) for(const opp of oppTeams){
+      let run=0;
+      for(let k=1;k<5;k++){const nr=bestMove.row+dr*k,nc=bestMove.col+dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===opp||gs.board[nr][nc].type==='wild')run++;else break;}
+      for(let k=1;k<5;k++){const nr=bestMove.row-dr*k,nc=bestMove.col-dc*k;if(nr<0||nr>=10||nc<0||nc>=10)break;if(gs.chips[nr][nc]===opp||gs.board[nr][nc].type==='wild')run++;else break;}
+      if(run>=3) return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+
 function isDeadCardForState(card, gs) {
   if (card.rank === 'J') return false;
   for (let r = 0; r < 10; r++) {
@@ -2076,6 +2183,15 @@ function applyMoveInner(move, fromId) {
   if (GS.sequences[p.team] >= GS.seqToWin) {
     GS.phase = 'done';
     GS.winner = p.team;
+  }
+
+  // Check draw — board full with no winner
+  if (GS.phase !== 'done') {
+    const boardFull = GS.chips.every(row => row.every(cell => cell !== null));
+    if (boardFull) {
+      GS.phase = 'done';
+      GS.winner = -1; // -1 = draw
+    }
   }
 
   analyticsMoveCount++; // track total moves
@@ -2694,22 +2810,25 @@ function renderHand() {
 
     el.innerHTML = makeHandCardHTML(card);
     el.addEventListener('click', () => selectCard(i));
-    // Discard button appears floating above the card when it's selected AND dead AND my turn
-    if (isDead && i === selectedCardIdx && myTurn) {
-      const discardBtn = document.createElement('button');
-      discardBtn.className = 'discard-btn';
-      discardBtn.textContent = '✕ Discard';
-      discardBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        playDeadCard();
-      });
-      el.appendChild(discardBtn); // inside the card for absolute positioning
-    }
-
     handEl.append(el);
   });
 
-  // No play-btn / dead-btn — removed in favour of inline discard
+  // Show discard button in label row (never clipped by overflow:hidden)
+  const labelRow = document.querySelector('.hand-label-row');
+  const existingDiscard = labelRow?.querySelector('.discard-btn');
+  if (existingDiscard) existingDiscard.remove();
+
+  const selCard = selectedCardIdx >= 0 ? myHand[selectedCardIdx] : null;
+  if (selCard && isDeadCard(selCard, selectedCardIdx) && myTurn && labelRow) {
+    const discardBtn = document.createElement('button');
+    discardBtn.className = 'discard-btn';
+    discardBtn.textContent = '✕ Discard';
+    discardBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      playDeadCard();
+    });
+    labelRow.appendChild(discardBtn);
+  }
 }
 
 function isDeadCard(card, idx) {
@@ -2939,15 +3058,26 @@ function sendMove(move) {
 function showWinModal() {
   const w = GS.winner;
   let title, msg;
-  const iWon = aiMode ? w === 0 : w === players[myIndex]?.team;
   stopTickSound();
+
+  // Draw condition
+  if (w === -1) {
+    title = '🤝 It\'s a Draw!';
+    msg = 'The board is full — no team completed enough sequences.';
+    document.getElementById('win-title').textContent = title;
+    document.getElementById('win-msg').textContent = msg;
+    setTimeout(() => document.getElementById('win-modal').classList.add('open'), 800);
+    return;
+  }
+
+  const iWon = aiMode ? w === 0 : w === players[myIndex]?.team;
   if (aiMode) {
     if (w === 0) {
       title = '🏆 You Win!';
       msg = `You completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}. Well played!`;
     } else {
       title = '🤖 AI Wins!';
-      msg = `The AI completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}. Better luck next time!`;
+      msg = `${players.find(p=>p.team===w)?.name||'AI'} completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}. Better luck next time!`;
     }
   } else {
     title = `🏆 ${TEAM_NAMES[w]} Team Wins!`;
@@ -2959,11 +3089,9 @@ function showWinModal() {
   const showModal = () => document.getElementById('win-modal').classList.add('open');
 
   if (iWon) {
-    // Play win sound once — modal appears after it finishes
     playWinMusic(showModal);
   } else {
     playSound('Lose');
-    // Lose sound is short — wait for it then show modal
     const loseDuration = (audioEls['Lose']?.duration || 2) * 1000;
     setTimeout(showModal, loseDuration + 200);
   }
