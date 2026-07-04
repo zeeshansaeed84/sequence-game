@@ -1181,12 +1181,12 @@
       <hr class="lobby-divider">
 
       <div class="lbl" style="text-align:center;margin-bottom:10px">JOIN EXISTING GAME</div>
-      <div class="join-row">
-        <input id="join-code" type="text" placeholder="Enter room code (e.g. ABC123)" maxlength="6"
-               class="lobby-input join-input" style="text-transform:uppercase;letter-spacing:0.15em" autocomplete="off">
-        <button class="join-arrow" onclick="joinGame()">→</button>
+      <input id="join-code" type="text" placeholder="Enter room code (e.g. ABC123)" maxlength="6"
+             class="lobby-input" style="text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px" autocomplete="off">
+      <div style="display:flex;gap:8px">
+        <button class="lobby-btn-primary" style="flex:1;padding:11px;font-size:0.82rem;box-shadow:0 3px 0 var(--logo-gold)" onclick="joinGame()">▶ JOIN GAME</button>
+        <button class="lobby-btn-outline" style="flex:1;padding:11px;font-size:0.82rem" onclick="spectateGame()">👁 WATCH</button>
       </div>
-      <button class="lobby-btn-outline" style="margin-top:8px;font-size:0.82rem" onclick="spectateGame()">👁 &nbsp;WATCH A GAME</button>
     </div>
 
     <div id="lobby-create" style="display:none">
@@ -2306,12 +2306,26 @@ function renderWaitingPlayers() {
   });
 
   if (isHost) {
-    const canStart = players.length >= 2;
+    const teamCounts = Array(numTeams).fill(0);
+    players.forEach(p => { if (p.team < numTeams) teamCounts[p.team]++; });
+    const minPlayers = Math.min(...teamCounts);
+    const maxPlayers = Math.max(...teamCounts);
+    const balanced = minPlayers > 0 && minPlayers === maxPlayers;
+    const canStart = players.length >= 2 && balanced;
     const startBtn = document.getElementById('start-btn');
     startBtn.style.display = 'block';
     startBtn.disabled = !canStart;
-    document.getElementById('waiting-status').textContent =
-      canStart ? `${players.length} player(s) ready.` : 'Waiting for at least 2 players…';
+
+    let statusMsg = '';
+    if (players.length < 2) {
+      statusMsg = 'Waiting for at least 2 players…';
+    } else if (!balanced) {
+      const teamNames = teamCounts.map((n,i) => `${TEAM_NAMES[i]}: ${n}`).join(', ');
+      statusMsg = `⚠ Teams unbalanced — ${teamNames}. Adjust teams before starting.`;
+    } else {
+      statusMsg = `${players.length} player(s) ready. Teams balanced ✓`;
+    }
+    document.getElementById('waiting-status').textContent = statusMsg;
   }
 }
 
@@ -2324,6 +2338,17 @@ function startGame() {
   unlockSpeaker();
   if (!isHost) return;
   if (players.length < 2) { setError('waiting-error','Need at least 2 players.'); return; }
+
+  // Ensure teams are balanced
+  const teamCounts = Array(numTeams).fill(0);
+  players.forEach(p => { if (p.team < numTeams) teamCounts[p.team]++; });
+  const minPlayers = Math.min(...teamCounts);
+  const maxPlayers = Math.max(...teamCounts);
+  if (minPlayers === 0 || minPlayers !== maxPlayers) {
+    const teamNames = teamCounts.map((n,i) => `${TEAM_NAMES[i]}: ${n}`).join(', ');
+    setError('waiting-error', `Teams must be equal before starting. (${teamNames})`);
+    return;
+  }
 
   GS = initGameState();
   fbGameStarted = true;
@@ -3165,7 +3190,17 @@ function renderBoard() {
       const badge = document.querySelector(`.score-badge[data-team="${moverTeam}"]`);
       let fromX = window.innerWidth * 0.5, fromY = 80;
       if (badge) { const r2 = badge.getBoundingClientRect(); fromX = r2.left + r2.width/2; fromY = r2.top + r2.height/2; }
-      setTimeout(() => flyChipBetween(fromX, fromY, GS.lastMove.row, GS.lastMove.col, moverTeam, () => {}), 100);
+      // Hide chip in target cell until flying animation arrives
+      const targetRow = GS.lastMove.row, targetCol = GS.lastMove.col;
+      setTimeout(() => {
+        const boardEl = document.getElementById('board');
+        const targetCell = boardEl?.children[targetRow * 10 + targetCol];
+        const chipEl = targetCell?.querySelector('.chip-overlay');
+        if (chipEl) chipEl.style.opacity = '0';
+        flyChipBetween(fromX, fromY, targetRow, targetCol, moverTeam, () => {
+          if (chipEl) chipEl.style.opacity = '1';
+        });
+      }, 50);
     }
   }
 
