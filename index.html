@@ -1414,7 +1414,7 @@ function aiTakeTurn() {
   // slipping through when normal moves are also weak (e.g. all dead cards).
   const removeThreshold = diff==='easy' ? 0 : diff==='medium' ? 200 : 100;
   const wildThreshold   = diff==='easy' ? 0 : diff==='medium' ? 300 : 150;
-  const wildMinScore    = 600; // must create a genuine 4-chain or sequence to qualify
+  const wildMinScore    = 2000; // must create a genuine 4-chain or sequence to qualify
 
   let bestMove = bestNormalMove;
 
@@ -1613,6 +1613,10 @@ function evalRemoval(r, c, oppTeam, threat, diff) {
 
 // Evaluate wild jack placement — must justify wasting the card
 function evalWildJack(r, c, team, gs, diff, reachable) {
+  // If a normal card can reach this cell, NEVER use the wild jack here
+  // Jacks are too valuable to waste on reachable cells
+  if (reachable) return 0;
+
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
   let maxFriendly = 0;
   for (const [dr,dc] of dirs) {
@@ -1620,28 +1624,14 @@ function evalWildJack(r, c, team, gs, diff, reachable) {
     if (w>maxFriendly) maxFriendly=w;
   }
 
-  if (diff==='easy') {
-    // Easy: only play wild jack to complete a sequence
-    if (maxFriendly>=5) return 100000;
-    return 0;
-  } else if (diff==='medium') {
-    // Medium: complete OR create 4-in-a-line on unreachable cell
-    if (maxFriendly>=5) return 100000;
-    if (maxFriendly===4 && !reachable) return 7000;
-    if (maxFriendly===4 && reachable) return 1000; // reachable — save the jack
-    return 0;
-  } else {
-    // Hard: complete, or 4-chain on unreachable, or 3-chain on unreachable if board threat is high
-    if (maxFriendly>=5) return 100000;
-    if (maxFriendly===4 && !reachable) return 8000;
-    if (maxFriendly===4 && reachable) return 800;
-    if (maxFriendly===3 && !reachable) {
-      // Only if overall board threat is high (opponent close to winning)
-      const threat = boardMaxThreat(team, gs);
-      return threat>=3 ? 600 : 0;
-    }
-    return 0;
+  // All levels: only use wild jack on unreachable cells
+  if (maxFriendly >= 5) return 100000; // completes sequence — always worth it
+  if (maxFriendly === 4) {
+    // Creates a 4-chain (one away from sequence) on unreachable cell — strong play
+    return diff==='easy' ? 7000 : diff==='medium' ? 7500 : 8000;
   }
+  // Anything below 4: never worth wasting a wild jack
+  return 0;
 }
 
 // scoreMove kept for compatibility (used nowhere critical now but may be referenced)
