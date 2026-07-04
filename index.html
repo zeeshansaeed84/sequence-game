@@ -798,8 +798,9 @@
   .hand-label-row {
     display: flex;
     align-items: center;
-    padding: 4px 10px 1px;
+    padding: 3px 10px 1px;
     gap: 8px;
+    position: relative;
   }
 
   .hand-label-line {
@@ -808,6 +809,7 @@
     gap: 8px;
     flex: 1;
     min-width: 0;
+    padding-right: 50px; /* reserve space for absolutely-positioned timer */
   }
 
   .hand-label {
@@ -825,20 +827,22 @@
     background: rgba(255,255,255,0.35);
   }
 
-  /* Timer + label */
+  /* Timer floats absolutely, overlapping down into the cards area */
   .timer-wrap {
+    position: absolute;
+    right: 10px;
+    top: -2px; /* slightly above label baseline, extends into cards */
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    flex-shrink: 0;
   }
 
   .timer-label {
     font-family: 'Cinzel', serif;
-    font-size: 0.42rem;
+    font-size: 0.38rem;
     color: rgba(255,255,255,0.7);
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
   }
 
   .turn-timer {
@@ -882,7 +886,7 @@
     gap: 5px;
     overflow-x: auto;
     overflow-y: visible;
-    padding: 4px 10px 6px;
+    padding: 3px 10px 5px;
     -webkit-overflow-scrolling: touch;
   }
 
