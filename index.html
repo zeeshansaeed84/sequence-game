@@ -3152,9 +3152,22 @@ function renderBoard() {
   const myTeam = players[myIndex] ? players[myIndex].team : 0;
   const selCard = selectedCardIdx >= 0 ? GS.hands[myId][selectedCardIdx] : null;
 
-  // Only animate once per actual move, not on cosmetic re-renders (e.g. selecting a card)
+  // Only animate once per actual move, not on cosmetic re-renders
   const animateThisRender = GS.moveSeq !== lastAnimatedSeq;
   if (animateThisRender) lastAnimatedSeq = GS.moveSeq;
+
+  // Fly a chip for other players' normal moves (multiplayer + AI already handled in aiTakeTurn)
+  if (animateThisRender && GS.lastMove && GS.lastMove.seq === GS.moveSeq && !GS.lastMove.jackWild) {
+    const moverId = GS.lastMove.fromId;
+    const moverTeam = players.find(p => p.id === moverId)?.team;
+    const isOtherPlayer = moverId && moverId !== myId && !moverId.startsWith(AI_ID);
+    if (isOtherPlayer && moverTeam !== undefined) {
+      const badge = document.querySelector(`.score-badge[data-team="${moverTeam}"]`);
+      let fromX = window.innerWidth * 0.5, fromY = 80;
+      if (badge) { const r2 = badge.getBoundingClientRect(); fromX = r2.left + r2.width/2; fromY = r2.top + r2.height/2; }
+      setTimeout(() => flyChipBetween(fromX, fromY, GS.lastMove.row, GS.lastMove.col, moverTeam, () => {}), 100);
+    }
+  }
 
   for (let r = 0; r < 10; r++) {
     for (let c = 0; c < 10; c++) {
