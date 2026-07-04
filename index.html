@@ -1232,7 +1232,26 @@ function buildChipSVG(colorClass, initial, size, showDot = false, inverted = fal
   <circle cx="${cx}" cy="${cy}" r="${(outerR-0.8).toFixed(2)}" fill="${ringColour}"/>
   <circle cx="${cx}" cy="${cy}" r="${centerR.toFixed(2)}" fill="${centreColour}"/>
   ${marks.join('\n  ')}
-  ${initial ? `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+  ${inverted ? (() => {
+    // SVG crown — scaled to fit comfortably inside the chip centre
+    const cw = size * 0.26; // crown width
+    const ch = size * 0.18; // crown height
+    const x0 = cx - cw/2;
+    const y0 = cy - ch/2 + size*0.02;
+    const x1 = cx + cw/2;
+    const y1 = y0 + ch;
+    const dotR = size * 0.032;
+    // 3 peaks: left, centre, right
+    const path = `M${x0},${y1} L${x0},${y0+ch*0.45} L${x0+cw*0.25},${y0+ch*0.68} L${cx-cw*0.07},${y0+ch*0.22} L${cx},${y0} L${cx+cw*0.07},${y0+ch*0.22} L${x1-cw*0.25},${y0+ch*0.68} L${x1},${y0+ch*0.45} L${x1},${y1} Z`;
+    return `<g opacity="0.95">
+      <path d="${path}" fill="white"/>
+      <circle cx="${x0}" cy="${y0+ch*0.45}" r="${dotR}" fill="white"/>
+      <circle cx="${cx}" cy="${y0}" r="${dotR}" fill="white"/>
+      <circle cx="${x1}" cy="${y0+ch*0.45}" r="${dotR}" fill="white"/>
+      <rect x="${x0}" y="${y1-ch*0.25}" width="${cw}" height="${ch*0.25}" rx="${(size*0.02).toFixed(1)}" fill="white"/>
+    </g>`;
+  })() :
+    initial ? `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
         font-family="'Arial Black',Arial,sans-serif" font-size="${fs}" font-weight="900"
         fill="${textColour}" opacity="0.92">${initial}</text>` : ''}
   ${showDot ? `<circle cx="${cx}" cy="${cy}" r="${(r * 0.13).toFixed(2)}" fill="#39FF14">
@@ -1390,20 +1409,22 @@ function aiTakeTurn() {
   });
 
   // ── Step 5: Decision — pick the best action ──────────────────────
-  // Jacks only beat normal moves if their strategic value is overwhelming
-  // Thresholds: how much better must a jack be vs the best normal card?
+  // Jacks only beat normal moves if their strategic value is overwhelming.
+  // wildMinScore: wild jack must score at least this — prevents 0-score jacks
+  // slipping through when normal moves are also weak (e.g. all dead cards).
   const removeThreshold = diff==='easy' ? 0 : diff==='medium' ? 200 : 100;
   const wildThreshold   = diff==='easy' ? 0 : diff==='medium' ? 300 : 150;
+  const wildMinScore    = 600; // must create a genuine 4-chain or sequence to qualify
 
   let bestMove = bestNormalMove;
 
   // Should we use a one-eyed jack?
-  if (bestRemoveMove && bestRemoveScore > (bestNormalScore + removeThreshold)) {
+  if (bestRemoveMove && bestRemoveScore > 0 && bestRemoveScore > (bestNormalScore + removeThreshold)) {
     bestMove = bestRemoveMove;
   }
 
-  // Should we use a two-eyed jack? (only beats removal if significantly better)
-  if (bestWildMove && bestWildScore > (bestNormalScore + wildThreshold)) {
+  // Should we use a two-eyed jack?
+  if (bestWildMove && bestWildScore >= wildMinScore && bestWildScore > (bestNormalScore + wildThreshold)) {
     if (!bestMove || bestWildScore > bestRemoveScore + 200) {
       bestMove = bestWildMove;
     }
@@ -2711,15 +2732,23 @@ function renderGame() {
 }
 
 function renderTopBar() {
+  // Build team label: in AI mode use player names; in multiplayer use initials joined by &
+  function teamLabel(t) {
+    const teamPlayers = players.filter(p => p.team === t);
+    if (teamPlayers.length === 0) return TEAM_NAMES[t];
+    if (teamPlayers.length === 1) return teamPlayers[0].name.slice(0, 7);
+    // Multiple players: join first initials with &
+    return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('&');
+  }
+
   // Scores
   const scoresEl = document.getElementById('team-scores');
   scoresEl.innerHTML = '';
-  const teamLabels = players.map(p => p.name.slice(0, 7));
   for (let t = 0; t < numTeams; t++) {
     const div = document.createElement('div');
     div.className = 'score-badge';
-    div.dataset.team = t; // used by AI chip animation to find the source position
-    const label = aiMode ? teamLabels[t] : TEAM_NAMES[t];
+    div.dataset.team = t;
+    const label = teamLabel(t);
     div.innerHTML = `<div class="score-dot ${TEAM_DOT[t]}"></div>${label} ${GS.sequences[t]}/${GS.seqToWin}`;
     scoresEl.append(div);
   }
@@ -2922,7 +2951,8 @@ function selectCard(idx) {
 }
 
 function onCellClick(row, col) {
-  primeTimerSounds(); // prime iOS audio for timer-triggered sounds
+  // Prime timer sounds async — don't block the tap response
+  setTimeout(primeTimerSounds, 0);
   if (!GS || GS.phase === 'done') return;
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
   if (!myTurn) return;
