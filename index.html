@@ -7,7 +7,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Nunito:wght@900&family=Barlow+Condensed:wght@800;900&display=swap');
 
   :root {
     --felt: #1a5c2a;
@@ -27,6 +27,19 @@
     --chip-red-light: #f87171;
     --shadow: 0 4px 20px rgba(0,0,0,0.4);
     --border-gold: 1px solid var(--gold);
+    /* Sequence lobby + board theme — from official logo */
+    --lobby-bg1: #1a2580;
+    --lobby-bg2: #0f1650;
+    --lobby-card-bg: #F2F4FF;
+    --lobby-border: #2233CC;
+    --lobby-text: #2233CC;
+    --lobby-text-muted: rgba(34,51,204,0.6);
+    --logo-blue: #2233CC;
+    --logo-gold: #D4B830;
+    /* Board theme overrides — royal blue instead of dark green */
+    --felt: #1a2580;
+    --felt-dark: #0f1650;
+    --felt-light: #2233CC;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -56,40 +69,202 @@
   /* Game screen never participates in page scroll */
   #game-screen.active { min-height: unset; }
 
-  /* ── LOBBY ── */
+  /* ══ SEQUENCE LOBBY REDESIGN ══════════════════════════════════════ */
+
   #lobby-screen {
     align-items: center;
     justify-content: center;
-    background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 70%);
-    padding: 24px 16px;
+    background: var(--lobby-bg1);
+    padding: 16px;
+    min-height: 100vh;
   }
 
   .lobby-card {
-    background: var(--felt-dark);
-    border: 1px solid var(--gold);
-    border-radius: 12px;
-    padding: 32px 24px;
+    background: white;
+    border: 3px solid var(--logo-blue);
+    border-radius: 16px;
     width: 100%;
-    max-width: 400px;
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(201,168,76,0.2);
+    max-width: 420px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.4);
     text-align: center;
+    overflow: hidden;
   }
 
-  .game-title {
-    font-family: 'Cinzel', serif;
-    font-size: 2.4rem;
-    font-weight: 700;
-    color: var(--gold);
-    letter-spacing: 0.1em;
+  .lobby-header {
+    background: linear-gradient(180deg, #2233CC 0%, #1a2080 100%);
+    padding: 18px 24px 16px;
+  }
+
+  .lobby-suits {
+    font-size: 1.3rem;
     margin-bottom: 4px;
-    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    letter-spacing: 0.2em;
+  }
+  .suit-red  { color: #E8413A; }
+  .suit-black { color: rgba(255,255,255,0.85); }
+
+  .game-title {
+    font-family: 'Barlow Condensed', 'Nunito', 'Arial Rounded MT Bold', sans-serif;
+    font-size: 3.6rem;
+    font-weight: 900;
+    color: white;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    margin-bottom: 4px;
+    text-shadow: none;
+    /* Scale letters wider to match the expanded look */
+    transform: scaleX(1.15);
+    display: block;
   }
 
   .game-subtitle {
-    font-style: italic;
-    color: rgba(245,240,232,0.6);
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--logo-gold);
+    letter-spacing: 0.18em;
+    margin: 0;
+    text-transform: uppercase;
+  }
+
+  .lobby-body {
+    padding: 18px 20px 22px;
+    text-align: left;
+  }
+
+  .lbl {
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--logo-blue);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    display: block;
+  }
+
+  .lobby-input {
+    width: 100%;
+    background: white;
+    border: 1.5px solid #D0D5E8;
+    border-radius: 8px;
+    color: #1a1a3a;
+    font-family: 'EB Garamond', serif;
+    font-size: 1rem;
+    padding: 11px 14px;
+    margin-bottom: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+  }
+  .lobby-input:focus { border-color: var(--logo-blue); }
+  .lobby-input::placeholder { color: #aab0cc; }
+
+  .lobby-select {
+    width: 100%;
+    background: white;
+    border: 1.5px solid #D0D5E8;
+    border-radius: 8px;
+    color: #1a1a3a;
+    font-family: 'EB Garamond', serif;
     font-size: 0.95rem;
-    margin-bottom: 28px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+  }
+  .lobby-select:focus { border-color: var(--logo-blue); }
+
+  .lobby-btn-primary {
+    width: 100%;
+    background: linear-gradient(180deg, #2438D4 0%, #1a2080 100%);
+    color: white;
+    font-family: 'Cinzel', serif;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    border: none;
+    border-radius: 10px;
+    padding: 15px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    box-shadow: 0 4px 0 var(--logo-gold), 0 6px 12px rgba(34,51,204,0.3);
+    transition: all 0.15s;
+  }
+  .lobby-btn-primary:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--logo-gold); }
+
+  .lobby-btn-outline {
+    width: 100%;
+    background: white;
+    color: var(--logo-blue);
+    font-family: 'Cinzel', serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    border: 2px solid var(--logo-blue);
+    border-radius: 10px;
+    padding: 13px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    transition: all 0.15s;
+  }
+  .lobby-btn-outline:hover { background: rgba(34,51,204,0.05); }
+
+  .lobby-divider {
+    border: none;
+    border-top: 1px solid #E8EAF0;
+    margin: 12px 0;
+  }
+
+  .sound-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .sound-icon { font-size: 1.1rem; }
+
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 46px;
+    height: 26px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #ccc;
+    border-radius: 26px;
+    cursor: pointer;
+    transition: 0.3s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 20px; height: 20px;
+    left: 3px; bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: 0.3s;
+  }
+  .toggle-switch input:checked + .toggle-slider { background: var(--logo-blue); }
+  .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+  .join-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .join-input { margin-bottom: 0; flex: 1; }
+  .join-arrow {
+    background: var(--logo-blue);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    width: 46px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    flex-shrink: 0;
   }
 
   .divider {
@@ -143,10 +318,10 @@
 
   input, select {
     width: 100%;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(201,168,76,0.4);
+    background: white;
+    border: 1.5px solid rgba(34,51,204,0.3);
     border-radius: 6px;
-    color: var(--cream);
+    color: #2233CC;
     font-family: 'EB Garamond', serif;
     font-size: 1rem;
     padding: 10px 12px;
@@ -154,8 +329,9 @@
     outline: none;
     transition: border-color 0.2s;
   }
-  input:focus, select:focus { border-color: var(--gold); }
-  select option { background: var(--felt-dark); }
+  input::placeholder { color: rgba(34,51,204,0.4); }
+  input:focus, select:focus { border-color: #2233CC; }
+  select option { background: white; color: #2233CC; }
 
   .room-code {
     font-family: 'Cinzel', serif;
@@ -184,6 +360,41 @@
     margin-bottom: 6px;
     background: rgba(255,255,255,0.04);
     font-size: 0.95rem;
+  }
+  #lobby-screen .btn-primary {
+    background: linear-gradient(135deg, #2233CC, #1a2580);
+    color: white;
+    box-shadow: 0 3px 12px rgba(34,51,204,0.35);
+  }
+  #lobby-screen .btn-secondary {
+    background: transparent;
+    color: #2233CC;
+    border: 1.5px solid #2233CC;
+  }
+  #lobby-screen .btn-secondary:hover { background: rgba(34,51,204,0.08); }
+
+  /* Lobby section labels and dividers */
+  #lobby-screen .section-label {
+    color: #2233CC;
+    border-bottom: 1px solid rgba(34,51,204,0.2);
+  }
+  #lobby-screen .field-label { color: rgba(34,51,204,0.7); }
+  #lobby-screen .divider { border-top-color: rgba(34,51,204,0.2); }
+  #lobby-screen .error-msg { color: #c0392b; }
+  #lobby-screen .status-msg { color: rgba(34,51,204,0.6); }
+  #lobby-screen .waiting-banner { color: rgba(34,51,204,0.7); }
+  #lobby-screen .room-code {
+    background: rgba(34,51,204,0.08);
+    border-color: rgba(34,51,204,0.3);
+    color: #2233CC;
+  }
+  #lobby-screen .player-item {
+    background: rgba(34,51,204,0.06);
+    color: #2233CC;
+  }
+  #lobby-screen .sound-toggle {
+    color: #2233CC;
+    border-color: rgba(34,51,204,0.4);
   }
 
   .team-dot {
@@ -478,26 +689,155 @@
   .hand-area {
     flex: 0 0 auto;
     overflow: hidden;
-    background: rgba(0,0,0,0.4);
-    border-top: 1px solid rgba(201,168,76,0.25);
-    padding: 4px 6px;
-    padding-bottom: max(4px, env(safe-area-inset-bottom));
+    background: #1a2080;
+    border-top: none;
+    padding: 0;
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
   }
 
+  /* White info bar above hand */
+  .hand-info-bar {
+    background: white;
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  .team-scores {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex: 1;
+  }
+
+  /* Score badge — circle initial + name + score */
+  .score-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 7px 2px 2px;
+    border: 1.5px solid #E0E4F0;
+    border-radius: 20px;
+    background: white;
+  }
+
+  .score-initial {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Cinzel', serif;
+    font-size: 0.62rem; font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .score-name-wrap { line-height: 1.1; }
+
+  .score-name {
+    font-family: 'Cinzel', serif;
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: #1a2080;
+    letter-spacing: 0.05em;
+    display: block;
+  }
+
+  .score-val {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.75rem;
+    color: #666;
+    display: block;
+  }
+
+  /* Turn info */
+  .turn-info {
+    font-family: 'Cinzel', serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #1a2080;
+    letter-spacing: 0.06em;
+    flex: 1;
+    text-align: center;
+  }
+
+  /* Icon buttons in info bar */
+  .info-icon-btn {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1.5px solid #D0D5E8;
+    background: white;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+  }
+
+  .info-quit-btn {
+    height: 30px;
+    border-radius: 8px;
+    border: 1.5px solid #1a2080;
+    background: white;
+    color: #1a2080;
+    font-family: 'Cinzel', serif;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 0 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .info-quit-btn:active { background: #f0f2ff; }
+
+  /* Hand label row — label with lines spans full width, timer sits right */
   .hand-label-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 3px;
+    padding: 4px 10px 1px;
+    gap: 8px;
+  }
+
+  .hand-label-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
   }
 
   .hand-label {
     font-family: 'Cinzel', serif;
-    font-size: 0.65rem;
-    color: rgba(201,168,76,0.7);
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: white;
+    letter-spacing: 0.14em;
+    white-space: nowrap;
+  }
+
+  .hand-label-bar {
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,0.35);
+  }
+
+  /* Timer + label */
+  .timer-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .timer-label {
+    font-family: 'Cinzel', serif;
+    font-size: 0.42rem;
+    color: rgba(255,255,255,0.7);
     letter-spacing: 0.08em;
   }
 
@@ -512,9 +852,9 @@
     font-family: 'Cinzel', serif;
     font-size: 0.78rem;
     font-weight: 700;
-    color: var(--gold-light);
-    background: conic-gradient(var(--gold) calc(var(--pct, 100) * 1%), rgba(0,0,0,0.3) 0%);
-    box-shadow: 0 0 0 2px rgba(201,168,76,0.35), inset 0 0 0 4px rgba(0,0,0,0.5);
+    color: white;
+    background: conic-gradient(white calc(var(--pct, 100) * 1%), rgba(255,255,255,0.15) 0%);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.3), inset 0 0 0 4px rgba(26,32,128,0.9);
     transition: color 0.3s;
     position: relative;
   }
@@ -523,16 +863,13 @@
     position: absolute;
     inset: 4px;
     border-radius: 50%;
-    background: #1a2a1a;
+    background: #1a2080;
   }
-  .turn-timer span {
-    position: relative;
-    z-index: 1;
-  }
+  .turn-timer span { position: relative; z-index: 1; }
   .turn-timer.low {
     color: #ff8a80;
-    background: conic-gradient(#ef4444 calc(var(--pct, 100) * 1%), rgba(0,0,0,0.3) 0%);
-    box-shadow: 0 0 0 2px rgba(220,38,38,0.5), inset 0 0 0 4px rgba(0,0,0,0.5);
+    background: conic-gradient(#ef4444 calc(var(--pct, 100) * 1%), rgba(255,255,255,0.15) 0%);
+    box-shadow: 0 0 0 2px rgba(220,38,38,0.5), inset 0 0 0 4px rgba(26,32,128,0.9);
     animation: timer-urgent 0.9s ease-in-out infinite;
   }
   @keyframes timer-urgent {
@@ -545,8 +882,7 @@
     gap: 5px;
     overflow-x: auto;
     overflow-y: visible;
-    padding-top: 14px;  /* room for cards to lift up without clipping */
-    padding-bottom: 2px;
+    padding: 4px 10px 6px;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -781,75 +1117,97 @@
 ═══════════════════════════════════════════════════ -->
 <div id="lobby-screen" class="screen active">
   <div class="lobby-card">
-    <div class="logo-suits">♠ ♥ ♣ ♦</div>
-    <div class="game-title">SEQUENCE</div>
-    <div class="game-subtitle">The Classic Strategy Card Game</div>
+
+    <!-- Header — royal blue with suits and title -->
+    <div class="lobby-header">
+      <div class="lobby-suits">
+        <span class="suit-black">♠</span>
+        <span class="suit-red">♥</span>
+        <span class="suit-red">♦</span>
+        <span class="suit-black">♣</span>
+      </div>
+      <div class="game-title">SEQUENCE</div>
+      <div class="game-subtitle">THE CLASSIC STRATEGY CARD GAME</div>
+    </div>
+
+    <!-- Main lobby content — white area -->
+    <div class="lobby-body">
 
     <div id="lobby-main">
-      <input id="player-name" type="text" placeholder="Your name" maxlength="16" autocomplete="off">
+      <div class="lbl">YOUR NAME</div>
+      <input id="player-name" type="text" placeholder="Enter your name" maxlength="16" autocomplete="off" class="lobby-input">
       <div class="error-msg" id="lobby-error"></div>
-      <div style="display:flex;gap:6px;margin-bottom:0">
+
+      <div style="display:flex;gap:10px;margin-bottom:12px">
         <div style="flex:1">
-          <div class="field-label">Opponents</div>
-          <select id="ai-num-teams" style="width:100%;margin-bottom:0">
-            <option value="2">1 AI</option>
-            <option value="3">2 AIs</option>
+          <div class="lbl">OPPONENTS</div>
+          <select id="ai-num-teams" class="lobby-select">
+            <option value="2">👤 1 AI</option>
+            <option value="3">👥 2 AIs</option>
           </select>
         </div>
         <div style="flex:1">
-          <div class="field-label">Sequences to Win</div>
-          <select id="ai-seq-to-win" style="width:100%;margin-bottom:0">
-            <option value="1">1 Sequence</option>
-            <option value="2" selected>2 Sequences</option>
+          <div class="lbl">SEQUENCES TO WIN</div>
+          <select id="ai-seq-to-win" class="lobby-select">
+            <option value="1">● First to 1</option>
+            <option value="2" selected>●●○ First to 2</option>
           </select>
         </div>
       </div>
-      <div class="field-wrap" style="margin-top:12px">
-        <div class="field-label">Level</div>
-        <select id="ai-difficulty" style="width:100%;margin-bottom:0">
-          <option value="easy">🟢 Easy</option>
-          <option value="medium" selected>🟡 Medium</option>
-          <option value="hard">🔴 Hard</option>
-        </select>
+
+      <div class="lbl">LEVEL</div>
+      <select id="ai-difficulty" class="lobby-select" style="margin-bottom:14px">
+        <option value="easy">🟢 EASY</option>
+        <option value="medium" selected>🟡 MEDIUM</option>
+        <option value="hard">🔴 HARD</option>
+      </select>
+
+      <button class="lobby-btn-primary" onclick="startVsAI()">▶ &nbsp;PLAY VS AI</button>
+
+      <hr class="lobby-divider">
+
+      <!-- Sound toggle row -->
+      <div class="sound-row">
+        <span class="sound-icon">🔊</span>
+        <span class="lbl" style="margin:0">SOUND</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="sound-checkbox" onchange="setSoundEnabled(this.checked)" checked>
+          <span class="toggle-slider"></span>
+        </label>
       </div>
-      <button class="btn btn-primary" onclick="startVsAI()">▶ Play vs AI</button>
-      <hr class="divider">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <div class="section-label" style="margin:0">SOUND</div>
-        <button class="sound-toggle btn btn-secondary btn-sm" onclick="setSoundEnabled(!soundEnabled)" style="font-size:1.2rem;padding:4px 10px">🔊</button>
+
+      <hr class="lobby-divider">
+
+      <div class="lbl" style="text-align:center;margin-bottom:12px">MULTIPLAYER</div>
+      <button class="lobby-btn-outline" onclick="showCreateLobby()">CREATE ONLINE GAME</button>
+
+      <hr class="lobby-divider">
+
+      <div class="lbl" style="text-align:center;margin-bottom:10px">JOIN EXISTING GAME</div>
+      <div class="join-row">
+        <input id="join-code" type="text" placeholder="Enter room code (e.g. ABC123)" maxlength="6"
+               class="lobby-input join-input" style="text-transform:uppercase;letter-spacing:0.15em" autocomplete="off">
+        <button class="join-arrow" onclick="joinGame()">→</button>
       </div>
-      <hr class="divider">
-      <div class="section-label">MULTIPLAYER</div>
-      <button class="btn btn-secondary" onclick="showCreateLobby()">Create Online Game</button>
-      <hr class="divider">
-      <div class="section-label">JOIN EXISTING GAME</div>
-      <input id="join-code" type="text" placeholder="Room code (e.g. ABC123)" maxlength="6"
-             style="text-transform:uppercase;letter-spacing:0.2em" autocomplete="off">
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-secondary" style="flex:1" onclick="joinGame()">Join Game</button>
-        <button class="btn btn-secondary" style="flex:1" onclick="spectateGame()">👁 Watch</button>
-      </div>
+      <button class="lobby-btn-outline" style="margin-top:8px;font-size:0.82rem" onclick="spectateGame()">👁 &nbsp;WATCH A GAME</button>
     </div>
 
     <div id="lobby-create" style="display:none">
-      <div class="section-label">GAME SETTINGS</div>
-      <div class="field-wrap">
-        <div class="field-label">Teams</div>
-        <select id="num-teams" style="width:100%;margin-bottom:0">
-          <option value="2">2 Teams</option>
-          <option value="3">3 Teams</option>
-        </select>
-      </div>
-      <div class="field-wrap">
-        <div class="field-label">Sequences to Win</div>
-        <select id="seq-to-win" style="width:100%;margin-bottom:0">
-          <option value="1">First to 1 Sequence</option>
-          <option value="2" selected>First to 2 Sequences</option>
-        </select>
-      </div>
-      <button class="btn btn-primary" onclick="createGame()">Create Room</button>
-      <button class="btn btn-secondary" onclick="document.getElementById('lobby-create').style.display='none';document.getElementById('lobby-main').style.display='block'">Back</button>
+      <div class="lbl">TEAMS</div>
+      <select id="num-teams" class="lobby-select">
+        <option value="2">2 Teams</option>
+        <option value="3">3 Teams</option>
+      </select>
+      <div class="lbl">SEQUENCES TO WIN</div>
+      <select id="seq-to-win" class="lobby-select">
+        <option value="1">First to 1 Sequence</option>
+        <option value="2" selected>First to 2 Sequences</option>
+      </select>
+      <button class="lobby-btn-primary" onclick="createGame()">CREATE ROOM</button>
+      <button class="lobby-btn-outline" onclick="document.getElementById('lobby-create').style.display='none';document.getElementById('lobby-main').style.display='block'">BACK</button>
     </div>
+
+    </div><!-- end lobby-body -->
 
     <div id="lobby-waiting" style="display:none">
       <div class="section-label">SHARE THIS CODE</div>
@@ -874,17 +1232,26 @@
     </div>
 
     <div class="hand-area">
+      <!-- Info bar — white pill above hand -->
       <div class="hand-info-bar">
         <div class="team-scores" id="team-scores"></div>
         <div class="turn-info" id="turn-info">—</div>
-        <button class="sound-toggle btn btn-secondary btn-sm hand-quit-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
-        <button class="btn btn-secondary btn-sm hand-quit-btn" onclick="leaveGame()">Quit</button>
+        <button class="sound-toggle info-icon-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
+        <button class="info-quit-btn" onclick="leaveGame()">QUIT</button>
       </div>
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
       <div id="waiting-banner" class="waiting-banner"></div>
+      <!-- Hand label with gold lines + timer -->
       <div class="hand-label-row">
-        <div class="hand-label">YOUR HAND</div>
-        <div class="turn-timer" id="turn-timer"><span>60</span></div>
+        <div class="hand-label-line">
+          <span class="hand-label-bar"></span>
+          <span class="hand-label">YOUR HAND</span>
+          <span class="hand-label-bar"></span>
+        </div>
+        <div class="timer-wrap">
+          <div class="turn-timer" id="turn-timer"><span>60</span></div>
+          <div class="timer-label">TIME LEFT</div>
+        </div>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
     </div>
@@ -958,10 +1325,14 @@ function setSoundEnabled(val) {
 }
 
 function updateSoundToggleUI() {
+  // Sync in-game sound button
   document.querySelectorAll('.sound-toggle').forEach(btn => {
     btn.textContent = soundEnabled ? '🔊' : '🔇';
     btn.title = soundEnabled ? 'Mute sounds' : 'Unmute sounds';
   });
+  // Sync lobby checkbox
+  const cb = document.getElementById('sound-checkbox');
+  if (cb) cb.checked = soundEnabled;
 }
 
 // Build one <audio> element per sound and append to DOM (hidden)
@@ -1089,7 +1460,7 @@ function shuffle(arr) {
 const BOARD_LAYOUT = buildBoardLayout();
 
 function buildBoardLayout() {
-  // Official Sequence board layout (10x10)
+  // JackFive board layout (10x10)
   // Corners are 'wild', Jacks absent
   const rows = [
     ['wild','2♠','3♠','4♠','5♠','6♠','7♠','8♠','9♠','wild'],
@@ -1110,7 +1481,7 @@ function buildBoardLayout() {
 }
 
 function buildOfficialBoard() {
-  // Official Sequence board layout - exact positions from the physical game
+  // JackFive board layout
   // W = wild corner, format: rank+suit abbreviation
   const W = {type:'wild'};
   const C = (rank, suit) => ({type:'card', rank, suit});
@@ -2722,24 +3093,38 @@ function renderGame() {
 }
 
 function renderTopBar() {
-  // Build team label: in AI mode use player names; in multiplayer use initials joined by &
+  const CHIP_HEX = { t0: '#1E90FF', t1: '#61AF41', t2: '#AE42D0' };
+
   function teamLabel(t) {
     const teamPlayers = players.filter(p => p.team === t);
     if (teamPlayers.length === 0) return TEAM_NAMES[t];
-    if (teamPlayers.length === 1) return teamPlayers[0].name.slice(0, 7);
-    // Multiple players: join first initials with &
+    if (teamPlayers.length === 1) return teamPlayers[0].name.slice(0, 7).toUpperCase();
     return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('&');
   }
 
-  // Scores
+  function teamInitial(t) {
+    const teamPlayers = players.filter(p => p.team === t);
+    if (teamPlayers.length === 0) return '?';
+    if (teamPlayers.length === 1) return teamPlayers[0].name.charAt(0).toUpperCase();
+    return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('');
+  }
+
+  // Scores — new badge design: coloured circle + name + score
   const scoresEl = document.getElementById('team-scores');
   scoresEl.innerHTML = '';
   for (let t = 0; t < numTeams; t++) {
     const div = document.createElement('div');
     div.className = 'score-badge';
     div.dataset.team = t;
-    const label = teamLabel(t);
-    div.innerHTML = `<div class="score-dot ${TEAM_DOT[t]}"></div>${label} ${GS.sequences[t]}/${GS.seqToWin}`;
+    const colour = CHIP_HEX[TEAM_COLORS[t]] || '#1E90FF';
+    const initial = teamInitial(t);
+    const label   = teamLabel(t);
+    div.innerHTML = `
+      <div class="score-initial" style="background:${colour}">${initial}</div>
+      <div class="score-name-wrap">
+        <span class="score-name">${label}</span>
+        <span class="score-val">${GS.sequences[t]}/${GS.seqToWin}</span>
+      </div>`;
     scoresEl.append(div);
   }
 
@@ -2749,14 +3134,14 @@ function renderTopBar() {
   const isMe = cp && cp.id === myId;
   const isAI = cp && cp.id.startsWith(AI_ID);
   if (isMe) {
-    turnEl.textContent = 'Your Turn';
-    turnEl.style.color = '#e8cc7a';
+    turnEl.textContent = 'YOUR TURN';
+    turnEl.style.color = '#1a2080';
   } else if (isAI) {
-    turnEl.textContent = 'AI is thinking…';
-    turnEl.style.color = 'rgba(245,240,232,0.5)';
+    turnEl.textContent = 'AI THINKING…';
+    turnEl.style.color = '#888';
   } else {
-    turnEl.textContent = `${cp ? cp.name+"'s" : '?'} Turn`;
-    turnEl.style.color = 'rgba(245,240,232,0.5)';
+    turnEl.textContent = `${cp ? cp.name.toUpperCase()+"'S" : '?'} TURN`;
+    turnEl.style.color = '#555';
   }
 }
 
