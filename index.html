@@ -3131,15 +3131,15 @@ function renderTopBar() {
   const isAI = cp && cp.id.startsWith(AI_ID);
   if (isMe) {
     turnEl.innerHTML = '<strong>YOUR TURN</strong>';
-    turnEl.style.color = '#1a2080';
+    turnEl.style.color = '#C0392B';
     turnEl.style.fontStyle = 'normal';
   } else if (isAI) {
     turnEl.innerHTML = '<em>AI is thinking…</em>';
-    turnEl.style.color = '#888';
+    turnEl.style.color = '#1a2080';
     turnEl.style.fontStyle = 'normal';
   } else {
     turnEl.textContent = `${cp ? cp.name.toUpperCase()+"'S" : '?'} TURN`;
-    turnEl.style.color = '#555';
+    turnEl.style.color = '#1a2080';
     turnEl.style.fontStyle = 'normal';
   }
 }
