@@ -1318,6 +1318,7 @@
     padding: 4px 8px;
     gap: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    position: relative;
   }
 
   .team-scores {
@@ -1440,11 +1441,15 @@
     background: rgba(255,255,255,0.35);
   }
 
-  /* Timer floats absolutely, overlapping down into the cards area */
+  /* Timer floats absolutely from the white info bar, hanging down to
+     overlap the label row / top of the cards area below — same visual
+     spot as before, just re-anchored since timer-wrap now lives inside
+     hand-info-bar (a sibling of hand-area) rather than inside it. Positioned
+     to clear the info bar's own content (scores/turn/quit) entirely. */
   .timer-wrap {
     position: absolute;
     right: 10px;
-    top: -2px; /* slightly above label baseline, extends into cards */
+    top: 40px;
     display: flex;
     flex-direction: column;
     align-items: center;
