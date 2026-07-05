@@ -1549,6 +1549,23 @@
     box-shadow: 0 12px 24px rgba(201,168,76,0.6);
   }
   .hand-card.dead-card { /* no visual change — player discovers it themselves */ }
+
+  /* House rule: forced-card lock after drawing a live replacement */
+  .hand-card.forced-card {
+    border-color: #D4AF37;
+    box-shadow: 0 0 0 2px #D4AF37, 0 4px 14px rgba(212,175,55,0.5);
+    animation: forcedPulse 1.4s ease-in-out infinite;
+  }
+  @keyframes forcedPulse {
+    0%, 100% { box-shadow: 0 0 0 2px #D4AF37, 0 4px 14px rgba(212,175,55,0.5); }
+    50%      { box-shadow: 0 0 0 3px #D4AF37, 0 4px 20px rgba(212,175,55,0.8); }
+  }
+  .hand-card.locked-card {
+    opacity: 0.35;
+    filter: grayscale(0.6);
+    cursor: not-allowed;
+  }
+  .hand-card.locked-card:hover { transform: none; }
   .hand-card.jack-wild { border-color: rgba(201,168,76,0.8); background: #fffdf5; }
   .hand-card.jack-anti { border-color: rgba(200,40,40,0.7); }
 
@@ -1612,6 +1629,17 @@
     font-family: 'Cinzel', serif;
     font-size: 0.65rem;
     letter-spacing: 0.1em;
+    text-align: center;
+    padding: 6px;
+  }
+  .forced-card-banner {
+    background: rgba(212,175,55,0.18);
+    border-top: 1px solid rgba(212,175,55,0.4);
+    color: #F5DC8C;
+    font-family: 'Cinzel', serif;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
     text-align: center;
     padding: 6px;
   }
@@ -2225,6 +2253,7 @@
 
     <div class="hand-area">
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
+      <div id="forced-card-banner" class="forced-card-banner" style="display:none">🔒 You must play the card you just drew</div>
       <!-- Hand label with gold lines (timer lives in hand-info-bar now) -->
       <div class="hand-label-row">
         <div class="hand-label-line">
@@ -3960,6 +3989,9 @@ function initGameState() {
     newSeqCells: null,                     // cells of the sequence just completed this move (for blink)
     newSeqMoveSeq: -1,                     // moveSeq when newSeqCells was set
     turnDeadline: Date.now() + TURN_SECONDS * 1000, // host-enforced turn timer
+    forcedCardIdx: null, // house rule: once a live replacement is drawn after a
+                          // discard, the player is locked into playing this
+                          // exact hand index — null means no lock is active
   };
 }
 
@@ -4004,6 +4036,7 @@ function skipTurn() {
   if (!isHost || !GS || GS.phase === 'done') return;
   const skipped = players[GS.currentTurn];
   GS.currentTurn = (GS.currentTurn + 1) % players.length;
+  GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
   GS.moveSeq = (GS.moveSeq || 0) + 1;
   broadcastToast(`⏱ ${skipped ? skipped.name : 'Player'}'s turn timed out — skipped`);
   hostAdvanceAndBroadcast();
@@ -4046,12 +4079,29 @@ function applyMoveInner(move, fromId) {
   const card = hand[cardIdx];
 
   if (move.dead) {
-    // Discard dead card, draw new one
+    // House rule: a player may keep discarding dead cards and redrawing with
+    // no limit. The moment a LIVE (playable) replacement is drawn, they are
+    // locked into playing that exact card — no other card in hand may be
+    // played this turn. This replaces the official one-discard-per-turn rule.
+    if (GS.forcedCardIdx !== null) { toast('You must play your drawn card'); return; }
     GS.discard.push(hand.splice(cardIdx, 1)[0]);
     drawCard(fromId);
     GS.moveSeq = (GS.moveSeq || 0) + 1;
-    // Don't advance turn, but do give them a fresh clock
+    const newCardIdx = hand.length - 1; // drawCard pushes the replacement to the end
+    const newCard = hand[newCardIdx];
+    if (newCard && !isDeadCardForState(newCard, GS)) {
+      GS.forcedCardIdx = newCardIdx; // live card — lock the player into it
+    }
+    // else: still dead — forcedCardIdx stays null, player can discard again
     hostAdvanceAndBroadcast();
+    return;
+  }
+
+  // If a forced card is active (from the discard house rule above), only
+  // that exact hand index may be played this turn — everything else is
+  // rejected, even if it would otherwise be a completely legal move.
+  if (GS.forcedCardIdx !== null && cardIdx !== GS.forcedCardIdx) {
+    toast('You must play your drawn card');
     return;
   }
 
@@ -4132,6 +4182,7 @@ function applyMoveInner(move, fromId) {
   // Advance turn
   if (GS.phase !== 'done') {
     GS.currentTurn = (GS.currentTurn + 1) % players.length;
+    GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
   }
 
   hostAdvanceAndBroadcast();
@@ -4761,6 +4812,15 @@ function renderHand() {
   handEl.innerHTML = '';
   const myHand = GS.hands[myId] || [];
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
+  const isLocked = myTurn && GS.forcedCardIdx !== null;
+
+  // House rule: once a live replacement is drawn after a dead-card discard,
+  // the player must play that exact card — auto-select it and lock the rest
+  if (isLocked && selectedCardIdx !== GS.forcedCardIdx) {
+    selectedCardIdx = GS.forcedCardIdx;
+  }
+  const forcedBanner = document.getElementById('forced-card-banner');
+  if (forcedBanner) forcedBanner.style.display = isLocked ? 'block' : 'none';
 
   myHand.forEach((card, i) => {
     const el = document.createElement('div');
@@ -4774,8 +4834,25 @@ function renderHand() {
     const isDead = isDeadCard(card, i);
     if (isDead) el.classList.add('dead-card');
 
+    if (isLocked) {
+      if (i === GS.forcedCardIdx) {
+        el.classList.add('forced-card');
+      } else {
+        el.classList.add('locked-card');
+      }
+    }
+
     el.innerHTML = makeHandCardHTML(card);
-    el.addEventListener('click', () => selectCard(i));
+    el.addEventListener('click', () => {
+      if (isLocked && i !== GS.forcedCardIdx) {
+        toast('You must play your drawn card');
+        return;
+      }
+      if (isLocked && i === GS.forcedCardIdx) {
+        return; // already locked in — clicking again shouldn't deselect it
+      }
+      selectCard(i);
+    });
     handEl.append(el);
   });
 
@@ -4785,7 +4862,7 @@ function renderHand() {
   if (existingDiscard) existingDiscard.remove();
 
   const selCard = selectedCardIdx >= 0 ? myHand[selectedCardIdx] : null;
-  if (selCard && isDeadCard(selCard, selectedCardIdx) && myTurn && labelRow) {
+  if (selCard && isDeadCard(selCard, selectedCardIdx) && myTurn && labelRow && GS.forcedCardIdx === null) {
     const deadIdx = selectedCardIdx; // capture index
     const discardBtn = document.createElement('button');
     discardBtn.className = 'discard-btn';
