@@ -1751,76 +1751,108 @@
 
   @media (min-width: 1024px) {
     /* ── GAME SCREEN ──
-       Keep the board-on-top, hand-below layout from mobile (rather than a
-       narrow side column) so hand cards can sit in a single row with room
-       to breathe — a vertical side panel forces them to wrap into 2 rows. */
-    .board-container {
-      flex: 1 1 0;
-      height: auto;
-      padding: 20px 24px 8px;
+       CSS Grid lets us relocate elements visually without touching the HTML
+       (mobile keeps its own simple flex-column source order). Board gets a
+       dedicated cell that can grow to fill all available height; the
+       scores/timer/quit sidebar moves to a slim right-hand column so it
+       never eats into the hand-cards strip's height; hand cards get their
+       own short strip spanning the full width at the bottom. */
+    .game-main {
+      display: grid;
+      grid-template-columns: 1fr 180px;
+      grid-template-rows: 1fr auto;
+      grid-template-areas:
+        "board  sidebar"
+        "hand   hand";
+      gap: 0;
+      overflow: visible;
     }
 
+    .board-container {
+      grid-area: board;
+      min-height: 0;
+      padding: 20px;
+      /* Subtle decorative pattern fills the empty space either side of the
+         portrait-shaped board on very wide screens */
+      background-image:
+        radial-gradient(circle at 15% 20%, rgba(201,168,76,0.05) 0%, transparent 8%),
+        radial-gradient(circle at 85% 15%, rgba(201,168,76,0.05) 0%, transparent 8%),
+        radial-gradient(circle at 20% 80%, rgba(201,168,76,0.05) 0%, transparent 8%),
+        radial-gradient(circle at 88% 75%, rgba(201,168,76,0.05) 0%, transparent 8%),
+        radial-gradient(circle at 50% 92%, rgba(201,168,76,0.04) 0%, transparent 10%);
+    }
+
+    /* Sidebar — vertical strip to the right of the board holding scores,
+       turn text, timer, and quit. Nothing here competes with the hand
+       strip's height, so the hand strip can stay as short as possible. */
+    .hand-info-bar {
+      grid-area: sidebar;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      gap: 14px;
+      padding: 18px 14px;
+      border-radius: 0;
+      border-left: 1px solid rgba(201,168,76,0.25);
+      background: rgba(255,255,255,0.98);
+      overflow-y: auto;
+    }
+    .hand-info-bar .info-icon-btn {
+      position: static;
+      align-self: flex-end;
+      margin-top: auto;
+    }
+    .team-scores { flex-direction: column; gap: 8px; }
+    .score-badge { font-size: 0.85rem; padding: 5px 10px 5px 4px; width: 100%; box-sizing: border-box; }
+    .score-initial { width: 28px; height: 28px; font-size: 0.75rem; }
+    .turn-info { font-size: 0.9rem; text-align: center; padding: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
+
+    /* Timer sits in the sidebar too, below the turn text */
+    .timer-wrap {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .turn-timer { width: 52px; height: 52px; font-size: 1.1rem; }
+    .timer-label { font-size: 0.5rem; }
+    .timer-sound-btn { width: 24px; height: 24px; font-size: 0.65rem; }
+
+    /* Hand strip — full width, bottom, only the cards (label hidden to save
+       every last pixel of height; the sidebar's "YOUR TURN" already orients
+       the player, so the label is redundant here) */
     .hand-area {
+      grid-area: hand;
       width: 100%;
       height: auto;
       flex: 0 0 auto;
+      display: block;
       border-top: 1px solid rgba(201,168,76,0.25);
-      padding: 14px 28px 20px;
+      padding: 10px 20px;
       overflow: visible;
-      position: relative;
     }
+    .hand-label-row { display: none; }
 
-    /* Info bar: scores | turn text | quit — all in one row, generous spacing */
-    .hand-info-bar {
-      gap: 20px;
-      padding: 10px 16px;
-      border-radius: 12px;
-      max-width: 1100px;
-      margin: 0 auto 10px;
-    }
-    .team-scores { gap: 14px; }
-    .score-badge { font-size: 0.95rem; padding: 5px 12px 5px 5px; }
-    .score-initial { width: 30px; height: 30px; font-size: 0.8rem; }
-    .turn-info { font-size: 1rem; }
-
-    /* Slim label strip spans the full width above the cards row */
-    .hand-label-row {
-      position: static;
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 0;
-    }
-    .hand-label-line { padding-right: 0; }
-
-    /* Timer floats to the right of the label strip on wide screens (still
-       plenty of room here — no need for the mobile absolute-position trick) */
-    .timer-wrap { position: absolute; right: 28px; top: 14px; }
-    .turn-timer { width: 42px; height: 42px; font-size: 0.95rem; }
-    .timer-label { font-size: 0.48rem; }
-    .timer-sound-btn { width: 22px; height: 22px; font-size: 0.6rem; }
-
-    /* Cards: single row, centered, generous size, never wraps */
     .hand-cards {
-      max-width: 1100px;
-      margin: 8px auto 0;
       flex-wrap: nowrap;
       overflow-x: visible;
       gap: 12px;
       padding: 0;
       justify-content: center;
     }
-    .hand-card { width: 68px; height: 96px; flex-shrink: 0; }
-    .hand-card:hover    { transform: translateY(-10px); }
-    .hand-card.selected { transform: translateY(-14px); }
+    .hand-card { width: 66px; height: 92px; flex-shrink: 0; }
+    .hand-card:hover    { transform: translateY(-8px); }
+    .hand-card.selected { transform: translateY(-12px); }
 
     .board { padding: 8px; }
   }
 
   /* Ultra-wide screens (laptops/desktops) — give the board even more room */
   @media (min-width: 1440px) {
-    .board-container { padding: 28px 24px 8px; }
-    .hand-card { width: 76px; height: 106px; }
-    .turn-timer { width: 48px; height: 48px; font-size: 1.05rem; }
+    .game-main { grid-template-columns: 1fr 200px; }
+    .hand-card { width: 74px; height: 104px; }
+    .turn-timer { width: 58px; height: 58px; font-size: 1.2rem; }
   }
 </style>
 </head>
@@ -2172,25 +2204,28 @@
       <div class="board" id="board"></div>
     </div>
 
-    <div class="hand-area">
-      <!-- Info bar — white pill above hand -->
-      <div class="hand-info-bar">
-        <div class="team-scores" id="team-scores"></div>
-        <div class="turn-info" id="turn-info">—</div>
-        <button class="info-icon-btn" onclick="leaveGame()" title="Quit game"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+    <!-- Info bar — white pill above hand on mobile; becomes a right-hand
+         sidebar on wide screens (see @media 1024px). Kept as a sibling of
+         board-container/hand-area so CSS Grid can place it independently. -->
+    <div class="hand-info-bar">
+      <div class="team-scores" id="team-scores"></div>
+      <div class="turn-info" id="turn-info">—</div>
+      <div class="timer-wrap">
+        <div class="turn-timer" id="turn-timer"><span>60</span></div>
+        <div class="timer-label">TIME LEFT</div>
+        <button class="sound-toggle timer-sound-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
       </div>
+      <button class="info-icon-btn" onclick="leaveGame()" title="Quit game"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+    </div>
+
+    <div class="hand-area">
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
-      <!-- Hand label with gold lines + timer -->
+      <!-- Hand label with gold lines (timer lives in hand-info-bar now) -->
       <div class="hand-label-row">
         <div class="hand-label-line">
           <span class="hand-label-bar"></span>
           <span class="hand-label">YOUR HAND</span>
           <span class="hand-label-bar"></span>
-        </div>
-        <div class="timer-wrap">
-          <div class="turn-timer" id="turn-timer"><span>60</span></div>
-          <div class="timer-label">TIME LEFT</div>
-          <button class="sound-toggle timer-sound-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
         </div>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
