@@ -3873,7 +3873,7 @@ async function getApproxLocation() {
 }
 
 async function logGameStart() {
-  if (!fbInit() || !db) return; // skip in VS AI mode — no Firebase connection
+  if (!fbInit() || !db) return; // Firebase not configured — skip analytics entirely
   analyticsGameId = 'game_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
   analyticsStartTime = Date.now();
   analyticsMoveCount = 0;
@@ -3885,6 +3885,7 @@ async function logGameStart() {
     numPlayers:  players.length,
     numTeams,
     seqToWin,
+    aiDifficulty: aiMode ? aiDifficulty : null, // 'easy' | 'medium' | 'hard' — null for human-only games
     players:     players.map(p => ({ name: p.name, team: p.team, isAI: p.id.startsWith(AI_ID) })),
     location:    loc,
     device:      /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
@@ -3897,16 +3898,22 @@ async function logGameStart() {
   } catch(e) {}
 }
 
-async function logGameEnd(winnerId, winnerName, totalSequences) {
+async function logGameEnd(winnerTeam, totalSequences) {
   if (!db || !analyticsGameId) return;
   const duration = Math.round((Date.now() - analyticsStartTime) / 1000);
+  const isDraw = winnerTeam === -1;
+  // Every player on the winning team, by name — not just the first match —
+  // so multiplayer 2v2/3v3 games record the whole winning roster.
+  const winningPlayers = isDraw ? [] : players.filter(p => p.team === winnerTeam);
   try {
     await db.ref('sq_analytics/' + analyticsGameId).update({
       status:          'completed',
       endedAt:         Date.now(),
       durationSecs:    duration,
-      winnerId,
-      winnerName,
+      isDraw,
+      winnerTeam:      isDraw ? null : winnerTeam,
+      winnerNames:     winningPlayers.map(p => p.name),
+      winnerIsAI:      isDraw ? null : winningPlayers.some(p => p.id.startsWith(AI_ID)),
       totalSequences,
       totalMoves:      analyticsMoveCount,
     });
@@ -4118,9 +4125,8 @@ function applyMoveInner(move, fromId) {
 
   // Log win to analytics (host only)
   if (isHost && GS.phase === 'done') {
-    const winner = players[GS.winner] || players.find(pl => pl.team === GS.winner);
     const totalSeq = GS.sequences.reduce((a, b) => a + b, 0);
-    logGameEnd(winner?.id || '', winner?.name || '', totalSeq);
+    logGameEnd(GS.winner, totalSeq); // GS.winner is a team number (or -1 for a draw)
   }
 
   // Advance turn

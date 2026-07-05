@@ -135,6 +135,13 @@
     <div class="stat-card"><div class="stat-value" id="s-countries">—</div><div class="stat-label">Countries</div></div>
   </div>
 
+  <div class="section-title">AI Win Rate by Difficulty</div>
+  <div class="stats-grid" id="ai-stats-grid">
+    <div class="stat-card"><div class="stat-value" id="s-easy-rate">—</div><div class="stat-label">Easy · AI Win %</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-medium-rate">—</div><div class="stat-label">Medium · AI Win %</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-hard-rate">—</div><div class="stat-label">Hard · AI Win %</div></div>
+  </div>
+
   <div class="section-title">Recent Games</div>
   <div class="table-wrap">
     <table>
@@ -142,6 +149,7 @@
         <tr>
           <th>Date</th>
           <th>Mode</th>
+          <th>Setup</th>
           <th>Players</th>
           <th>Winner</th>
           <th>Sequences</th>
@@ -154,7 +162,7 @@
         </tr>
       </thead>
       <tbody id="games-tbody">
-        <tr><td colspan="11" class="loading">Loading…</td></tr>
+        <tr><td colspan="12" class="loading">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -243,20 +251,56 @@ async function loadData() {
   document.getElementById('s-mobile').textContent    = games.length ? Math.round(mobileCount/games.length*100)+'%' : '—';
   document.getElementById('s-countries').textContent = Object.keys(countryCounts).length;
 
+  // ── AI win rate by difficulty ────────────────────
+  // Only counts completed, non-draw VS AI games that have an aiDifficulty
+  // recorded (older log entries before this field existed are excluded
+  // rather than guessed at).
+  const aiGames = completed.filter(g => g.mode === 'vs_ai' && g.aiDifficulty && !g.isDraw);
+  ['easy', 'medium', 'hard'].forEach(level => {
+    const levelGames = aiGames.filter(g => g.aiDifficulty === level);
+    const el = document.getElementById(`s-${level}-rate`);
+    if (!levelGames.length) { el.textContent = '—'; return; }
+    const aiWins = levelGames.filter(g => g.winnerIsAI === true).length;
+    const pct = Math.round((aiWins / levelGames.length) * 100);
+    el.textContent = `${pct}%`;
+    el.title = `${aiWins} of ${levelGames.length} games`;
+  });
+  // Show sample size under each percentage for context
+  ['easy','medium','hard'].forEach(level => {
+    const levelGames = aiGames.filter(g => g.aiDifficulty === level);
+    const label = document.getElementById(`s-${level}-rate`)?.nextElementSibling;
+    if (label && levelGames.length) {
+      label.textContent = `${level.charAt(0).toUpperCase()+level.slice(1)} · AI Win % (n=${levelGames.length})`;
+    }
+  });
+
   // ── Games table ─────────────────────────────────
   const tbody = document.getElementById('games-tbody');
   if (!games.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="loading">No games yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="loading">No games yet</td></tr>';
   } else {
     tbody.innerHTML = games.map(g => {
       const playerNames = (g.players||[]).filter(p=>!p.isAI).map(p=>p.name).join(', ') || '—';
       const statusClass = g.status === 'completed' ? 'badge-done' : g.status === 'abandoned' ? 'badge-abandoned' : 'badge-started';
       const loc = [g.location?.city, g.location?.country].filter(Boolean).join(', ') || '—';
+
+      // Setup summary: e.g. "vs 2 AI · First to 2 · Hard" or "3 Teams · First to 1"
+      const opponents = g.mode === 'vs_ai' ? `vs ${(g.numPlayers||2)-1} AI` : `${g.numTeams||2} Teams`;
+      const seqLabel = `First to ${g.seqToWin||2}`;
+      const diffLabel = g.aiDifficulty ? g.aiDifficulty.charAt(0).toUpperCase()+g.aiDifficulty.slice(1) : null;
+      const setup = [opponents, seqLabel, diffLabel].filter(Boolean).join(' · ');
+
+      // Winner: every name on the winning team, or "Draw"
+      const winnerDisplay = g.isDraw ? '🤝 Draw'
+        : (g.winnerNames && g.winnerNames.length) ? g.winnerNames.join(' & ')
+        : (g.winnerName || '—'); // fallback for older log entries before this fix
+
       return `<tr>
         <td>${fmtDate(g.startedAt)}</td>
         <td><span class="${g.mode==='vs_ai'?'mode-ai':'mode-multi'}">${g.mode==='vs_ai'?'vs AI':'Multi'}</span></td>
+        <td style="font-size:0.75rem;color:rgba(232,224,208,0.6);white-space:nowrap">${setup}</td>
         <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${playerNames}">${playerNames}</td>
-        <td>${g.winnerName || '—'}</td>
+        <td>${winnerDisplay}</td>
         <td style="text-align:center">${g.totalSequences ?? '—'}</td>
         <td style="text-align:center">${g.totalMoves ?? '—'}</td>
         <td>${fmtDur(g.durationSecs)}</td>
