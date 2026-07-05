@@ -1312,7 +1312,7 @@
 
   .team-scores {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     align-items: center;
     flex: 1;
   }
@@ -1321,8 +1321,8 @@
   .score-badge {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 2px 7px 2px 2px;
+    gap: 4px;
+    padding: 2px 6px 2px 2px;
     border: 1.5px solid #E0E4F0;
     border-radius: 20px;
     background: white;
@@ -1373,6 +1373,7 @@
     border-radius: 50%;
     border: 1.5px solid #D0D5E8;
     background: white;
+    color: #1a2080;
     font-size: 0.9rem;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
@@ -1446,6 +1447,23 @@
     color: rgba(255,255,255,0.7);
     letter-spacing: 0.06em;
   }
+
+  .timer-sound-btn {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.08);
+    color: white;
+    font-size: 0.55rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    margin-top: 1px;
+  }
+  .timer-sound-btn:active { background: rgba(255,255,255,0.2); }
 
   .turn-timer {
     flex-shrink: 0;
@@ -1739,7 +1757,7 @@
         <div class="lbl">YOUR NAME</div>
         <div class="input-wrap" style="margin-bottom:8px">
           <span class="input-icon">👤</span>
-          <input id="player-name" type="text" placeholder="Enter your name" maxlength="16" autocomplete="off" class="lobby-input" style="margin-bottom:0">
+          <input id="player-name" type="text" placeholder="Enter your name" maxlength="7" autocomplete="off" class="lobby-input" style="margin-bottom:0">
         </div>
         <div class="error-msg" id="lobby-error"></div>
 
@@ -2052,8 +2070,7 @@
       <div class="hand-info-bar">
         <div class="team-scores" id="team-scores"></div>
         <div class="turn-info" id="turn-info">—</div>
-        <button class="sound-toggle info-icon-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
-        <button class="info-quit-btn" onclick="leaveGame()">QUIT</button>
+        <button class="info-icon-btn" onclick="leaveGame()" title="Quit game"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
       </div>
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
       <!-- Hand label with gold lines + timer -->
@@ -2066,6 +2083,7 @@
         <div class="timer-wrap">
           <div class="turn-timer" id="turn-timer"><span>60</span></div>
           <div class="timer-label">TIME LEFT</div>
+          <button class="sound-toggle timer-sound-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
         </div>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
@@ -2078,7 +2096,34 @@
   <div class="modal">
     <h2 id="win-title">🏆 Victory!</h2>
     <p id="win-msg"></p>
-    <button class="btn btn-primary" onclick="leaveGame()">New Game</button>
+
+    <!-- Default state: win/lose summary + action buttons -->
+    <div id="win-actions">
+      <div id="rematch-shuffle-row" style="display:none;align-items:center;justify-content:center;gap:8px;margin-bottom:10px">
+        <label class="toggle-switch" style="transform:scale(0.85)">
+          <input type="checkbox" id="shuffle-teams-checkbox">
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-family:'EB Garamond',serif;font-size:0.85rem;color:#555">🔀 Shuffle Teams</span>
+      </div>
+      <button class="btn btn-primary" id="rematch-btn" onclick="requestRematch()" style="display:none">🔁 Rematch</button>
+      <button class="btn btn-secondary" onclick="leaveGame()">New Game</button>
+    </div>
+
+    <!-- Waiting for host to start rematch, or waiting for other players to respond -->
+    <div id="rematch-waiting" style="display:none">
+      <p style="font-family:'EB Garamond',serif;color:#666;font-size:0.9rem" id="rematch-waiting-text">Waiting for players to respond…</p>
+      <button class="btn btn-secondary" onclick="cancelRematch()">Cancel</button>
+    </div>
+
+    <!-- Rematch request prompt (shown to non-host players when host requests rematch) -->
+    <div id="rematch-prompt" style="display:none">
+      <p style="font-family:'Cinzel',serif;font-weight:700;color:#1a2080;margin-bottom:12px" id="rematch-prompt-text">🔁 Host wants a rematch!</p>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="respondRematch(true)">✓ Accept</button>
+        <button class="btn btn-secondary" style="flex:1" onclick="respondRematch(false)">✕ Decline</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3166,6 +3211,11 @@ async function createGame() {
     if (!fbGameStarted) renderWaitingPlayers();
   });
 
+  // Watch rematch requests/responses
+  fbOn(roomRef.child('rematch'), 'value', snap => {
+    onRematchUpdate(snap.val());
+  });
+
   showWaitingLobby();
 }
 
@@ -3225,14 +3275,23 @@ async function joinGame() {
   // Watch game state
   fbOn(roomRef.child('gameState'), 'value', snap => {
     if (!snap.val()) return;
-    GS = JSON.parse(snap.val());
+    const newGS = JSON.parse(snap.val());
+    const isFreshGame = newGS.moveSeq === 1 && GS && GS.phase === 'done';
+    GS = newGS;
     if (GS.moveSeq === 1) GS.lastRemoved = null;
-    if (!fbGameStarted) {
+    if (!fbGameStarted || isFreshGame) {
       fbGameStarted = true;
+      document.getElementById('win-modal').classList.remove('open');
+      resetRematchUI();
       showGameScreen();
     } else {
       renderGame();
     }
+  });
+
+  // Watch rematch requests/responses
+  fbOn(roomRef.child('rematch'), 'value', snap => {
+    onRematchUpdate(snap.val());
   });
 
   // Watch toasts
@@ -3294,10 +3353,13 @@ async function spectateGame() {
   // Watch game state
   fbOn(roomRef.child('gameState'), 'value', snap => {
     if (!snap.val()) return;
-    GS = JSON.parse(snap.val());
+    const newGS = JSON.parse(snap.val());
+    const isFreshGame = newGS.moveSeq === 1 && GS && GS.phase === 'done';
+    GS = newGS;
     if (GS.moveSeq === 1) GS.lastRemoved = null;
-    if (!fbGameStarted) {
+    if (!fbGameStarted || isFreshGame) {
       fbGameStarted = true;
+      document.getElementById('win-modal').classList.remove('open');
       showGameScreen();
     } else {
       renderGame();
@@ -3412,6 +3474,142 @@ function startGame() {
   logGameStart(); // analytics
 }
 
+// ═══════════════════════════════════════════════════
+// REMATCH
+// ═══════════════════════════════════════════════════
+// Firebase structure under sq_rooms/{code}/rematch:
+//   { status: 'requested'|'declined', requestedBy, shuffleTeams, responses: {playerId: true|false} }
+// Host writes 'requested' with its own response pre-filled; other clients see the
+// prompt, respond, host watches responses and either starts a fresh game (all true)
+// or writes 'declined' (any false) which every client shows as a toast, then both
+// sides reset back to the normal post-game buttons.
+
+function resetRematchUI() {
+  document.getElementById('win-actions').style.display = 'block';
+  document.getElementById('rematch-waiting').style.display = 'none';
+  document.getElementById('rematch-prompt').style.display = 'none';
+  const shuffleCb = document.getElementById('shuffle-teams-checkbox');
+  if (shuffleCb) shuffleCb.checked = false;
+}
+
+function requestRematch() {
+  if (aiMode) {
+    // No one to ask — just restart immediately with the same settings
+    document.getElementById('win-modal').classList.remove('open');
+    GS = initGameState();
+    fbGameStarted = true; // no-op in AI mode but keeps state consistent
+    showGameScreen();
+    logGameStart();
+    return;
+  }
+  if (!isHost || !roomRef) return;
+
+  const shuffleTeams = document.getElementById('shuffle-teams-checkbox')?.checked || false;
+  const responses = {}; responses[myId] = true; // host implicitly accepts
+
+  document.getElementById('win-actions').style.display = 'none';
+  document.getElementById('rematch-waiting').style.display = 'block';
+  document.getElementById('rematch-waiting-text').textContent =
+    players.length > 1 ? 'Waiting for players to accept…' : 'Starting rematch…';
+
+  roomRef.child('rematch').set({
+    status: 'requested',
+    requestedBy: myId,
+    shuffleTeams,
+    responses
+  }).catch(() => toast('Could not send rematch request'));
+}
+
+function respondRematch(accepted) {
+  if (!roomRef) return;
+  document.getElementById('rematch-prompt').style.display = 'none';
+  document.getElementById('rematch-waiting').style.display = 'block';
+  document.getElementById('rematch-waiting-text').textContent =
+    accepted ? 'Waiting for other players…' : 'Declining…';
+  roomRef.child('rematch/responses/' + myId).set(accepted).catch(() => {});
+}
+
+function cancelRematch() {
+  if (isHost && roomRef) {
+    roomRef.child('rematch').set(null).catch(() => {});
+  }
+  resetRematchUI();
+}
+
+// Host-only: watches responses and decides whether to start the rematch or cancel it
+function checkRematchResponses(rematchData) {
+  if (!isHost || !rematchData || rematchData.status !== 'requested') return;
+  const responses = rematchData.responses || {};
+  const allResponded = players.every(p => responses[p.id] !== undefined);
+  if (!allResponded) return;
+
+  const allAccepted = players.every(p => responses[p.id] === true);
+  if (allAccepted) {
+    startRematchGame(rematchData.shuffleTeams);
+  } else {
+    roomRef.child('rematch').update({ status: 'declined' }).catch(() => {});
+  }
+}
+
+// Host-only: builds a fresh game in the same room, optionally shuffling teams
+function startRematchGame(shuffleTeams) {
+  if (!isHost || !roomRef) return;
+  if (shuffleTeams) {
+    // Build a slot list with the same team-size distribution as before (teams are
+    // already guaranteed balanced — this preserves that balance after shuffling),
+    // then deal shuffled players into those slots.
+    const teamSlots = players.map((_, i) => i % numTeams);
+    const shuffledPlayerIds = shuffle(players.map(p => p.id));
+    shuffle(teamSlots);
+    shuffledPlayerIds.forEach((pid, i) => {
+      const p = players.find(pl => pl.id === pid);
+      if (p) p.team = teamSlots[i];
+    });
+  }
+
+  GS = initGameState();
+  fbGameStarted = true;
+
+  roomRef.update({
+    phase: 'playing',
+    players: JSON.stringify(players),
+    gameState: JSON.stringify(GS),
+    rematch: null
+  }).catch(() => toast('Could not start rematch'));
+
+  document.getElementById('win-modal').classList.remove('open');
+  resetRematchUI();
+  showGameScreen();
+  scheduleTurnTimer();
+  logGameStart();
+}
+
+// Called by all clients (host + guests) whenever rematch/ changes in Firebase
+function onRematchUpdate(rematchData) {
+  if (!rematchData) { resetRematchUI(); return; }
+
+  if (rematchData.status === 'requested') {
+    checkRematchResponses(rematchData); // host-only, no-op for guests
+    const responses = rematchData.responses || {};
+    const alreadyResponded = responses[myId] !== undefined;
+    if (rematchData.requestedBy === myId) {
+      // I'm the host who sent it — show waiting state
+      document.getElementById('win-actions').style.display = 'none';
+      document.getElementById('rematch-prompt').style.display = 'none';
+      document.getElementById('rematch-waiting').style.display = 'block';
+    } else if (!alreadyResponded) {
+      // I'm a guest who hasn't responded yet — show the prompt
+      document.getElementById('win-actions').style.display = 'none';
+      document.getElementById('rematch-waiting').style.display = 'none';
+      document.getElementById('rematch-prompt').style.display = 'block';
+    }
+  } else if (rematchData.status === 'declined') {
+    toast('Rematch declined — staying on results');
+    resetRematchUI();
+    if (isHost && roomRef) roomRef.child('rematch').set(null).catch(() => {});
+  }
+}
+
 function leaveGame() {
   stopTurnTimer();
   stopCountdownDisplay();
@@ -3444,6 +3642,7 @@ function leaveGame() {
   setError('lobby-error', '');
   setError('waiting-error', '');
   document.getElementById('win-modal').classList.remove('open');
+  resetRematchUI();
   showScreen('lobby-screen');
 }
 
@@ -4194,21 +4393,23 @@ function renderTopBar() {
     scoresEl.append(div);
   }
 
-  // Turn info
+  // Turn info — name is truncated to 7 characters (consistent with the player-name
+  // input's own limit) so it fits next to 3-player score badges
   const turnEl = document.getElementById('turn-info');
   const cp = players[GS.currentTurn];
   const isMe = cp && cp.id === myId;
   const isAI = cp && cp.id.startsWith(AI_ID);
+  const shortName = (n) => n && n.length > 7 ? n.slice(0, 7) : n;
   if (isMe) {
     turnEl.innerHTML = '<strong>YOUR TURN</strong>';
     turnEl.style.color = '#C0392B';
     turnEl.style.fontStyle = 'normal';
   } else if (isAI) {
-    turnEl.innerHTML = '<em>AI is thinking…</em>';
+    turnEl.textContent = `${shortName(cp.name) || 'AI'}'s turn`;
     turnEl.style.color = '#1a2080';
     turnEl.style.fontStyle = 'normal';
   } else {
-    turnEl.textContent = `${cp ? cp.name.toUpperCase()+"'S" : '?'} TURN`;
+    turnEl.textContent = `${cp ? shortName(cp.name) : '?'}'s turn`;
     turnEl.style.color = '#1a2080';
     turnEl.style.fontStyle = 'normal';
   }
@@ -4611,6 +4812,7 @@ function showWinModal() {
   const w = GS.winner;
   let title, msg;
   stopTickSound();
+  resetRematchUI();
 
   // Draw condition
   if (w === -1) {
@@ -4618,6 +4820,15 @@ function showWinModal() {
     msg = 'The board is full — no team completed enough sequences.';
     document.getElementById('win-title').textContent = title;
     document.getElementById('win-msg').textContent = msg;
+    const rematchBtn0 = document.getElementById('rematch-btn');
+    const shuffleRow0 = document.getElementById('rematch-shuffle-row');
+    if (!isSpectator && (aiMode || isHost)) {
+      rematchBtn0.style.display = 'block';
+      shuffleRow0.style.display = (!aiMode && numTeams > 1) ? 'flex' : 'none';
+    } else {
+      rematchBtn0.style.display = 'none';
+      shuffleRow0.style.display = 'none';
+    }
     setTimeout(() => document.getElementById('win-modal').classList.add('open'), 800);
     return;
   }
@@ -4637,6 +4848,18 @@ function showWinModal() {
   }
   document.getElementById('win-title').textContent = title;
   document.getElementById('win-msg').textContent = msg;
+
+  // Rematch button: always available in VS AI; only for the host in multiplayer
+  // (non-host players wait for the host to trigger a rematch request)
+  const rematchBtn = document.getElementById('rematch-btn');
+  const shuffleRow = document.getElementById('rematch-shuffle-row');
+  if (!isSpectator && (aiMode || isHost)) {
+    rematchBtn.style.display = 'block';
+    shuffleRow.style.display = (!aiMode && numTeams > 1) ? 'flex' : 'none';
+  } else {
+    rematchBtn.style.display = 'none';
+    shuffleRow.style.display = 'none';
+  }
 
   const showModal = () => document.getElementById('win-modal').classList.add('open');
 
