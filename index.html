@@ -427,6 +427,16 @@
     padding-bottom: 24px;
   }
 
+  /* Wrapper for lobby-outer + decorative side panel. On mobile this is just a
+     plain block so .lobby-outer centers exactly as before; the row layout and
+     side panel only activate at the wide-screen breakpoint below. */
+  .lobby-wide-row {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  .lobby-side-panel { display: none; }
+
   /* Top banner — title + suits, sits above the section cards, not boxed */
   .lobby-banner {
     text-align: center;
@@ -1683,47 +1693,139 @@
      use the full screen height — cells become ~60px wide vs ~37px.
      Mobile (< 1024px) is completely unchanged.
   ───────────────────────────────────────────────────────────────── */
+  /* Lobby goes two-column earlier than the game screen (768px) since the
+     decorative side panel needs less room than the game board does. This
+     covers iPad portrait (768px) as well as landscape and laptop widths. */
+  @media (min-width: 768px) {
+    .lobby-wide-row {
+      gap: 32px;
+      align-items: flex-start;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+    .lobby-outer { max-width: 460px; padding-bottom: 0; }
+    .lobby-side-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      flex: 1 1 0;
+      max-width: 420px;
+      padding: 48px 32px;
+      margin-top: 48px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+      border: 1px solid rgba(201,168,76,0.25);
+      border-radius: 20px;
+    }
+    .lobby-side-board-img {
+      width: 100%;
+      max-width: 320px;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+      margin-bottom: 28px;
+    }
+    .lobby-side-tagline {
+      font-family: 'Cinzel', serif;
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: white;
+      line-height: 1.3;
+      margin-bottom: 20px;
+    }
+    .lobby-side-chips {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .lobby-side-chips > div { width: 40px; height: 40px; }
+    .lobby-side-text {
+      font-family: 'EB Garamond', serif;
+      font-size: 0.95rem;
+      color: rgba(255,255,255,0.65);
+      line-height: 1.6;
+    }
+  }
+
+  /* Below 768px wide but taller than usual (e.g. a phone in a folded/split
+     state) still keep the side panel hidden — width is the deciding factor,
+     handled entirely by the breakpoint above. */
+
   @media (min-width: 1024px) {
+    /* ── GAME SCREEN ── */
     .game-main { flex-direction: row; overflow: visible; }
 
-    /* On desktop, revert to flex-based sizing — explicit heights not needed */
+    /* Board takes all space to the left of the side panel */
     .board-container {
       flex: 1 1 0;
       height: auto;
-      padding: 8px;
+      padding: 24px;
     }
 
+    /* Side panel — wider than before, holds hand + info + timer with room to breathe */
     .hand-area {
-      width: 210px;
+      width: 320px;
       height: auto;
-      flex: 0 0 210px;
+      flex: 0 0 320px;
       border-top: none;
       border-left: 1px solid rgba(201,168,76,0.25);
-      padding: 10px 12px 14px;
+      padding: 20px 22px 24px;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 18px;
     }
 
-    .hand-info-bar { margin-bottom: 8px; }
-    .turn-info   { font-size: 0.82rem; }
-    .score-badge { font-size: 0.82rem; }
-    .score-dot   { width: 10px; height: 10px; }
+    .hand-info-bar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      margin-bottom: 0;
+      padding: 14px;
+      border-radius: 12px;
+      position: relative;
+    }
+    .hand-info-bar .info-icon-btn {
+      position: absolute;
+      top: 10px; right: 10px;
+    }
+    .team-scores { flex-direction: column; gap: 8px; padding-right: 34px; }
+    .score-badge { font-size: 0.95rem; padding: 6px 10px 6px 4px; }
+    .score-initial { width: 30px; height: 30px; font-size: 0.8rem; }
+    .turn-info { font-size: 1rem; text-align: center; padding-top: 4px; border-top: 1px solid #eee; }
 
-    .hand-card { width: 60px; height: 88px; }
+    /* Timer moves inline above the hand label on wide screens — plenty of room,
+       no need for the space-saving absolute-position trick used on mobile */
+    .hand-label-row { position: static; flex-direction: column-reverse; gap: 10px; }
+    .hand-label-line { padding-right: 0; }
+    .timer-wrap { position: static; display: flex; }
+    .turn-timer { width: 54px; height: 54px; font-size: 1.15rem; }
+    .timer-label { font-size: 0.55rem; }
+    .timer-sound-btn { width: 26px; height: 26px; font-size: 0.7rem; }
+
+    .hand-card { width: 74px; height: 104px; }
     .hand-card:hover    { transform: translateY(-10px); }
     .hand-card.selected { transform: translateY(-14px); }
 
     .hand-cards {
       flex-wrap: wrap;
       overflow-x: visible;
-      gap: 7px;
-      padding-bottom: 0;
+      gap: 10px;
+      padding: 4px 0 0;
       justify-content: center;
     }
 
-    .hand-label-row { margin-bottom: 8px; }
-    .waiting-banner { font-size: 0.85rem; min-height: 1.3em; }
-    .turn-timer { width: 38px; height: 38px; font-size: 0.85rem; }
-    .board { padding: 5px; }
+    .board { padding: 8px; }
+  }
+
+  /* Ultra-wide screens (laptops/desktops) — give the board even more room */
+  @media (min-width: 1440px) {
+    .board-container { padding: 36px; }
+    .hand-area { width: 360px; flex: 0 0 360px; padding: 26px 28px 30px; }
+    .hand-card { width: 80px; height: 112px; }
+    .turn-timer { width: 60px; height: 60px; font-size: 1.25rem; }
   }
 </style>
 </head>
@@ -1733,6 +1835,7 @@
      LOBBY SCREEN
 ═══════════════════════════════════════════════════ -->
 <div id="lobby-screen" class="screen active">
+  <div class="lobby-wide-row">
   <div class="lobby-outer">
 
     <!-- Top banner -->
@@ -1888,6 +1991,15 @@
       <button class="btn btn-primary" id="start-btn" onclick="startGame()" style="display:none">Start Game</button>
       <button class="btn btn-secondary" onclick="leaveGame()">Leave</button>
     </div>
+  </div>
+
+  <!-- Decorative side panel — only shown on wide screens (≥1024px) -->
+  <div class="lobby-side-panel">
+    <img class="lobby-side-board-img" id="lobby-side-board" alt="Sequence board">
+    <div class="lobby-side-tagline">Strategy meets<br>the classics</div>
+    <div class="lobby-side-chips" id="lobby-side-chips"></div>
+    <p class="lobby-side-text">Line up five in a row — horizontal, vertical, or diagonal — before your opponents do. Outwit them with Jacks, block their plans, and claim the board.</p>
+  </div>
   </div>
 </div>
 
@@ -2148,6 +2260,7 @@ window.addEventListener('load', () => setTimeout(setVh, 200));
 window.addEventListener('load', () => {
   updateSoundToggleUI();
   initOpponentChipIcons();
+  initLobbySidePanel();
   // Auto-spectate if ?watch=CODE in URL
   const params = new URLSearchParams(window.location.search);
   const watchCode = params.get('watch');
@@ -2534,6 +2647,25 @@ function initOpponentChipIcons() {
       el.dataset.init = '1';
     }
   });
+}
+
+// Decorative side panel shown next to the lobby on wide screens (tablet/desktop).
+// Reuses the same board hero image + chip SVGs as the tutorial, so no new assets.
+function initLobbySidePanel() {
+  const img = document.getElementById('lobby-side-board');
+  if (img && !img.dataset.init) {
+    img.src = BOARD_HERO_IMG;
+    img.dataset.init = '1';
+  }
+  const chips = document.getElementById('lobby-side-chips');
+  if (chips && !chips.dataset.init) {
+    ['t0','t1','t2'].forEach((t, i) => {
+      const d = document.createElement('div');
+      d.innerHTML = buildChipSVG(t, ['Z','M','K'][i], 40, false, false);
+      chips.append(d);
+    });
+    chips.dataset.init = '1';
+  }
 }
 
 // ═══════════════════════════════════════════════════
