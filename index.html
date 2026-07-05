@@ -2926,7 +2926,8 @@ const AI_NAME = 'Dealer AI';
 
 function startVsAI() {
   unlockSpeaker();
-  myName = document.getElementById('player-name').value.trim() || 'Player';
+  myName = document.getElementById('player-name').value.trim();
+  if (!myName) { setError('lobby-error','Enter your name first.'); return; }
   setError('lobby-error', '');
   aiMode = true;
   isHost = true;
