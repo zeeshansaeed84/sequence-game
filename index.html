@@ -1712,39 +1712,36 @@
       text-align: center;
       flex: 1 1 0;
       max-width: 420px;
-      padding: 48px 32px;
-      margin-top: 48px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
-      border: 1px solid rgba(201,168,76,0.25);
-      border-radius: 20px;
+      padding: 48px 24px 0;
     }
     .lobby-side-board-img {
       width: 100%;
-      max-width: 320px;
+      max-width: 340px;
       height: auto;
-      border-radius: 12px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.4);
-      margin-bottom: 28px;
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+      margin-bottom: 32px;
     }
     .lobby-side-tagline {
       font-family: 'Cinzel', serif;
-      font-size: 1.3rem;
+      font-size: 1.4rem;
       font-weight: 700;
       color: white;
       line-height: 1.3;
-      margin-bottom: 20px;
+      margin-bottom: 22px;
     }
     .lobby-side-chips {
       display: flex;
       gap: 14px;
-      margin-bottom: 20px;
+      margin-bottom: 22px;
     }
     .lobby-side-chips > div { width: 40px; height: 40px; }
     .lobby-side-text {
       font-family: 'EB Garamond', serif;
-      font-size: 0.95rem;
-      color: rgba(255,255,255,0.65);
-      line-height: 1.6;
+      font-size: 0.98rem;
+      color: rgba(255,255,255,0.6);
+      line-height: 1.7;
+      max-width: 320px;
     }
   }
 
@@ -1753,79 +1750,77 @@
      handled entirely by the breakpoint above. */
 
   @media (min-width: 1024px) {
-    /* ── GAME SCREEN ── */
-    .game-main { flex-direction: row; overflow: visible; }
-
-    /* Board takes all space to the left of the side panel */
+    /* ── GAME SCREEN ──
+       Keep the board-on-top, hand-below layout from mobile (rather than a
+       narrow side column) so hand cards can sit in a single row with room
+       to breathe — a vertical side panel forces them to wrap into 2 rows. */
     .board-container {
       flex: 1 1 0;
       height: auto;
-      padding: 24px;
+      padding: 20px 24px 8px;
     }
 
-    /* Side panel — wider than before, holds hand + info + timer with room to breathe */
     .hand-area {
-      width: 320px;
+      width: 100%;
       height: auto;
-      flex: 0 0 320px;
-      border-top: none;
-      border-left: 1px solid rgba(201,168,76,0.25);
-      padding: 20px 22px 24px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 18px;
-    }
-
-    .hand-info-bar {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 12px;
-      margin-bottom: 0;
-      padding: 14px;
-      border-radius: 12px;
+      flex: 0 0 auto;
+      border-top: 1px solid rgba(201,168,76,0.25);
+      padding: 14px 28px 20px;
+      overflow: visible;
       position: relative;
     }
-    .hand-info-bar .info-icon-btn {
-      position: absolute;
-      top: 10px; right: 10px;
+
+    /* Info bar: scores | turn text | quit — all in one row, generous spacing */
+    .hand-info-bar {
+      gap: 20px;
+      padding: 10px 16px;
+      border-radius: 12px;
+      max-width: 1100px;
+      margin: 0 auto 10px;
     }
-    .team-scores { flex-direction: column; gap: 8px; padding-right: 34px; }
-    .score-badge { font-size: 0.95rem; padding: 6px 10px 6px 4px; }
+    .team-scores { gap: 14px; }
+    .score-badge { font-size: 0.95rem; padding: 5px 12px 5px 5px; }
     .score-initial { width: 30px; height: 30px; font-size: 0.8rem; }
-    .turn-info { font-size: 1rem; text-align: center; padding-top: 4px; border-top: 1px solid #eee; }
+    .turn-info { font-size: 1rem; }
 
-    /* Timer moves inline above the hand label on wide screens — plenty of room,
-       no need for the space-saving absolute-position trick used on mobile */
-    .hand-label-row { position: static; flex-direction: column-reverse; gap: 10px; }
+    /* Slim label strip spans the full width above the cards row */
+    .hand-label-row {
+      position: static;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0;
+    }
     .hand-label-line { padding-right: 0; }
-    .timer-wrap { position: static; display: flex; }
-    .turn-timer { width: 54px; height: 54px; font-size: 1.15rem; }
-    .timer-label { font-size: 0.55rem; }
-    .timer-sound-btn { width: 26px; height: 26px; font-size: 0.7rem; }
 
-    .hand-card { width: 74px; height: 104px; }
-    .hand-card:hover    { transform: translateY(-10px); }
-    .hand-card.selected { transform: translateY(-14px); }
+    /* Timer floats to the right of the label strip on wide screens (still
+       plenty of room here — no need for the mobile absolute-position trick) */
+    .timer-wrap { position: absolute; right: 28px; top: 14px; }
+    .turn-timer { width: 42px; height: 42px; font-size: 0.95rem; }
+    .timer-label { font-size: 0.48rem; }
+    .timer-sound-btn { width: 22px; height: 22px; font-size: 0.6rem; }
 
+    /* Cards: single row, centered, generous size, never wraps */
     .hand-cards {
-      flex-wrap: wrap;
+      max-width: 1100px;
+      margin: 8px auto 0;
+      flex-wrap: nowrap;
       overflow-x: visible;
-      gap: 10px;
-      padding: 4px 0 0;
+      gap: 12px;
+      padding: 0;
       justify-content: center;
     }
+    .hand-card { width: 68px; height: 96px; flex-shrink: 0; }
+    .hand-card:hover    { transform: translateY(-10px); }
+    .hand-card.selected { transform: translateY(-14px); }
 
     .board { padding: 8px; }
   }
 
   /* Ultra-wide screens (laptops/desktops) — give the board even more room */
   @media (min-width: 1440px) {
-    .board-container { padding: 36px; }
-    .hand-area { width: 360px; flex: 0 0 360px; padding: 26px 28px 30px; }
-    .hand-card { width: 80px; height: 112px; }
-    .turn-timer { width: 60px; height: 60px; font-size: 1.25rem; }
+    .board-container { padding: 28px 24px 8px; }
+    .hand-card { width: 76px; height: 106px; }
+    .turn-timer { width: 48px; height: 48px; font-size: 1.05rem; }
   }
 </style>
 </head>
