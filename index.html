@@ -3005,6 +3005,45 @@ function aiTakeTurn() {
   const jitter = diff==='easy' ? 60 : diff==='medium' ? 8 : 1;
   const earlyGame = (GS.moveSeq || 1) <= 6; // first 6 moves — jacks never worth it
 
+  // House rule override: if the AI is locked into a forced card (it drew a
+  // live replacement after discarding a dead card), it MUST play that exact
+  // card — skip all normal evaluation and go straight to finding the best
+  // legal cell for that specific card.
+  if (GS.forcedCardIdx !== null) {
+    const forcedIdx = GS.forcedCardIdx;
+    const forcedCard = hand[forcedIdx];
+    let bestMove = null;
+    if (forcedCard) {
+      if (isTwoEyedJack(forcedCard)) {
+        let bestScore = -Infinity;
+        for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+          if (GS.chips[r][c] !== null || GS.board[r][c].type === 'wild') continue;
+          const score = evalPlacement(r, c, aiTeam, GS, diff) + Math.random()*jitter;
+          if (score > bestScore) { bestScore = score; bestMove = {cardIdx: forcedIdx, dead:false, row:r, col:c}; }
+        }
+      } else if (isOneEyedJack(forcedCard)) {
+        let bestScore = -Infinity;
+        for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+          const ct = GS.chips[r][c];
+          if (ct === null || ct === aiTeam || isSequenceCellInState(r,c,GS)) continue;
+          const threat = runLengthAt(r, c, ct, GS);
+          const score = evalRemoval(r, c, ct, threat, diff);
+          if (score > bestScore) { bestScore = score; bestMove = {cardIdx: forcedIdx, dead:false, row:r, col:c}; }
+        }
+      } else {
+        for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+          const cell = GS.board[r][c];
+          if (cell.type==='card' && cell.suit===forcedCard.suit && cell.rank===forcedCard.rank && GS.chips[r][c]===null) {
+            bestMove = {cardIdx: forcedIdx, dead:false, row:r, col:c};
+            break;
+          }
+        }
+      }
+    }
+    aiExecuteMove(bestMove || {cardIdx: forcedIdx, dead:false, row:0, col:0}, hand, aiId, aiTeam);
+    return;
+  }
+
   // ── Step 1: Find best NORMAL card move ──────────────────────────
   let bestNormalScore = -Infinity;
   let bestNormalMove  = null;
@@ -3087,7 +3126,13 @@ function aiTakeTurn() {
   // Fallback chain: dead card → discard first card
   if (!bestMove) bestMove = deadMove || {cardIdx:0, dead:true, row:0, col:0};
 
-  // ── Execute move ─────────────────────────────────────────────────
+  aiExecuteMove(bestMove, hand, aiId, aiTeam);
+}
+
+// Runs the flying-card/chip animation for the AI's chosen move, then applies
+// it. Shared by the normal decision path and the forced-card house-rule path
+// so both animate and resolve identically.
+function aiExecuteMove(bestMove, hand, aiId, aiTeam) {
   const delay = 650 + Math.random() * 400;
   const aiCard = hand[bestMove.cardIdx];
   const isRemoval = !bestMove.dead && aiCard && isOneEyedJack(aiCard);
@@ -3992,6 +4037,9 @@ function initGameState() {
     forcedCardIdx: null, // house rule: once a live replacement is drawn after a
                           // discard, the player is locked into playing this
                           // exact hand index — null means no lock is active
+    discardLockActive: false, // true from the moment the FIRST discard happens
+                               // this turn, even before a live card is found —
+                               // disables the rest of the hand during the chain
   };
 }
 
@@ -4037,6 +4085,7 @@ function skipTurn() {
   const skipped = players[GS.currentTurn];
   GS.currentTurn = (GS.currentTurn + 1) % players.length;
   GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
+  GS.discardLockActive = false;
   GS.moveSeq = (GS.moveSeq || 0) + 1;
   broadcastToast(`⏱ ${skipped ? skipped.name : 'Player'}'s turn timed out — skipped`);
   hostAdvanceAndBroadcast();
@@ -4083,7 +4132,11 @@ function applyMoveInner(move, fromId) {
     // no limit. The moment a LIVE (playable) replacement is drawn, they are
     // locked into playing that exact card — no other card in hand may be
     // played this turn. This replaces the official one-discard-per-turn rule.
-    if (GS.forcedCardIdx !== null) { toast('You must play your drawn card'); return; }
+    // discardLockActive flips on with the FIRST discard (even while still
+    // drawing dead replacements) so the rest of the hand is disabled for the
+    // whole chain, not just once a live card is finally found.
+    if (GS.forcedCardIdx !== null) { if (fromId === myId) toast('You must play your drawn card'); return; }
+    GS.discardLockActive = true;
     GS.discard.push(hand.splice(cardIdx, 1)[0]);
     drawCard(fromId);
     GS.moveSeq = (GS.moveSeq || 0) + 1;
@@ -4101,7 +4154,7 @@ function applyMoveInner(move, fromId) {
   // that exact hand index may be played this turn — everything else is
   // rejected, even if it would otherwise be a completely legal move.
   if (GS.forcedCardIdx !== null && cardIdx !== GS.forcedCardIdx) {
-    toast('You must play your drawn card');
+    if (fromId === myId) toast('You must play your drawn card');
     return;
   }
 
@@ -4183,6 +4236,7 @@ function applyMoveInner(move, fromId) {
   if (GS.phase !== 'done') {
     GS.currentTurn = (GS.currentTurn + 1) % players.length;
     GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
+    GS.discardLockActive = false;
   }
 
   hostAdvanceAndBroadcast();
@@ -4812,15 +4866,30 @@ function renderHand() {
   handEl.innerHTML = '';
   const myHand = GS.hands[myId] || [];
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
-  const isLocked = myTurn && GS.forcedCardIdx !== null;
+  const isLocked = myTurn && GS.discardLockActive;
+  const hardLocked = isLocked && GS.forcedCardIdx !== null; // live replacement found — must play it
+  const softLocked = isLocked && GS.forcedCardIdx === null; // mid-chain — only dead cards selectable
 
   // House rule: once a live replacement is drawn after a dead-card discard,
-  // the player must play that exact card — auto-select it and lock the rest
-  if (isLocked && selectedCardIdx !== GS.forcedCardIdx) {
+  // the player must play that exact card — auto-select it and lock the rest.
+  // While still mid-chain (forcedCardIdx still null, drawing dead card after
+  // dead card), leave selection alone so the player can keep selecting +
+  // discarding whichever dead card they're holding.
+  if (hardLocked && selectedCardIdx !== GS.forcedCardIdx) {
     selectedCardIdx = GS.forcedCardIdx;
   }
   const forcedBanner = document.getElementById('forced-card-banner');
-  if (forcedBanner) forcedBanner.style.display = isLocked ? 'block' : 'none';
+  if (forcedBanner) {
+    if (hardLocked) {
+      forcedBanner.textContent = '🔒 You must play the card you just drew';
+      forcedBanner.style.display = 'block';
+    } else if (softLocked) {
+      forcedBanner.textContent = '🔒 Keep discarding until you draw a playable card';
+      forcedBanner.style.display = 'block';
+    } else {
+      forcedBanner.style.display = 'none';
+    }
+  }
 
   myHand.forEach((card, i) => {
     const el = document.createElement('div');
@@ -4834,22 +4903,22 @@ function renderHand() {
     const isDead = isDeadCard(card, i);
     if (isDead) el.classList.add('dead-card');
 
-    if (isLocked) {
-      if (i === GS.forcedCardIdx) {
-        el.classList.add('forced-card');
-      } else {
-        el.classList.add('locked-card');
-      }
+    if (hardLocked) {
+      if (i === GS.forcedCardIdx) el.classList.add('forced-card');
+      else el.classList.add('locked-card');
+    } else if (softLocked && !isDead) {
+      el.classList.add('locked-card'); // live cards can't be cherry-picked mid-chain
     }
 
     el.innerHTML = makeHandCardHTML(card);
     el.addEventListener('click', () => {
-      if (isLocked && i !== GS.forcedCardIdx) {
-        toast('You must play your drawn card');
-        return;
-      }
-      if (isLocked && i === GS.forcedCardIdx) {
+      if (hardLocked) {
+        if (i !== GS.forcedCardIdx) { toast('You must play your drawn card'); return; }
         return; // already locked in — clicking again shouldn't deselect it
+      }
+      if (softLocked && !isDead) {
+        toast('Keep discarding until you draw a playable card');
+        return;
       }
       selectCard(i);
     });
