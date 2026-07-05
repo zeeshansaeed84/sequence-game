@@ -3020,7 +3020,7 @@ function aiTakeTurn() {
       // Only consider if cell is unreachable by any normal card in hand
       const reachable = hand.some((nc,ni) => ni!==cardIdx && nc.rank!=='J' && !isDeadCardForState(nc,GS) &&
         GS.board[r][c].type==='card' && GS.board[r][c].suit===nc.suit && GS.board[r][c].rank===nc.rank);
-      const score = evalWildJack(r, c, aiTeam, GS, diff, reachable);
+      const score = evalWildJack(r, c, aiTeam, GS, diff, reachable, hand, cardIdx);
       if (score > bestWildScore) { bestWildScore = score; bestWildMove = {cardIdx, dead:false, row:r, col:c}; }
     }
   });
@@ -3131,6 +3131,44 @@ function bestWindow(r, c, dr, dc, t, gs) {
   return best;
 }
 
+// Same scan as bestWindow, but also returns the empty (non-friendly, non-wild)
+// cells in the best window found — used to check whether a 4-chip line from a
+// wild jack can actually be finished, rather than just rewarding "getting close".
+function bestWindowGaps(r, c, dr, dc, t, gs) {
+  let best = -1, bestGaps = [];
+  for (let off = -4; off <= 0; off++) {
+    let friendly = 0, blocked = false, gaps = [];
+    for (let k = 0; k < 5; k++) {
+      const nr = r+(off+k)*dr, nc = c+(off+k)*dc;
+      if (nr<0||nr>=10||nc<0||nc>=10) { blocked = true; break; }
+      const ch = gs.chips[nr][nc];
+      if ((nr===r && nc===c) || ch===t || gs.board[nr][nc].type==='wild') { friendly++; }
+      else if (ch !== null) { blocked = true; break; }
+      else { gaps.push([nr, nc]); } // empty, non-wild cell — needed to complete this window
+    }
+    if (!blocked && friendly > best) { best = friendly; bestGaps = gaps; }
+  }
+  return { count: best, gaps: bestGaps };
+}
+
+// Can the AI realistically finish a sequence after this cell is filled?
+// True if a normal card in hand matches one of the remaining gap cells, or a
+// second two-eyed jack is still held (excluding the one being played now).
+function hasFollowUpForGaps(gaps, hand, excludeIdx, gs) {
+  if (gaps.length === 0) return true; // no gap left — this move itself completes it
+  for (let i = 0; i < hand.length; i++) {
+    if (i === excludeIdx) continue;
+    const card = hand[i];
+    if (isTwoEyedJack(card)) return true; // another wild jack can fill any gap
+    if (card.rank === 'J') continue; // one-eyed jacks can't place
+    for (const [gr, gc] of gaps) {
+      const cell = gs.board[gr][gc];
+      if (cell.type === 'card' && cell.suit === card.suit && cell.rank === card.rank) return true;
+    }
+  }
+  return false;
+}
+
 // Count the run length of team t through (r,c) in all directions
 function runLengthAt(r, c, t, gs) {
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
@@ -3237,22 +3275,27 @@ function evalRemoval(r, c, oppTeam, threat, diff) {
 }
 
 // Evaluate wild jack placement — must justify wasting the card
-function evalWildJack(r, c, team, gs, diff, reachable) {
+function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx) {
   // If a normal card can reach this cell, NEVER use the wild jack here
   // Jacks are too valuable to waste on reachable cells
   if (reachable) return 0;
 
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
   let maxFriendly = 0;
+  let bestGaps = [];
   for (const [dr,dc] of dirs) {
-    const w = bestWindow(r,c,dr,dc,team,gs);
-    if (w>maxFriendly) maxFriendly=w;
+    const { count, gaps } = bestWindowGaps(r,c,dr,dc,team,gs);
+    if (count > maxFriendly) { maxFriendly = count; bestGaps = gaps; }
   }
 
   // All levels: only use wild jack on unreachable cells
   if (maxFriendly >= 5) return 100000; // completes sequence — always worth it
   if (maxFriendly === 4) {
-    // Creates a 4-chain (one away from sequence) on unreachable cell — strong play
+    // Only a strong play if the AI can actually finish this line afterwards —
+    // either a normal card in hand matches the one remaining gap, or it holds
+    // a second two-eyed jack. Otherwise this just burns a jack to get "close"
+    // with no way to follow through, which is worse than playing normally.
+    if (!hasFollowUpForGaps(bestGaps, hand, cardIdx, gs)) return 0;
     return diff==='easy' ? 7000 : diff==='medium' ? 7500 : 8000;
   }
   // Anything below 4: never worth wasting a wild jack
