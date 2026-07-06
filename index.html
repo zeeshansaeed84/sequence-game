@@ -567,6 +567,50 @@
   .lobby-select:focus { border-color: var(--logo-blue); }
 
   /* Selection cards — Opponents / Sequences / Difficulty */
+  /* Compact stepper — used for Match Format instead of 4 separate buttons,
+     to keep the lobby short and avoid extra scrolling */
+  .format-stepper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  .format-step-btn {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    border: 1.5px solid #E0E4F0;
+    background: white;
+    color: var(--logo-blue);
+    font-size: 1.2rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.15s;
+  }
+  .format-step-btn:active { transform: scale(0.94); background: #eef0fc; }
+  .format-step-display {
+    flex: 1;
+    height: 40px;
+    border: 1.5px solid #E0E4F0;
+    background: #F7F8FC;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .format-step-val {
+    font-family: 'Cinzel', serif;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #262d55;
+    letter-spacing: 0.03em;
+  }
+
   .seg-group {
     display: flex;
     gap: 10px;
@@ -1675,6 +1719,74 @@
 
   .modal p { margin-bottom: 16px; font-size: 1rem; line-height: 1.5; }
 
+  /* Tournament series score box on the results screen */
+  #series-box {
+    background: rgba(34,51,204,0.1);
+    border: 1px solid rgba(34,51,204,0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+  }
+  .series-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #8fa0f0;
+    margin-bottom: 8px;
+  }
+  .series-score-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .series-score-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .series-score-name {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.68rem;
+    color: rgba(245,240,232,0.7);
+    max-width: 70px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .series-score-wins {
+    font-family: 'Cinzel', serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--cream);
+  }
+  .series-score-item.leading .series-score-wins { color: #ffd25a; }
+  .series-score-sep { color: rgba(245,240,232,0.4); font-size: 1rem; margin: 0 2px; }
+
+  .series-pause-countdown-box {
+    background: rgba(201,168,76,0.1);
+    border: 1px solid rgba(201,168,76,0.3);
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 8px;
+  }
+  .series-pause-countdown {
+    font-family: 'Cinzel', serif;
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--gold);
+    margin-bottom: 8px;
+  }
+  .series-pause-sub {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.82rem;
+    color: rgba(245,240,232,0.7);
+    line-height: 1.4;
+  }
+
   /* Personal stats summary shown on the results screen */
   #my-stats-box {
     background: rgba(201,168,76,0.08);
@@ -2005,6 +2117,16 @@
             <span class="seg-text">First to 2</span>
           </button>
         </div>
+
+        <div class="lbl" style="margin-top:14px">MATCH FORMAT</div>
+        <div class="format-stepper" id="format-stepper-ai">
+          <button type="button" class="format-step-btn" onclick="stepMatchFormat('ai', -1)">−</button>
+          <div class="format-step-display">
+            <span class="format-step-val" id="format-step-val-ai">Single Game</span>
+          </div>
+          <button type="button" class="format-step-btn" onclick="stepMatchFormat('ai', 1)">+</button>
+        </div>
+        <input type="hidden" id="ai-match-format" value="1">
       </div>
 
       <!-- SECTION: Difficulty + Play button + Sound -->
@@ -2084,6 +2206,15 @@
         <option value="1">First to 1 Sequence</option>
         <option value="2" selected>First to 2 Sequences</option>
       </select>
+      <div class="lbl">MATCH FORMAT</div>
+      <div class="format-stepper" id="format-stepper-mp">
+        <button type="button" class="format-step-btn" onclick="stepMatchFormat('mp', -1)">−</button>
+        <div class="format-step-display">
+          <span class="format-step-val" id="format-step-val-mp">Single Game</span>
+        </div>
+        <button type="button" class="format-step-btn" onclick="stepMatchFormat('mp', 1)">+</button>
+      </div>
+      <input type="hidden" id="match-format" value="1">
       <button class="lobby-btn-primary" onclick="createGame()">CREATE ROOM</button>
       <button class="lobby-btn-outline" onclick="document.getElementById('lobby-create').style.display='none';document.getElementById('lobby-main').style.display='block'">BACK</button>
     </div>
@@ -2320,6 +2451,12 @@
     <h2 id="win-title">🏆 Victory!</h2>
     <p id="win-msg"></p>
 
+    <!-- Tournament series score — only shown when matchFormat > 1 -->
+    <div id="series-box" style="display:none">
+      <div class="series-title" id="series-title">SERIES · GAME <span id="series-game-num">1</span> OF <span id="series-max-games"></span></div>
+      <div class="series-score-row" id="series-score-row"></div>
+    </div>
+
     <!-- Personal stats summary — populated after each game via renderMyStats() -->
     <div id="my-stats-box" style="display:none">
       <div class="my-stats-title">📊 YOUR STATS</div>
@@ -2353,6 +2490,20 @@
         <button class="btn btn-secondary" style="flex:1" onclick="respondRematch(false)">✕ Decline</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Series pause modal — shown while waiting for a disconnected player to
+     reconnect mid-series. Board stays visible but dimmed underneath. -->
+<div class="modal-backdrop" id="series-pause-modal">
+  <div class="modal">
+    <h2>⏸️ Series Paused</h2>
+    <p>Waiting for <strong id="series-pause-name">a player</strong> to reconnect…</p>
+    <div class="series-pause-countdown-box">
+      <div class="series-pause-countdown" id="series-pause-countdown">5:00</div>
+      <div class="series-pause-sub">If they don't return in time, whoever's ahead in the series wins automatically.</div>
+    </div>
+    <p style="font-size:0.8rem;color:rgba(245,240,232,0.6);margin-top:12px">Same room code still works — they can rejoin any time.</p>
   </div>
 </div>
 
@@ -2679,6 +2830,14 @@ let myIndex = -1;
 let numTeams = 2;
 let seqToWin = 2;
 
+// ═══════════════════════════════════════════════════
+// TOURNAMENT MODE (Best-of-N series)
+// ═══════════════════════════════════════════════════
+let matchFormat = 1;        // 1 = single game, or 3/5/7 = best-of-N
+let seriesWins = [];         // wins per team index across the series, e.g. [1,0] or [2,1,0]
+let seriesGameNum = 1;       // which game within the series we're currently on
+let seriesWinnerTeam = null; // set once a team reaches the majority
+
 // Full game state (authoritative on host, synced to clients)
 let GS = null;
 
@@ -2799,6 +2958,25 @@ function selectSeg(group, btn, val) {
                  : 'ai-difficulty';
   const hidden = document.getElementById(hiddenId);
   if (hidden) hidden.value = val;
+}
+
+// Compact +/- stepper for Match Format — cycles through Single Game, Best of
+// 3, Best of 5, Best of 7. `scope` is 'ai' or 'mp' so the same function
+// drives both the VS AI lobby and the Create Online Game screen.
+const MATCH_FORMAT_STEPS = [1, 3, 5, 7];
+const MATCH_FORMAT_LABELS = { 1: 'Single Game', 3: 'Best of 3', 5: 'Best of 5', 7: 'Best of 7' };
+function stepMatchFormat(scope, dir) {
+  const hiddenId = scope === 'ai' ? 'ai-match-format' : 'match-format';
+  const hidden = document.getElementById(hiddenId);
+  const valEl = document.getElementById('format-step-val-' + scope);
+  if (!hidden || !valEl) return;
+  const current = parseInt(hidden.value) || 1;
+  let idx = MATCH_FORMAT_STEPS.indexOf(current);
+  if (idx === -1) idx = 0;
+  idx = Math.max(0, Math.min(MATCH_FORMAT_STEPS.length - 1, idx + dir));
+  const newVal = MATCH_FORMAT_STEPS[idx];
+  hidden.value = newVal;
+  valEl.textContent = MATCH_FORMAT_LABELS[newVal];
 }
 
 // Render Magnus (green/t1) and Kaspar (purple/t2) chip icons in the opponent pills
@@ -3068,6 +3246,10 @@ function startVsAI() {
   numTeams = parseInt(document.getElementById('ai-num-teams')?.value || '2');
   seqToWin = parseInt(document.getElementById('ai-seq-to-win')?.value || '2');
   aiDifficulty = document.getElementById('ai-difficulty')?.value || 'medium';
+  matchFormat = parseInt(document.getElementById('ai-match-format')?.value || '1');
+  seriesWins = Array(numTeams).fill(0);
+  seriesGameNum = 1;
+  seriesWinnerTeam = null;
 
   if (numTeams === 3) {
     players = [
@@ -3645,6 +3827,119 @@ function fbOff() {
   fbListeners = [];
 }
 
+// ═══════════════════════════════════════════════════
+// PRESENCE — used to pause an active tournament series if a player
+// disconnects unexpectedly (network drop, app crash, battery death), as
+// opposed to a deliberate Quit (handled separately by leaveGame()).
+// ═══════════════════════════════════════════════════
+const SERIES_PAUSE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+let seriesPauseCountdownHandle = null;
+
+// Registers this player's presence + an onDisconnect hook that fires
+// automatically (server-side, even if this device goes fully dark) the
+// moment their connection drops. Safe to call for any player in any room;
+// harmless if the game isn't a multi-game series.
+function registerPresence() {
+  if (!db || !roomRef || !myId) return;
+  const presenceRef = roomRef.child('presence/' + myId);
+  presenceRef.set(true);
+  presenceRef.onDisconnect().set(false);
+}
+
+// Called from the players-list / gameState listeners whenever presence data
+// changes. Only meaningful mid-series; single games and finished series
+// ignore this entirely.
+function onPresenceUpdate(presenceData) {
+  if (matchFormat <= 1 || seriesWinnerTeam !== null) { hideSeriesPauseModal(); return; }
+  if (!presenceData) return;
+  const disconnectedPlayer = players.find(p => presenceData[p.id] === false);
+  if (disconnectedPlayer) {
+    showSeriesPauseModal(disconnectedPlayer);
+  } else {
+    hideSeriesPauseModal();
+  }
+}
+
+function showSeriesPauseModal(disconnectedPlayer) {
+  const modal = document.getElementById('series-pause-modal');
+  if (!modal) return;
+  document.getElementById('series-pause-name').textContent = disconnectedPlayer.name;
+  modal.classList.add('open');
+
+  if (seriesPauseCountdownHandle) return; // already counting down for this disconnect
+  const deadline = Date.now() + SERIES_PAUSE_TIMEOUT_MS;
+  seriesPauseCountdownHandle = setInterval(() => {
+    const remainingMs = Math.max(0, deadline - Date.now());
+    const mins = Math.floor(remainingMs / 60000);
+    const secs = Math.floor((remainingMs % 60000) / 1000);
+    const el = document.getElementById('series-pause-countdown');
+    if (el) el.textContent = `${mins}:${String(secs).padStart(2,'0')}`;
+    if (remainingMs <= 0) {
+      clearInterval(seriesPauseCountdownHandle);
+      seriesPauseCountdownHandle = null;
+      if (isHost) resolveSeriesPauseTimeout();
+    }
+  }, 250);
+}
+
+function hideSeriesPauseModal() {
+  const modal = document.getElementById('series-pause-modal');
+  if (modal) modal.classList.remove('open');
+  if (seriesPauseCountdownHandle) { clearInterval(seriesPauseCountdownHandle); seriesPauseCountdownHandle = null; }
+}
+
+// Host-only: the 5-minute wait expired with no reconnect. Whichever team is
+// currently ahead in the series is declared the winner; a tie is left
+// inconclusive (no winner declared) rather than guessing.
+function resolveSeriesPauseTimeout() {
+  if (!isHost) return;
+  const maxWins = Math.max(...seriesWins);
+  const leaders = seriesWins.map((w,i) => w === maxWins ? i : -1).filter(i => i !== -1);
+  if (leaders.length === 1) {
+    seriesWinnerTeam = leaders[0];
+  } else {
+    seriesWinnerTeam = -2; // -2 = inconclusive (tied at timeout) — distinct from -1 (single-game draw)
+  }
+  if (roomRef) {
+    roomRef.update({
+      series: { wins: seriesWins, gameNum: seriesGameNum, winnerTeam: seriesWinnerTeam },
+      phase: 'abandoned'
+    }).catch(() => {});
+  }
+  hideSeriesPauseModal();
+  showSeriesTimeoutResult();
+}
+
+// Shown to whoever's still around when the disconnect timeout resolves the
+// series automatically — reuses the win-modal shell for consistency.
+function showSeriesTimeoutResult() {
+  document.getElementById('win-actions').style.display = 'none';
+  document.getElementById('rematch-waiting').style.display = 'none';
+  document.getElementById('rematch-prompt').style.display = 'none';
+  const maxWins = Math.max(...seriesWins);
+  if (seriesWinnerTeam === -2) {
+    document.getElementById('win-title').textContent = '⏸️ Series Ended';
+    document.getElementById('win-msg').textContent =
+      `A player didn't reconnect in time. The series was tied ${seriesWins.join(' – ')}, so no winner is declared.`;
+  } else {
+    const name = aiMode ? (players.find(p=>p.team===seriesWinnerTeam)?.name || 'AI') : TEAM_NAMES[seriesWinnerTeam];
+    const finalScore = [seriesWins[seriesWinnerTeam], ...seriesWins.filter((_,i)=>i!==seriesWinnerTeam)].join(' – ');
+    document.getElementById('win-title').textContent = `🏆 ${name} Wins the Series!`;
+    document.getElementById('win-msg').textContent =
+      `A player didn't reconnect in time. ${name} was ahead ${finalScore} and is declared the series winner.`;
+  }
+  renderSeriesBox();
+  const backBtn = document.createElement('button');
+  backBtn.className = 'btn btn-secondary';
+  backBtn.textContent = 'Back to Lobby';
+  backBtn.onclick = leaveGame;
+  const actionsEl = document.getElementById('win-actions');
+  actionsEl.innerHTML = '';
+  actionsEl.appendChild(backBtn);
+  actionsEl.style.display = 'block';
+  document.getElementById('win-modal').classList.add('open');
+}
+
 function generatePlayerId() {
   return 'p' + Date.now().toString(36) + Math.random().toString(36).substr(2,5);
 }
@@ -3670,6 +3965,10 @@ async function createGame() {
   if (!fbInit()) { setError('lobby-error','Firebase not configured.'); return; }
   numTeams = parseInt(document.getElementById('num-teams').value);
   seqToWin = parseInt(document.getElementById('seq-to-win').value);
+  matchFormat = parseInt(document.getElementById('match-format')?.value || '1');
+  seriesWins = Array(numTeams).fill(0);
+  seriesGameNum = 1;
+  seriesWinnerTeam = null;
   roomCode = generateCode();
   isHost = true;
   myId = generatePlayerId();
@@ -3681,8 +3980,9 @@ async function createGame() {
   roomRef = db.ref('sq_rooms/' + roomCode);
   try {
     await roomRef.set({
-      hostId: myId, numTeams, seqToWin, phase: 'lobby',
+      hostId: myId, numTeams, seqToWin, matchFormat, phase: 'lobby',
       players: JSON.stringify(players),
+      series: { wins: seriesWins, gameNum: seriesGameNum, winnerTeam: null },
       created: firebase.database.ServerValue.TIMESTAMP
     });
   } catch(e) {
@@ -3739,6 +4039,10 @@ async function joinGame() {
 
   numTeams = data.numTeams || 2;
   seqToWin = data.seqToWin || 2;
+  matchFormat = data.matchFormat || 1;
+  seriesWins = data.series?.wins || Array(numTeams).fill(0);
+  seriesGameNum = data.series?.gameNum || 1;
+  seriesWinnerTeam = data.series?.winnerTeam ?? null;
   const existing = JSON.parse(data.players || '[]');
 
   // Prevent duplicate join — same name already in room
@@ -3779,10 +4083,14 @@ async function joinGame() {
       document.getElementById('win-modal').classList.remove('open');
       resetRematchUI();
       showGameScreen();
+      registerPresence();
     } else {
       renderGame();
     }
   });
+
+  // Watch presence — pauses an active tournament series if a player drops
+  fbOn(roomRef.child('presence'), 'value', snap => onPresenceUpdate(snap.val()));
 
   // Watch rematch requests/responses
   fbOn(roomRef.child('rematch'), 'value', snap => {
@@ -3967,6 +4275,8 @@ function startGame() {
   showGameScreen();
   scheduleTurnTimer();
   logGameStart(); // analytics
+  registerPresence();
+  if (roomRef) fbOn(roomRef.child('presence'), 'value', snap => onPresenceUpdate(snap.val()));
 }
 
 // ═══════════════════════════════════════════════════
@@ -3994,6 +4304,13 @@ function resetRematchUI() {
 }
 
 function requestRematch() {
+  // If the previous series just concluded, a fresh Rematch here starts a
+  // brand new series from 0-0 rather than continuing the finished one.
+  if (seriesWinnerTeam !== null) {
+    seriesWins = Array(numTeams).fill(0);
+    seriesGameNum = 1;
+    seriesWinnerTeam = null;
+  }
   if (aiMode) {
     // No one to ask — just restart immediately with the same settings
     document.getElementById('win-modal').classList.remove('open');
@@ -4075,6 +4392,7 @@ function startRematchGame(shuffleTeams) {
     phase: 'playing',
     players: JSON.stringify(players),
     gameState: JSON.stringify(GS),
+    series: { wins: seriesWins, gameNum: seriesGameNum, winnerTeam: seriesWinnerTeam },
     rematch: null
   }).catch(() => toast('Could not start rematch'));
 
@@ -4116,6 +4434,7 @@ function leaveGame() {
   stopCountdownDisplay();
   stopTickSound();
   stopWinMusic();
+  hideSeriesPauseModal();
   // Log abandoned if game was in progress and not yet won
   if (GS && GS.phase !== 'done' && isHost) logGameAbandoned();
   if (aiTurnHandle) { clearTimeout(aiTurnHandle); aiTurnHandle = null; }
@@ -5479,6 +5798,71 @@ async function renderMyStats() {
   } catch(e) { box.style.display = 'none'; }
 }
 
+// ═══════════════════════════════════════════════════
+// TOURNAMENT SERIES SCORING
+// ═══════════════════════════════════════════════════
+
+// Host-only: called once per completed (non-draw) game when matchFormat>1.
+// Increments the winning team's series tally and checks whether the series
+// itself is now decided (a team reached the Best-of-N majority).
+function updateSeriesScore(winnerTeam) {
+  if (matchFormat <= 1) return; // not a series — nothing to track
+  if (!isHost) return; // host is the single source of truth for series state
+  if (!seriesWins || seriesWins.length !== numTeams) seriesWins = Array(numTeams).fill(0);
+  seriesWins[winnerTeam] = (seriesWins[winnerTeam] || 0) + 1;
+
+  const majorityNeeded = Math.ceil(matchFormat / 2);
+  if (seriesWins[winnerTeam] >= majorityNeeded) {
+    seriesWinnerTeam = winnerTeam;
+  }
+  seriesGameNum++;
+
+  // Persist to the room so guests see the same series state (multiplayer only)
+  if (roomRef) {
+    roomRef.child('series').set({
+      wins: seriesWins, gameNum: seriesGameNum, winnerTeam: seriesWinnerTeam
+    }).catch(() => {});
+  }
+}
+
+// Renders the series score box on the results screen — shown for every
+// player (host or guest), reading whatever the current series state is.
+function renderSeriesBox() {
+  const box = document.getElementById('series-box');
+  if (!box) return;
+  if (matchFormat <= 1) { box.style.display = 'none'; return; }
+
+  const titleEl = document.getElementById('series-title');
+  const gameNumEl = document.getElementById('series-game-num');
+  const maxGamesEl = document.getElementById('series-max-games');
+  const rowEl = document.getElementById('series-score-row');
+
+  if (seriesWinnerTeam !== null) {
+    titleEl.innerHTML = '🏆 SERIES FINAL — BEST OF ' + matchFormat;
+  } else {
+    // Game number shown is the one just played, capped at matchFormat so a
+    // just-finished decisive final game doesn't show e.g. "Game 4 of 3"
+    const gameJustPlayed = Math.min(seriesGameNum, matchFormat);
+    titleEl.innerHTML = `SERIES · GAME <span id="series-game-num">${gameJustPlayed}</span> OF <span id="series-max-games">${matchFormat}</span>`;
+  }
+
+  const leadWins = Math.max(...(seriesWins || [0]));
+  rowEl.innerHTML = players
+    .filter((p, i) => players.findIndex(p2 => p2.team === p.team) === i) // one entry per team
+    .map(p => {
+      const wins = seriesWins?.[p.team] ?? 0;
+      const isLeading = wins === leadWins && wins > 0;
+      const label = aiMode ? p.name : TEAM_NAMES[p.team];
+      return `<div class="series-score-item ${isLeading ? 'leading' : ''}">
+        <div class="series-score-wins">${wins}</div>
+        <div class="series-score-name">${label}</div>
+      </div>`;
+    })
+    .join('<div class="series-score-sep">–</div>');
+
+  box.style.display = 'block';
+}
+
 function showWinModal() {
   const w = GS.winner;
   let title, msg;
@@ -5492,11 +5876,14 @@ function showWinModal() {
     document.getElementById('win-title').textContent = title;
     document.getElementById('win-msg').textContent = msg;
     logPersonalResult(null, true).then(renderMyStats);
+    renderSeriesBox();
+    const inActiveSeries0 = matchFormat > 1 && seriesWinnerTeam === null;
     const rematchBtn0 = document.getElementById('rematch-btn');
     const shuffleRow0 = document.getElementById('rematch-shuffle-row');
     if (!isSpectator && (aiMode || isHost)) {
       rematchBtn0.style.display = 'block';
-      shuffleRow0.style.display = (!aiMode && numTeams > 1) ? 'flex' : 'none';
+      rematchBtn0.textContent = inActiveSeries0 ? '▶ Replay Game' : '🔁 Rematch';
+      shuffleRow0.style.display = (!aiMode && numTeams > 1 && !inActiveSeries0) ? 'flex' : 'none';
     } else {
       rematchBtn0.style.display = 'none';
       shuffleRow0.style.display = 'none';
@@ -5507,6 +5894,11 @@ function showWinModal() {
 
   const iWon = aiMode ? w === 0 : w === players[myIndex]?.team;
   logPersonalResult(iWon, false).then(renderMyStats);
+  updateSeriesScore(w);
+  renderSeriesBox();
+
+  const seriesJustDecided = matchFormat > 1 && seriesWinnerTeam !== null;
+
   if (aiMode) {
     if (w === 0) {
       title = '🏆 You Win!';
@@ -5519,16 +5911,37 @@ function showWinModal() {
     title = `🏆 ${TEAM_NAMES[w]} Team Wins!`;
     msg = `${TEAM_NAMES[w]} team completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}!`;
   }
+
+  // Series decided — override the single-game result with the overall
+  // tournament outcome, since that's the more important news at this point
+  if (seriesJustDecided) {
+    const seriesWinnerName = aiMode
+      ? (seriesWinnerTeam === 0 ? myName : (players.find(p=>p.team===seriesWinnerTeam)?.name || 'AI'))
+      : TEAM_NAMES[seriesWinnerTeam];
+    // Winner's score always leads, e.g. "3 – 1" not "1 – 3" regardless of team order
+    const finalScore = [seriesWins[seriesWinnerTeam], ...seriesWins.filter((_, i) => i !== seriesWinnerTeam)].join(' – ');
+    const seriesWinnerWon = aiMode ? seriesWinnerTeam === 0 : seriesWinnerTeam === players[myIndex]?.team;
+    title = seriesWinnerWon ? `🏆🏆 Series Won!` : `🏆 ${seriesWinnerName} Wins the Series!`;
+    msg = `${seriesWinnerName} takes the series ${finalScore} (Best of ${matchFormat}).`;
+  }
+
   document.getElementById('win-title').textContent = title;
   document.getElementById('win-msg').textContent = msg;
 
   // Rematch button: always available in VS AI; only for the host in multiplayer
-  // (non-host players wait for the host to trigger a rematch request)
+  // (non-host players wait for the host to trigger a rematch request).
+  // During an active tournament series (matchFormat>1, not yet decided), this
+  // becomes "Next Game" instead of "Rematch"; once the series itself is
+  // decided, it goes back to a normal "Rematch" (which starts a whole new
+  // series from 0-0 if matchFormat is still set > 1). Shuffle Teams stays
+  // hidden throughout an active series since it would break score tracking.
+  const inActiveSeries = matchFormat > 1 && seriesWinnerTeam === null;
   const rematchBtn = document.getElementById('rematch-btn');
   const shuffleRow = document.getElementById('rematch-shuffle-row');
   if (!isSpectator && (aiMode || isHost)) {
     rematchBtn.style.display = 'block';
-    shuffleRow.style.display = (!aiMode && numTeams > 1) ? 'flex' : 'none';
+    rematchBtn.textContent = inActiveSeries ? '▶ Next Game' : '🔁 Rematch';
+    shuffleRow.style.display = (!aiMode && numTeams > 1 && !inActiveSeries) ? 'flex' : 'none';
   } else {
     rematchBtn.style.display = 'none';
     shuffleRow.style.display = 'none';
