@@ -3027,7 +3027,7 @@ function aiTakeTurn() {
           const ct = GS.chips[r][c];
           if (ct === null || ct === aiTeam || isSequenceCellInState(r,c,GS)) continue;
           const threat = runLengthAt(r, c, ct, GS);
-          const score = evalRemoval(r, c, ct, threat, diff);
+          const score = evalRemoval(r, c, ct, threat, diff, GS, aiTeam, hand);
           if (score > bestScore) { bestScore = score; bestMove = {cardIdx: forcedIdx, dead:false, row:r, col:c}; }
         }
       } else {
@@ -3072,7 +3072,7 @@ function aiTakeTurn() {
       if (ct === null || ct === aiTeam || isSequenceCellInState(r,c,GS)) continue;
       // Measure how dangerous THIS chip is — its own team's run through this cell
       const threat = runLengthAt(r, c, ct, GS);
-      const score = evalRemoval(r, c, ct, threat, diff);
+      const score = evalRemoval(r, c, ct, threat, diff, GS, aiTeam, hand);
       if (score > bestRemoveScore) { bestRemoveScore = score; bestRemoveMove = {cardIdx, dead:false, row:r, col:c}; bestRemoveCardIdx = cardIdx; }
     }
   });
@@ -3335,17 +3335,60 @@ function evalPlacement(r, c, team, gs, diff) {
   return offScore + defScore + centralBonus;
 }
 
-// Evaluate removing a chip at (r,c) — only justified when opponent is 4-deep
-function evalRemoval(r, c, oppTeam, threat, diff) {
-  // Core rule across ALL levels: one-eyed jack only makes sense when opponent
-  // has 4 chips in a line — one away from completing a sequence.
-  // Using it on a 3-chain just delays them one turn and wastes the jack.
-  if (threat >= 4) {
-    // Emergency — opponent about to complete. Always block.
-    return diff==='hard' ? 10000 : diff==='medium' ? 9000 : 8000;
+// Evaluate removing a chip at (r,c) — only justified when the opponent has a
+// genuinely dangerous line through this cell.
+//   Easy/Medium: simple flat score — any qualifying threat is treated the
+//   same, first one found in the board scan gets picked. This keeps those
+//   levels reactive but not especially sharp about WHICH chip to take.
+//   Hard: additionally weighs which removable chip matters MOST:
+//   - hits more than one of the opponent's live lines at once (intersection)
+//   - the freed cell is also good for the AI's own offense/defense there
+//   - the AI holds the matching card and can immediately retake the cell
+function evalRemoval(r, c, oppTeam, threat, diff, gs, aiTeam, hand) {
+  // Core rule across ALL levels: one-eyed jack only makes sense when the
+  // opponent has a genuinely live near-complete line through this cell.
+  // threat is countRun's "other chips in line" count (excludes the pivot
+  // chip itself), so a true 4-in-a-row measures as threat===3, not 4.
+  if (threat < 3) return 0; // anything below a real 4-chain: never worth it
+
+  let score = diff==='hard' ? 10000 : diff==='medium' ? 9000 : 8000;
+
+  // Easy/Medium stop here — simple flat scoring, no further calculation.
+  if (diff !== 'hard') return score;
+
+  // Multi-line bonus: does this single chip sit at the intersection of more
+  // than one dangerous opponent line? Removing it then hurts multiple
+  // threats at once, which is strictly more valuable than a single-line block.
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  let dangerousLines = 0;
+  for (const [dr,dc] of dirs) {
+    const fwd = countRun(r,c,dr,dc,oppTeam,gs);
+    const bwd = countRun(r,c,-dr,-dc,oppTeam,gs);
+    if (fwd + bwd >= 3) dangerousLines++;
   }
-  // Everything below 4: never worth it
-  return 0;
+  if (dangerousLines > 1) score += (dangerousLines - 1) * 1500;
+
+  // Dual-purpose bonus: is the freed cell ALSO good for the AI's own
+  // offense/defense? A removal that both blocks them and sets up the AI is
+  // worth more than a purely defensive one.
+  if (gs && aiTeam !== undefined) {
+    const placementValue = evalPlacement(r, c, aiTeam, gs, diff);
+    score += Math.min(placementValue, 3000) * 0.3; // capped contribution, this is a bonus not the main driver
+  }
+
+  // Follow-up bonus: does the AI actually hold the matching card for this
+  // exact cell, so it can retake the spot immediately after removing the
+  // opponent's chip? A removal with no follow-up just delays the opponent;
+  // one with a follow-up can flip the cell to the AI's advantage outright.
+  if (hand && gs) {
+    const cell = gs.board[r][c];
+    const hasFollowUp = hand.some(card =>
+      card.rank !== 'J' && cell.type === 'card' && cell.suit === card.suit && cell.rank === card.rank
+    );
+    if (hasFollowUp) score += 1200;
+  }
+
+  return score;
 }
 
 // Evaluate wild jack placement — must justify wasting the card
