@@ -1675,6 +1675,53 @@
 
   .modal p { margin-bottom: 16px; font-size: 1rem; line-height: 1.5; }
 
+  /* Personal stats summary shown on the results screen */
+  #my-stats-box {
+    background: rgba(201,168,76,0.08);
+    border: 1px solid rgba(201,168,76,0.25);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  .my-stats-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--gold-light);
+    margin-bottom: 10px;
+  }
+  .my-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .my-stat-item { display: flex; flex-direction: column; align-items: center; }
+  .my-stat-val {
+    font-family: 'Cinzel', serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--cream);
+  }
+  .my-stat-label {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.62rem;
+    color: rgba(245,240,232,0.55);
+    letter-spacing: 0.03em;
+    margin-top: 2px;
+  }
+  .my-stats-diff-row {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(201,168,76,0.15);
+  }
+  .my-stats-diff-item { text-align: center; }
+  .my-stats-diff-item .lvl { font-size: 0.58rem; color: rgba(245,240,232,0.5); font-family:'Cinzel',serif; letter-spacing:0.05em; }
+  .my-stats-diff-item .pct { font-size: 0.85rem; font-weight: 700; color: var(--gold-light); font-family:'Cinzel',serif; }
+
   /* Toast */
   #toast {
     position: fixed;
@@ -2272,6 +2319,12 @@
   <div class="modal">
     <h2 id="win-title">🏆 Victory!</h2>
     <p id="win-msg"></p>
+
+    <!-- Personal stats summary — populated after each game via renderMyStats() -->
+    <div id="my-stats-box" style="display:none">
+      <div class="my-stats-title">📊 YOUR STATS</div>
+      <div class="my-stats-grid" id="my-stats-grid"></div>
+    </div>
 
     <!-- Default state: win/lose summary + action buttons -->
     <div id="win-actions">
@@ -3932,6 +3985,12 @@ function resetRematchUI() {
   document.getElementById('rematch-prompt').style.display = 'none';
   const shuffleCb = document.getElementById('shuffle-teams-checkbox');
   if (shuffleCb) shuffleCb.checked = false;
+  // Clear any stats box content from a previous game so a rematch doesn't
+  // briefly flash stale numbers before the fresh renderMyStats() call lands
+  const statsBox = document.getElementById('my-stats-box');
+  if (statsBox) statsBox.style.display = 'none';
+  const oldDiffRow = document.getElementById('my-stats-diff-row');
+  if (oldDiffRow) oldDiffRow.remove();
 }
 
 function requestRematch() {
@@ -4095,6 +4154,20 @@ let analyticsGameId = null;
 let analyticsStartTime = null;
 let analyticsMoveCount = 0;
 
+// Persistent per-device identity for personal stats — independent of
+// whatever name the player types (so switching names on the same device
+// still counts as "the same player" for their own stats view). Not a real
+// account system: it's just a random ID stashed in localStorage, so stats
+// only follow one specific browser/device, not a person across devices.
+function getDeviceId() {
+  let id = localStorage.getItem('seq_device_id');
+  if (!id) {
+    id = 'dev_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('seq_device_id', id);
+  }
+  return id;
+}
+
 async function getApproxLocation() {
   try {
     const r = await fetch('https://ipapi.co/json/');
@@ -4123,6 +4196,11 @@ async function logGameStart() {
     browser:     navigator.userAgent.slice(0, 80),
     roomCode:    roomCode || '',
     status:      'started',
+    // Tags this game-start record with THIS browser's device ID and which
+    // team the local player is on — used to build the local player's
+    // personal stats view, independent of whatever name they typed.
+    myDeviceId:  getDeviceId(),
+    myTeam:      players[myIndex]?.team ?? null,
   };
   try {
     await db.ref('sq_analytics/' + analyticsGameId).set(entry);
@@ -5328,6 +5406,79 @@ function sendMove(move) {
   }
 }
 
+// Personal stats — written by EVERY player (host, guest, VS AI), tagged by
+// this browser's device ID, independent of the shared sq_analytics game
+// record (which only the host writes). This is what powers the "My Stats"
+// summary shown on the results screen after each game.
+async function logPersonalResult(outcome, isDraw) {
+  if (!fbInit() || !db) return;
+  const deviceId = getDeviceId();
+  const entry = {
+    gameId:       analyticsGameId || ('local_' + Date.now()),
+    timestamp:    Date.now(),
+    mode:         aiMode ? 'vs_ai' : 'multiplayer',
+    aiDifficulty: aiMode ? aiDifficulty : null,
+    outcome:      isDraw ? 'draw' : (outcome ? 'win' : 'loss'),
+    sequencesCompleted: GS.sequences?.[players[myIndex]?.team] ?? 0,
+  };
+  try {
+    await db.ref('sq_player_stats/' + deviceId + '/games').push(entry);
+  } catch(e) {}
+}
+
+// Fetches this device's full game history and renders the "Your Stats" box
+// on the results screen. Called after logPersonalResult so the just-finished
+// game is included in the aggregates.
+async function renderMyStats() {
+  const box = document.getElementById('my-stats-box');
+  const grid = document.getElementById('my-stats-grid');
+  if (!box || !grid || !db) return;
+  try {
+    const deviceId = getDeviceId();
+    const snap = await db.ref('sq_player_stats/' + deviceId + '/games').once('value');
+    if (!snap.exists()) { box.style.display = 'none'; return; }
+    const games = Object.values(snap.val()).sort((a,b) => a.timestamp - b.timestamp);
+
+    const totalGames = games.length;
+    const wins = games.filter(g => g.outcome === 'win').length;
+    const winRate = totalGames ? Math.round((wins / totalGames) * 100) : 0;
+
+    // Current streak: walk backwards from the most recent game
+    let streak = 0, streakType = null;
+    for (let i = games.length - 1; i >= 0; i--) {
+      const o = games[i].outcome;
+      if (o === 'draw') break; // a draw breaks any streak
+      if (streakType === null) { streakType = o; streak = 1; }
+      else if (o === streakType) { streak++; }
+      else break;
+    }
+    const streakLabel = streak >= 2 ? `${streak}${streakType === 'win' ? '🔥' : '❄️'}` : '—';
+
+    grid.innerHTML = `
+      <div class="my-stat-item"><div class="my-stat-val">${totalGames}</div><div class="my-stat-label">GAMES</div></div>
+      <div class="my-stat-item"><div class="my-stat-val">${winRate}%</div><div class="my-stat-label">WIN RATE</div></div>
+      <div class="my-stat-item"><div class="my-stat-val">${streakLabel}</div><div class="my-stat-label">STREAK</div></div>
+    `;
+
+    // Per-difficulty VS AI win rate — only shown once the player has some
+    // VS AI history, so this row doesn't clutter multiplayer-only players.
+    const aiGames = games.filter(g => g.mode === 'vs_ai' && g.aiDifficulty);
+    let diffHtml = '';
+    ['easy','medium','hard'].forEach(level => {
+      const levelGames = aiGames.filter(g => g.aiDifficulty === level);
+      if (!levelGames.length) return;
+      const levelWins = levelGames.filter(g => g.outcome === 'win').length;
+      const pct = Math.round((levelWins / levelGames.length) * 100);
+      diffHtml += `<div class="my-stats-diff-item"><div class="lvl">${level.toUpperCase()}</div><div class="pct">${pct}%</div></div>`;
+    });
+    if (diffHtml) {
+      grid.insertAdjacentHTML('afterend', `<div class="my-stats-diff-row" id="my-stats-diff-row">${diffHtml}</div>`);
+    }
+
+    box.style.display = 'block';
+  } catch(e) { box.style.display = 'none'; }
+}
+
 function showWinModal() {
   const w = GS.winner;
   let title, msg;
@@ -5340,6 +5491,7 @@ function showWinModal() {
     msg = 'The board is full — no team completed enough sequences.';
     document.getElementById('win-title').textContent = title;
     document.getElementById('win-msg').textContent = msg;
+    logPersonalResult(null, true).then(renderMyStats);
     const rematchBtn0 = document.getElementById('rematch-btn');
     const shuffleRow0 = document.getElementById('rematch-shuffle-row');
     if (!isSpectator && (aiMode || isHost)) {
@@ -5354,6 +5506,7 @@ function showWinModal() {
   }
 
   const iWon = aiMode ? w === 0 : w === players[myIndex]?.team;
+  logPersonalResult(iWon, false).then(renderMyStats);
   if (aiMode) {
     if (w === 0) {
       title = '🏆 You Win!';
