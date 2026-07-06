@@ -2565,6 +2565,57 @@ let roomRef = null;
 let fbListeners = [];    // [[ref, event, handler], ...]
 let fbGameStarted = false;
 
+// ═══════════════════════════════════════════════════
+// CONNECTION RECOVERY
+// ═══════════════════════════════════════════════════
+// Mobile browsers (especially in low-power mode) can throttle or pause
+// background network/JS activity, silently stalling the Firebase listener
+// for gameState. A player can end up staring at a stale turn/timer for a
+// long time — it only "catches up" once something wakes the tab back up.
+// These two hooks force an immediate, one-off re-sync the moment we have a
+// real signal that connectivity may have just been restored, rather than
+// passively waiting for the next natural push from Firebase.
+
+async function forceResyncGameState(reason) {
+  if (!roomRef || !GS || GS.phase === 'done') return;
+  try {
+    const snap = await roomRef.child('gameState').once('value');
+    if (!snap.exists()) return;
+    const freshGS = JSON.parse(snap.val());
+    // Only bother re-rendering if something actually changed — avoids a
+    // pointless flicker on every tab-focus when nothing was actually stale.
+    if (freshGS.moveSeq !== GS.moveSeq || freshGS.currentTurn !== GS.currentTurn || freshGS.turnDeadline !== GS.turnDeadline) {
+      GS = freshGS;
+      if (GS.moveSeq === 1) GS.lastRemoved = null;
+      renderGame();
+    }
+  } catch(e) { /* best-effort — next natural update will still arrive eventually */ }
+}
+
+// Fires when the tab/screen goes from hidden back to visible — e.g. phone
+// unlocked, browser tab switched back to, app brought to foreground.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    forceResyncGameState('tab-visible');
+  }
+});
+
+// Fires whenever Firebase's own connection state flips — most relevant right
+// after a reconnect following a throttled/dropped socket (common under a
+// device's low-power mode). Only meaningful once db is actually initialized.
+function watchFirebaseConnection() {
+  if (!db) return;
+  let wasConnected = true;
+  db.ref('.info/connected').on('value', snap => {
+    const connected = snap.val() === true;
+    if (connected && !wasConnected) {
+      forceResyncGameState('reconnected');
+    }
+    wasConnected = connected;
+  });
+}
+
+
 let myId = null;
 let myName = '';
 let isHost = false;
@@ -3080,18 +3131,49 @@ function aiTakeTurn() {
   // ── Step 3: Evaluate TWO-EYED jack (wild placement) ─────────────
   let bestWildScore = -Infinity;
   let bestWildMove  = null;
+  const completionCandidates = []; // cells that would outright complete a sequence (score 100000)
+  const numTwoEyedJacksInHand = hand.filter(isTwoEyedJack).length;
 
-  if (!earlyGame) hand.forEach((card, cardIdx) => {
-    if (!isTwoEyedJack(card)) return;
-    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
-      if (GS.chips[r][c] !== null || GS.board[r][c].type === 'wild') continue;
-      // Only consider if cell is unreachable by any normal card in hand
-      const reachable = hand.some((nc,ni) => ni!==cardIdx && nc.rank!=='J' && !isDeadCardForState(nc,GS) &&
-        GS.board[r][c].type==='card' && GS.board[r][c].suit===nc.suit && GS.board[r][c].rank===nc.rank);
-      const score = evalWildJack(r, c, aiTeam, GS, diff, reachable, hand, cardIdx);
-      if (score > bestWildScore) { bestWildScore = score; bestWildMove = {cardIdx, dead:false, row:r, col:c}; }
+  if (!earlyGame) {
+    // Roll the "should the AI go for a telegraphed 4/5 wild-jack finish at
+    // all this turn" decision ONCE per turn, not once per candidate cell —
+    // keeps the behavior consistent regardless of how many cells happen to
+    // qualify, rather than probabilistically flip-flopping cell by cell.
+    const wildSurpriseRoll = Math.random();
+    hand.forEach((card, cardIdx) => {
+      if (!isTwoEyedJack(card)) return;
+      for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+        if (GS.chips[r][c] !== null || GS.board[r][c].type === 'wild') continue;
+        // Only consider if cell is unreachable by any normal card in hand
+        const reachable = hand.some((nc,ni) => ni!==cardIdx && nc.rank!=='J' && !isDeadCardForState(nc,GS) &&
+          GS.board[r][c].type==='card' && GS.board[r][c].suit===nc.suit && GS.board[r][c].rank===nc.rank);
+        const score = evalWildJack(r, c, aiTeam, GS, diff, reachable, hand, cardIdx, wildSurpriseRoll, players.length);
+        if (score === 100000) completionCandidates.push({cardIdx, row:r, col:c});
+        if (score > bestWildScore) { bestWildScore = score; bestWildMove = {cardIdx, dead:false, row:r, col:c}; }
+      }
+    });
+
+    // Prefer SPREADING jacks across separate lines over stacking them into
+    // one. If there are multiple ways to complete a sequence right now, and
+    // the AI holds 2+ two-eyed jacks, favor completing whichever line has NO
+    // alternative normal-card finisher — save the flexible jack resource for
+    // the line that genuinely needs it, since the "easier" line can likely
+    // still be finished later with an ordinary card instead.
+    if (completionCandidates.length > 1 && numTwoEyedJacksInHand >= 2) {
+      let pick = completionCandidates[0];
+      let pickHasAltFinisher = true;
+      for (const cand of completionCandidates) {
+        const cell = GS.board[cand.row][cand.col];
+        const hasAltCard = hand.some((c2, i2) =>
+          i2 !== cand.cardIdx && c2.rank !== 'J' &&
+          cell.type === 'card' && cell.suit === c2.suit && cell.rank === c2.rank
+        );
+        if (!hasAltCard) { pick = cand; pickHasAltFinisher = false; break; } // this line has NO other way to close — use the jack here
+      }
+      bestWildMove = { cardIdx: pick.cardIdx, dead:false, row: pick.row, col: pick.col };
+      bestWildScore = 100000;
     }
-  });
+  }
 
   // ── Step 4: Dead card discard (last resort) ──────────────────────
   let deadMove = null;
@@ -3228,19 +3310,26 @@ function bestWindowGaps(r, c, dr, dc, t, gs) {
 // Can the AI realistically finish a sequence after this cell is filled?
 // True if a normal card in hand matches one of the remaining gap cells, or a
 // second two-eyed jack is still held (excluding the one being played now).
+// Returns { hasJackFollowUp, hasCardFollowUp } separately, since a second
+// two-eyed jack is a GUARANTEED finish (the opponent can't block a wild
+// jack's target cell), while a matching normal card is a BLOCKABLE finish
+// (the opponent can take that exact cell, or a matching card, first).
+// evalWildJack treats these very differently to avoid an all-or-nothing,
+// too-predictable "AI only shows 4/5 when it has a guaranteed second jack" tell.
 function hasFollowUpForGaps(gaps, hand, excludeIdx, gs) {
-  if (gaps.length === 0) return true; // no gap left — this move itself completes it
+  if (gaps.length === 0) return { hasJackFollowUp: true, hasCardFollowUp: true }; // no gap left — this move itself completes it
+  let hasJackFollowUp = false, hasCardFollowUp = false;
   for (let i = 0; i < hand.length; i++) {
     if (i === excludeIdx) continue;
     const card = hand[i];
-    if (isTwoEyedJack(card)) return true; // another wild jack can fill any gap
+    if (isTwoEyedJack(card)) { hasJackFollowUp = true; continue; }
     if (card.rank === 'J') continue; // one-eyed jacks can't place
     for (const [gr, gc] of gaps) {
       const cell = gs.board[gr][gc];
-      if (cell.type === 'card' && cell.suit === card.suit && cell.rank === card.rank) return true;
+      if (cell.type === 'card' && cell.suit === card.suit && cell.rank === card.rank) { hasCardFollowUp = true; break; }
     }
   }
-  return false;
+  return { hasJackFollowUp, hasCardFollowUp };
 }
 
 // Count the run length of team t through (r,c) in all directions
@@ -3392,7 +3481,7 @@ function evalRemoval(r, c, oppTeam, threat, diff, gs, aiTeam, hand) {
 }
 
 // Evaluate wild jack placement — must justify wasting the card
-function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx) {
+function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx, surpriseRoll, numPlayers) {
   // If a normal card can reach this cell, NEVER use the wild jack here
   // Jacks are too valuable to waste on reachable cells
   if (reachable) return 0;
@@ -3405,14 +3494,38 @@ function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx) {
     if (count > maxFriendly) { maxFriendly = count; bestGaps = gaps; }
   }
 
-  // All levels: only use wild jack on unreachable cells
-  if (maxFriendly >= 5) return 100000; // completes sequence — always worth it
+  if (maxFriendly >= 5) {
+    // Completing move — always the AI's default, favored use of a two-eyed
+    // jack. Base score left at a flat ceiling; tie-breaking between MULTIPLE
+    // available completions (when the AI holds 2+ jacks) is handled by the
+    // caller, which prefers spreading jacks across separate lines rather
+    // than piling both into the one line that gets scanned first.
+    return 100000;
+  }
+
   if (maxFriendly === 4) {
-    // Only a strong play if the AI can actually finish this line afterwards —
-    // either a normal card in hand matches the one remaining gap, or it holds
-    // a second two-eyed jack. Otherwise this just burns a jack to get "close"
-    // with no way to follow through, which is worse than playing normally.
-    if (!hasFollowUpForGaps(bestGaps, hand, cardIdx, gs)) return 0;
+    // Core design: a two-eyed jack should almost always be SAVED for the
+    // finishing blow, not spent early to reach 4/5 — showing 4 in a line
+    // tips the AI's hand and invites an immediate block. Only a small,
+    // fixed, context-independent chance allows early use, purely so
+    // opponents can never be fully sure whether the AI is sitting on a
+    // finisher or not — a rule that's rare but not impossible reads as
+    // genuine unpredictability, not a new tell.
+    // Turn cadence adjustment: with more total players, many turns pass
+    // before the AI acts again, so "wait for the perfect moment" risks the
+    // gap getting blocked anyway before that moment ever arrives. This
+    // nudges the early-use chance up somewhat as the table gets bigger,
+    // most relevant on Hard where the base rate is already meaningful.
+    const cadenceBoost = numPlayers >= 6 ? 0.06 : numPlayers >= 4 ? 0.03 : 0;
+    const earlyUseChance = (diff==='easy' ? 0.08 : diff==='medium' ? 0.11 : 0.14) + cadenceBoost;
+
+    const roll = surpriseRoll ?? Math.random();
+    if (roll > earlyUseChance) return 0;
+
+    // Even within that rare window, still require SOME realistic way to
+    // finish afterward — unpredictable is fine, reckless is not.
+    const { hasJackFollowUp, hasCardFollowUp } = hasFollowUpForGaps(bestGaps, hand, cardIdx, gs);
+    if (!hasJackFollowUp && !hasCardFollowUp) return 0;
     return diff==='easy' ? 7000 : diff==='medium' ? 7500 : 8000;
   }
   // Anything below 4: never worth wasting a wild jack
@@ -3461,6 +3574,7 @@ function fbInit() {
   try {
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.database();
+    watchFirebaseConnection();
     return true;
   } catch(e) {
     console.error('Firebase init error:', e);
