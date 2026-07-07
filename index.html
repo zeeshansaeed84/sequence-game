@@ -1520,49 +1520,55 @@
      hand-info-bar (a sibling of hand-area) rather than inside it. Positioned
      to clear the info bar's own content (scores/turn/quit) entirely. */
   .timer-wrap {
-    position: absolute;
-    right: 10px;
-    top: 40px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .timer-col {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 1px;
   }
 
   .timer-label {
     font-family: 'Cinzel', serif;
-    font-size: 0.38rem;
-    color: rgba(255,255,255,0.7);
+    font-size: 0.42rem;
+    color: rgba(26,32,128,0.55);
     letter-spacing: 0.06em;
+    text-align: center;
+    margin-top: 1px;
   }
 
   .timer-sound-btn {
-    width: 20px;
-    height: 20px;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
     border-radius: 50%;
-    border: 1px solid rgba(255,255,255,0.35);
-    background: rgba(255,255,255,0.08);
-    color: white;
-    font-size: 0.55rem;
+    border: 1.5px solid #D0D5E8;
+    background: white;
+    color: #1a2080;
+    font-size: 0.85rem;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0;
-    margin-top: 1px;
   }
-  .timer-sound-btn:active { background: rgba(255,255,255,0.2); }
+  .timer-sound-btn:active { background: #eef0fc; }
 
   .turn-timer {
     flex-shrink: 0;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: 'Cinzel', serif;
-    font-size: 0.78rem;
+    font-size: 0.9rem;
     font-weight: 700;
     color: white;
     background: conic-gradient(white calc(var(--pct, 100) * 1%), rgba(255,255,255,0.15) 0%);
@@ -1573,7 +1579,7 @@
   .turn-timer::before {
     content: '';
     position: absolute;
-    inset: 4px;
+    inset: 5px;
     border-radius: 50%;
     background: #1a2080;
   }
@@ -1596,6 +1602,15 @@
     overflow-y: visible;
     padding: 16px 10px 5px;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Unclipped wrapper around each hand card — lets the discard ✕ badge sit
+     just outside the card's corner without being cut off by the card's own
+     overflow:hidden (which is needed to clip its SVG art cleanly). */
+  .hand-card-wrap {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
   }
 
   .hand-card {
@@ -1630,7 +1645,34 @@
     transform: translateY(-12px);
     box-shadow: 0 12px 24px rgba(201,168,76,0.6);
   }
-  .hand-card.dead-card { /* no visual change — player discovers it themselves */ }
+  .hand-card.dead-card {
+    border: 2px dashed #C0392B;
+    box-shadow: 0 3px 8px rgba(192,57,43,0.35);
+  }
+
+  /* Small ✕ badge on a dead card's corner — tap it to discard directly,
+     replacing the old separate "✕ Discard" button + toast message */
+  .dead-card-x {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #C0392B;
+    color: white;
+    border: 2px solid white;
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    z-index: 2;
+    padding: 0;
+  }
+  .dead-card-x:active { background: #a03127; transform: scale(0.92); }
 
   /* House rule: forced-card lock after drawing a live replacement */
   .hand-card.forced-card {
@@ -1892,7 +1934,7 @@
   .my-stats-diff-item .lvl { font-size: 0.58rem; color: rgba(245,240,232,0.5); font-family:'Cinzel',serif; letter-spacing:0.05em; }
   .my-stats-diff-item .pct { font-size: 0.85rem; font-weight: 700; color: var(--gold-light); font-family:'Cinzel',serif; }
 
-  /* Toast */
+  /* Toast — quick, disposable nudges ("select a card first", "space taken") */
   #toast {
     position: fixed;
     bottom: 130px;
@@ -1901,20 +1943,69 @@
     background: rgba(0,0,0,0.85);
     color: var(--cream);
     border: 1px solid rgba(201,168,76,0.4);
-    border-radius: 20px;
-    padding: 8px 18px;
-    font-size: 0.9rem;
+    border-radius: 14px;
+    padding: 9px 18px;
+    font-size: 0.88rem;
+    font-style: normal;
+    max-width: 88vw;
+    text-align: center;
+    white-space: normal;
     pointer-events: none;
     opacity: 0;
     transition: all 0.3s;
     z-index: 100;
-    white-space: nowrap;
-    font-style: italic;
   }
   #toast.show {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }
+
+  /* Action banner — for higher-stakes, informational announcements (jack
+     usage, turn skipped) that deserve to be noticed and actually read,
+     not just a quick disposable nudge. Slides down from the top of the
+     board rather than floating near the hand, so it doesn't compete with
+     the toast or get missed while looking at cards. */
+  #action-banner {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-30px);
+    background: linear-gradient(135deg, #1a2080, #2233CC);
+    color: white;
+    border: 1.5px solid rgba(201,168,76,0.5);
+    border-radius: 12px;
+    padding: 12px 18px;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: center;
+    max-width: 90vw;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: none;
+    opacity: 0;
+    transition: all 0.35s cubic-bezier(.34,1.56,.64,1);
+    z-index: 101;
+  }
+  #action-banner.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  #action-banner .action-banner-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+  }
+  #action-banner.jack-remove .action-banner-icon { background: #C0392B; }
+  #action-banner.jack-wild .action-banner-icon { background: #D4AF37; color: #1a1a3a; }
+  #action-banner.turn-skip .action-banner-icon { background: rgba(255,255,255,0.2); }
 
   /* Waiting for turn indicator */
   .waiting-banner {
@@ -2059,15 +2150,13 @@
 
     /* Timer sits in the sidebar too, below the turn text */
     .timer-wrap {
-      position: static;
-      display: flex;
       flex-direction: column;
-      align-items: center;
-      gap: 4px;
+      gap: 6px;
     }
+    .timer-col { flex-direction: row; gap: 8px; align-items: center; }
     .turn-timer { width: 52px; height: 52px; font-size: 1.1rem; }
-    .timer-label { font-size: 0.5rem; }
-    .timer-sound-btn { width: 24px; height: 24px; font-size: 0.65rem; }
+    .timer-label { font-size: 0.5rem; margin-top: 0; }
+    .timer-sound-btn { width: 32px; height: 32px; font-size: 0.85rem; }
 
     /* Hand strip — full width, bottom, only the cards (label hidden to save
        every last pixel of height; the sidebar's "YOUR TURN" already orients
@@ -2488,8 +2577,10 @@
       <div class="team-scores" id="team-scores"></div>
       <div class="turn-info" id="turn-info">—</div>
       <div class="timer-wrap">
-        <div class="turn-timer" id="turn-timer"><span>60</span></div>
-        <div class="timer-label">TIME LEFT</div>
+        <div class="timer-col">
+          <div class="turn-timer" id="turn-timer"><span>60</span></div>
+          <div class="timer-label">TIME LEFT</div>
+        </div>
         <button class="sound-toggle timer-sound-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
       </div>
       <button class="info-icon-btn" onclick="leaveGame()" title="Quit game"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
@@ -2498,7 +2589,7 @@
     <div class="hand-area">
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
       <div id="forced-card-banner" class="forced-card-banner" style="display:none">🔒 You must play the card you just drew</div>
-      <!-- Hand label with gold lines (timer lives in hand-info-bar now) -->
+      <!-- Hand label with gold lines -->
       <div class="hand-label-row">
         <div class="hand-label-line">
           <span class="hand-label-bar"></span>
@@ -2580,6 +2671,7 @@
 </div>
 
 <div id="toast"></div>
+<div id="action-banner"></div>
 
 <script>
 // ── VIEWPORT HEIGHT FIX ─────────────────────────────────────────────────────
@@ -3292,6 +3384,22 @@ function toast(msg, dur=2500) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), dur);
+}
+
+// Higher-visibility announcement for things worth actually reading — jack
+// usage (remove/wild) and turn-skip notices — as opposed to toast()'s quick
+// disposable nudges. Slides down from the top of the board. `kind` drives
+// the icon badge color: 'jack-remove' | 'jack-wild' | 'turn-skip'.
+let actionBannerHandle = null;
+function actionBanner(msg, icon, kind, dur=4500) {
+  const el = document.getElementById('action-banner');
+  if (!el) return;
+  el.className = ''; // clear any previous kind
+  if (kind) el.classList.add(kind);
+  el.innerHTML = `<span class="action-banner-icon">${icon}</span><span>${msg}</span>`;
+  el.classList.add('show');
+  if (actionBannerHandle) clearTimeout(actionBannerHandle);
+  actionBannerHandle = setTimeout(() => el.classList.remove('show'), dur);
 }
 
 function setError(id, msg) {
@@ -4174,7 +4282,9 @@ async function joinGame() {
   const joinTime = Date.now();
   fbOn(roomRef.child('toasts'), 'child_added', snap => {
     const d = snap.val();
-    if (d && d.timestamp > joinTime) toast(d.msg);
+    if (!d || d.timestamp <= joinTime) return;
+    if (d.isBanner) actionBanner(d.msg, d.icon, d.kind, d.dur);
+    else toast(d.msg);
   });
 
   showWaitingLobby();
@@ -4719,7 +4829,7 @@ function skipTurn() {
   GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
   GS.discardLockActive = false;
   GS.moveSeq = (GS.moveSeq || 0) + 1;
-  broadcastToast(`⏱ ${skipped ? skipped.name : 'Player'}'s turn timed out — skipped`);
+  broadcastActionBanner(`${skipped ? skipped.name : 'A player'}'s turn timed out and was skipped`, '⏱', 'turn-skip');
   hostAdvanceAndBroadcast();
   // Re-trigger AI if it's now the AI's turn after skip
   if (aiMode && GS.phase !== 'done') {
@@ -4803,7 +4913,7 @@ function applyMoveInner(move, fromId) {
     // Announce one-eyed jack to all players
     const targetCell = GS.board[row][col];
     const cellName = targetCell.type === 'card' ? `${targetCell.rank}${SUIT_SYM[targetCell.suit]}` : '★';
-    broadcastToast(`🗡️ ${p.name} used Remove Jack on ${cellName}`, 3500);
+    broadcastActionBanner(`${p.name} used a One-Eyed Jack to remove the chip on ${cellName}`, '🗡️', 'jack-remove');
   } else if (isTwoEyedJack(card)) {
     if (GS.chips[row][col] !== null) return;
     if (GS.board[row][col].type === 'wild') return;
@@ -4814,7 +4924,7 @@ function applyMoveInner(move, fromId) {
     // Announce two-eyed jack to all players
     const targetCell = GS.board[row][col];
     const cellName = targetCell.type === 'card' ? `${targetCell.rank}${SUIT_SYM[targetCell.suit]}` : '★';
-    broadcastToast(`🃏 ${p.name} used Wild Jack on ${cellName}`, 3500);
+    broadcastActionBanner(`${p.name} used a Two-Eyed Jack to play on ${cellName}`, '🃏', 'jack-wild');
   } else {
     const cell = GS.board[row][col];
     if (cell.type === 'wild') return;
@@ -4906,6 +5016,16 @@ function broadcastToast(msg, dur = 2500) {
   toast(msg, dur);
   if (isHost && roomRef) {
     roomRef.child('toasts').push({msg, timestamp: Date.now()});
+  }
+}
+
+// Same broadcast mechanism as broadcastToast, but renders as the more
+// visible action-banner (used for jack usage and turn-skip announcements)
+// on every client instead of the small disposable toast.
+function broadcastActionBanner(msg, icon, kind, dur = 4500) {
+  actionBanner(msg, icon, kind, dur);
+  if (isHost && roomRef) {
+    roomRef.child('toasts').push({msg, icon, kind, dur, timestamp: Date.now(), isBanner: true});
   }
 }
 
@@ -5524,6 +5644,9 @@ function renderHand() {
   }
 
   myHand.forEach((card, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'hand-card-wrap';
+
     const el = document.createElement('div');
     el.className = `hand-card ${card.suit}`;
 
@@ -5543,6 +5666,28 @@ function renderHand() {
     }
 
     el.innerHTML = makeHandCardHTML(card);
+
+    // Dead card: red dashed border (via .dead-card CSS) + a small ✕ badge in
+    // the corner that discards directly — no separate toast or button below
+    // the hand, the affordance now lives right on the card itself. The
+    // badge is appended to the WRAP (not the card), since the card itself
+    // has overflow:hidden (needed to clip its own SVG art cleanly) which
+    // would otherwise cut off a badge positioned just outside its corner.
+    const canDiscardThis = isDead && myTurn && GS.forcedCardIdx === null;
+    if (canDiscardThis) {
+      const badge = document.createElement('button');
+      badge.className = 'dead-card-x';
+      badge.textContent = '✕';
+      badge.title = 'Discard this dead card';
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        selectedCardIdx = i;
+        playDeadCard();
+      });
+      wrap.appendChild(badge);
+    }
+
     el.addEventListener('click', () => {
       if (hardLocked) {
         if (i !== GS.forcedCardIdx) { toast('You must play your drawn card'); return; }
@@ -5554,28 +5699,9 @@ function renderHand() {
       }
       selectCard(i);
     });
-    handEl.append(el);
+    wrap.appendChild(el);
+    handEl.append(wrap);
   });
-
-  // Show discard button in label row (never clipped by overflow:hidden)
-  const labelRow = document.querySelector('.hand-label-row');
-  const existingDiscard = labelRow?.querySelector('.discard-btn');
-  if (existingDiscard) existingDiscard.remove();
-
-  const selCard = selectedCardIdx >= 0 ? myHand[selectedCardIdx] : null;
-  if (selCard && isDeadCard(selCard, selectedCardIdx) && myTurn && labelRow && GS.forcedCardIdx === null) {
-    const deadIdx = selectedCardIdx; // capture index
-    const discardBtn = document.createElement('button');
-    discardBtn.className = 'discard-btn';
-    discardBtn.textContent = '✕ Discard';
-    discardBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      selectedCardIdx = deadIdx; // ensure it's set correctly
-      playDeadCard();
-    });
-    labelRow.appendChild(discardBtn);
-  }
 }
 
 function isDeadCard(card, idx) {
