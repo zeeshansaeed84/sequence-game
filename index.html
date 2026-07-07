@@ -21,10 +21,10 @@
     --black: #1a1a1a;
     --chip-blue: #1E90FF;
     --chip-green: #61AF41;
-    --chip-red: #AE42D0;
+    --chip-purple: #AE42D0;
     --chip-blue-light: #60a5fa;
     --chip-green-light: #4ade80;
-    --chip-red-light: #f87171;
+    --chip-purple-light: #d896e8;
     --shadow: 0 4px 20px rgba(0,0,0,0.4);
     --border-gold: 1px solid var(--gold);
     /* Sequence lobby + board theme — from official logo */
@@ -1037,14 +1037,50 @@
 
   .player-item {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 6px;
     padding: 8px 12px;
     border-radius: 6px;
     margin-bottom: 6px;
     background: rgba(255,255,255,0.04);
     font-size: 0.95rem;
   }
+  .player-item-row1 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .player-item-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .player-item-row2 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .player-action-btn {
+    flex-shrink: 0;
+    height: 28px;
+    min-width: 28px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.85);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .player-action-btn:disabled { opacity: 0.3; cursor: default; }
+  .player-action-btn:active:not(:disabled) { background: rgba(255,255,255,0.15); }
+  .player-action-btn-wide { padding: 0 10px; white-space: nowrap; }
+  .player-action-btn-danger { border-color: rgba(220,38,38,0.4); color: #ff8a80; }
+  .player-action-btn-danger:active { background: rgba(220,38,38,0.2); }
+
   #lobby-screen .btn-primary {
     background: linear-gradient(135deg, #2233CC, #1a2580);
     color: white;
@@ -1090,7 +1126,7 @@
 
   .dot-t0 { background: var(--chip-blue); }
   .dot-t1 { background: var(--chip-green); }
-  .dot-t2 { background: var(--chip-red); }
+  .dot-t2 { background: var(--chip-purple); }
 
   .status-msg {
     font-style: italic;
@@ -3097,6 +3133,13 @@ let fbGameStarted = false;
 // passively waiting for the next natural push from Firebase.
 
 async function forceResyncGameState(reason) {
+  // Also re-affirm our own presence — this is what actually lets a player
+  // who switched tabs/apps and came back rejoin cleanly. Without this, their
+  // presence stays stuck at `false` (set by onDisconnect when the socket
+  // dropped) even after they're back and looking at the screen, so every
+  // other player keeps seeing the series-paused countdown indefinitely with
+  // no way for the returning player to clear it.
+  registerPresence();
   if (!roomRef || !GS || GS.phase === 'done') return;
   try {
     const snap = await roomRef.child('gameState').once('value');
@@ -3117,6 +3160,13 @@ async function forceResyncGameState(reason) {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     forceResyncGameState('tab-visible');
+    // Re-register presence — onDisconnect() may have already fired while
+    // this tab was backgrounded/suspended (common on mobile), flipping this
+    // player's own presence to false. Without this, a player who just
+    // switches away and back would get stuck seeing "waiting for [their own
+    // name] to reconnect" with no way to clear it, since nothing else
+    // re-marks them as present again.
+    registerPresence();
   }
 });
 
@@ -3130,6 +3180,7 @@ function watchFirebaseConnection() {
     const connected = snap.val() === true;
     if (connected && !wasConnected) {
       forceResyncGameState('reconnected');
+      registerPresence(); // clear any stale "disconnected" flag from the drop
     }
     wasConnected = connected;
   });
@@ -3260,7 +3311,17 @@ function lighten(hex) {
   const b = Math.min(255, ( n        & 0xff) + 90);
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
-const TEAM_NAMES  = ['Blue','Green','Red'];
+const TEAM_NAMES  = ['Blue','Green','Purple'];
+
+// Returns the human-facing name for a team: the actual player name(s) on
+// that team joined with "&" (e.g. "Zeeshan & Ali"), not the generic color
+// label (TEAM_NAMES). Falls back to the color name only if no players are
+// found for that team (shouldn't normally happen, but keeps this safe).
+function teamDisplayName(team) {
+  const teamPlayers = players.filter(p => p.team === team);
+  if (!teamPlayers.length) return TEAM_NAMES[team] || `Team ${team+1}`;
+  return teamPlayers.map(p => p.name).join(' & ');
+}
 const TEAM_DOT    = ['dot-t0','dot-t1','dot-t2'];
 
 // Segmented pill selector — updates active state + hidden input
@@ -4244,7 +4305,14 @@ function registerPresence() {
 function onPresenceUpdate(presenceData) {
   if (matchFormat <= 1 || seriesWinnerTeam !== null) { hideSeriesPauseModal(); return; }
   if (!presenceData) return;
-  const disconnectedPlayer = players.find(p => presenceData[p.id] === false);
+  // Never treat the LOCAL player as "the disconnected one" on their own
+  // screen — if this code is actively running, their tab is clearly here,
+  // regardless of what a stale presence flag says (e.g. right after
+  // returning from a backgrounded tab, before registerPresence() has had a
+  // chance to clear the flag Firebase's onDisconnect() set while they were
+  // away). Showing yourself a "waiting for you to reconnect" modal with no
+  // way to dismiss it was the actual bug being reported.
+  const disconnectedPlayer = players.find(p => p.id !== myId && presenceData[p.id] === false);
   if (disconnectedPlayer) {
     showSeriesPauseModal(disconnectedPlayer);
   } else {
@@ -4314,7 +4382,7 @@ function showSeriesTimeoutResult() {
     document.getElementById('win-msg').textContent =
       `A player didn't reconnect in time. The series was tied ${seriesWins.join(' – ')}, so no winner is declared.`;
   } else {
-    const name = aiMode ? (players.find(p=>p.team===seriesWinnerTeam)?.name || 'AI') : TEAM_NAMES[seriesWinnerTeam];
+    const name = aiMode ? (players.find(p=>p.team===seriesWinnerTeam)?.name || 'AI') : teamDisplayName(seriesWinnerTeam);
     const finalScore = [seriesWins[seriesWinnerTeam], ...seriesWins.filter((_,i)=>i!==seriesWinnerTeam)].join(' – ');
     document.getElementById('win-title').textContent = `🏆 ${name} Wins the Series!`;
     document.getElementById('win-msg').textContent =
@@ -4430,7 +4498,6 @@ async function joinGame() {
 
   isHost = false;
   roomCode = code;
-  myId = generatePlayerId();
   fbGameStarted = false;
 
   roomRef = db.ref('sq_rooms/' + code);
@@ -4440,7 +4507,6 @@ async function joinGame() {
 
   if (!snap.exists()) { setError('join-error', 'Room not found. Check the code and try again.'); return; }
   const data = snap.val();
-  if (data.phase === 'playing') { setError('join-error', 'Game already in progress. Use 👁 Watch to spectate.'); return; }
   if (data.phase === 'abandoned') { setError('join-error', 'This room has ended.'); return; }
 
   numTeams = data.numTeams || 2;
@@ -4451,18 +4517,35 @@ async function joinGame() {
   seriesWinnerTeam = data.series?.winnerTeam ?? null;
   const existing = JSON.parse(data.players || '[]');
 
-  // Prevent duplicate join — same name already in room
-  if (existing.some(p => p.name.toLowerCase() === myName.toLowerCase())) {
-    setError('join-error', `"${myName}" is already in this room. Use a different name.`);
+  // A returning player (same name already in the room's player list) is
+  // reconnecting, not making a fresh join — reuse their ORIGINAL id rather
+  // than generating a new one, since GS.hands, whose-turn-it-is, and every
+  // other bit of live game state are all keyed by that original id. Without
+  // this, reconnecting mid-game would silently orphan the player's hand and
+  // turn. This is also what lets a genuinely mid-game rejoin succeed at all —
+  // previously ANY join attempt while phase==='playing' was flatly rejected
+  // with "game already in progress", even for someone just trying to get
+  // back into their own game after a disconnect.
+  const returningPlayer = existing.find(p => p.name.toLowerCase() === myName.toLowerCase());
+
+  if (data.phase === 'playing' && !returningPlayer) {
+    setError('join-error', 'Game already in progress. Use 👁 Watch to spectate.');
     return;
   }
 
-  const updated = [...existing, {id: myId, name: myName, team: existing.length % numTeams}];
-  try {
-    await roomRef.child('players').set(JSON.stringify(updated));
-  } catch(e) {
-    setError('join-error', 'Could not join: ' + e.message);
-    return;
+  let updated;
+  if (returningPlayer) {
+    myId = returningPlayer.id; // reuse the original id so game state reconnects correctly
+    updated = existing; // player list itself doesn't change on a reconnect
+  } else {
+    myId = generatePlayerId();
+    updated = [...existing, {id: myId, name: myName, team: existing.length % numTeams}];
+    try {
+      await roomRef.child('players').set(JSON.stringify(updated));
+    } catch(e) {
+      setError('join-error', 'Could not join: ' + e.message);
+      return;
+    }
   }
 
   players = updated;
@@ -4594,16 +4677,50 @@ function renderWaitingPlayers() {
   players.forEach((p, i) => {
     const div = document.createElement('div');
     div.className = 'player-item';
+
+    const row1 = document.createElement('div');
+    row1.className = 'player-item-row1';
     const dot = document.createElement('div');
     dot.className = `team-dot ${TEAM_DOT[p.team]}`;
     const name = document.createElement('span');
+    name.className = 'player-item-name';
     name.textContent = `${p.name}${p.id === myId ? ' (you)' : ''} — ${TEAM_NAMES[p.team]}`;
-    div.append(dot, name);
-    // Host can switch teams or remove players
+    row1.append(dot, name);
+    div.append(row1);
+
+    // Host can reorder (controls turn sequence), switch teams, or remove
+    // players. Laid out as its own compact icon-button row underneath the
+    // name — a single row with 4 text/icon buttons plus a name was
+    // overflowing off-screen on real phone widths (e.g. iPhone SE), making
+    // the reorder buttons and even Remove unreachable for longer names.
     if (isHost && p.id !== myId) {
+      const row2 = document.createElement('div');
+      row2.className = 'player-item-row2';
+
+      const upBtn = document.createElement('button');
+      upBtn.className = 'player-action-btn';
+      upBtn.textContent = '↑';
+      upBtn.title = 'Move earlier in turn order';
+      upBtn.disabled = i === 0;
+      upBtn.onclick = () => {
+        if (i === 0) return;
+        [players[i-1], players[i]] = [players[i], players[i-1]];
+        broadcastLobbyState();
+        renderWaitingPlayers();
+      };
+      const downBtn = document.createElement('button');
+      downBtn.className = 'player-action-btn';
+      downBtn.textContent = '↓';
+      downBtn.title = 'Move later in turn order';
+      downBtn.disabled = i === players.length - 1;
+      downBtn.onclick = () => {
+        if (i === players.length - 1) return;
+        [players[i], players[i+1]] = [players[i+1], players[i]];
+        broadcastLobbyState();
+        renderWaitingPlayers();
+      };
       const switchBtn = document.createElement('button');
-      switchBtn.className = 'btn btn-secondary btn-sm';
-      switchBtn.style.marginLeft = 'auto';
+      switchBtn.className = 'player-action-btn player-action-btn-wide';
       switchBtn.textContent = 'Switch Team';
       switchBtn.onclick = () => {
         players[i].team = (players[i].team + 1) % numTeams;
@@ -4611,8 +4728,7 @@ function renderWaitingPlayers() {
         renderWaitingPlayers();
       };
       const removeBtn = document.createElement('button');
-      removeBtn.className = 'btn btn-secondary btn-sm';
-      removeBtn.style.marginLeft = '4px';
+      removeBtn.className = 'player-action-btn player-action-btn-danger';
       removeBtn.textContent = '✕';
       removeBtn.title = 'Remove player';
       removeBtn.onclick = () => {
@@ -4620,7 +4736,8 @@ function renderWaitingPlayers() {
         broadcastLobbyState();
         renderWaitingPlayers();
       };
-      div.append(switchBtn, removeBtn);
+      row2.append(upBtn, downBtn, switchBtn, removeBtn);
+      div.append(row2);
     }
     list.append(div);
   });
@@ -5801,10 +5918,28 @@ function renderTopBar() {
   // that can get clipped with 3 team badges + timer all sharing the bar.
   const scoresEl = document.getElementById('team-scores');
   scoresEl.innerHTML = '';
+  // GS.currentTurn is a PLAYER index (into the players array), not a team
+  // number — comparing it directly against the team loop index `t` only
+  // ever coincidentally worked for the first 2 players in a 2-team game
+  // (where player index and team index happen to match by luck). Resolve
+  // the actual team of whoever's turn it is instead.
+  const currentTurnTeam = players[GS.currentTurn] ? players[GS.currentTurn].team : -1;
+  if (currentTurnTeam === -1 && !aiMode) {
+    // Diagnostic: this should only ever happen very transiently (a
+    // players/gameState sync race). If you see this logged repeatedly
+    // during a real game where the badge highlight goes missing, that
+    // confirms the race-condition theory — screenshot/copy this log line.
+    console.warn('[badge-highlight] currentTurnTeam could not be resolved.', {
+      'GS.currentTurn': GS.currentTurn,
+      'players.length': players.length,
+      'players': players.map(p => ({id: p.id, name: p.name, team: p.team})),
+      'myId': myId,
+    });
+  }
   for (let t = 0; t < numTeams; t++) {
     const div = document.createElement('div');
     div.className = 'score-badge';
-    if (t === GS.currentTurn) div.classList.add('active-turn');
+    if (t === currentTurnTeam) div.classList.add('active-turn');
     div.dataset.team = t;
     const colour = CHIP_HEX[TEAM_COLORS[t]] || '#1E90FF';
     const initial = teamInitial(t);
@@ -6485,7 +6620,7 @@ function renderSeriesBox() {
     .map(p => {
       const wins = seriesWins?.[p.team] ?? 0;
       const isLeading = wins === leadWins && wins > 0;
-      const label = aiMode ? p.name : TEAM_NAMES[p.team];
+      const label = aiMode ? p.name : teamDisplayName(p.team);
       return `<div class="series-score-item ${isLeading ? 'leading' : ''}">
         <div class="series-score-wins">${wins}</div>
         <div class="series-score-name">${label}</div>
@@ -6544,8 +6679,9 @@ function showWinModal() {
       msg = `${players.find(p=>p.team===w)?.name||'AI'} completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}. Better luck next time!`;
     }
   } else {
-    title = `🏆 ${TEAM_NAMES[w]} Team Wins!`;
-    msg = `${TEAM_NAMES[w]} team completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}!`;
+    const winnerNames = teamDisplayName(w);
+    title = `🏆 ${winnerNames} Wins!`;
+    msg = `${winnerNames} completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}!`;
   }
 
   // Series decided — override the single-game result with the overall
@@ -6553,7 +6689,7 @@ function showWinModal() {
   if (seriesJustDecided) {
     const seriesWinnerName = aiMode
       ? (seriesWinnerTeam === 0 ? myName : (players.find(p=>p.team===seriesWinnerTeam)?.name || 'AI'))
-      : TEAM_NAMES[seriesWinnerTeam];
+      : teamDisplayName(seriesWinnerTeam);
     // Winner's score always leads, e.g. "3 – 1" not "1 – 3" regardless of team order
     const finalScore = [seriesWins[seriesWinnerTeam], ...seriesWins.filter((_, i) => i !== seriesWinnerTeam)].join(' – ');
     const seriesWinnerWon = aiMode ? seriesWinnerTeam === 0 : seriesWinnerTeam === players[myIndex]?.team;
