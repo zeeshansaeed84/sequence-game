@@ -1525,7 +1525,6 @@
     gap: 8px;
     flex: 1;
     min-width: 0;
-    padding-right: 50px; /* reserve space for absolutely-positioned timer */
   }
 
   .hand-label {
@@ -1985,6 +1984,109 @@
      not just a quick disposable nudge. Slides down from the top of the
      board rather than floating near the hand, so it doesn't compete with
      the toast or get missed while looking at cards. */
+  /* Chat: floating trigger + preset picker + per-badge message bubbles.
+     Only shown in multiplayer (non-AI) games. */
+  #chat-trigger-btn {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    border: 1.5px solid rgba(201,168,76,0.5);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #chat-trigger-btn:active { background: rgba(255,255,255,0.2); transform: scale(0.94); }
+
+  #chat-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 90;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #chat-picker-panel {
+    width: 100%;
+    max-width: 460px;
+    background: #f7f8fc;
+    border-radius: 18px 18px 0 0;
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.4);
+    animation: chatPanelSlideUp 0.25s ease-out;
+  }
+  @keyframes chatPanelSlideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .chat-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    max-height: 65vh;
+    overflow-y: auto;
+  }
+  .chat-preset-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    background: white;
+    border: 1.5px solid #E0E4F0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.85rem;
+    color: #262d55;
+    cursor: pointer;
+    text-align: left;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .chat-preset-btn:active { background: #eef0fc; border-color: var(--logo-blue); }
+  .chat-preset-emoji { font-size: 1.1rem; flex-shrink: 0; }
+
+  /* Message bubble anchored to a specific sender's score badge — this is
+     what makes attribution automatic: the bubble visually comes FROM that
+     player's own badge, not a generic shared chat log. */
+  .chat-bubble {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: white;
+    border: 1.5px solid var(--logo-blue, #2233CC);
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.78rem;
+    color: #262d55;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    z-index: 40;
+    animation: chatBubbleIn 0.25s cubic-bezier(.34,1.56,.64,1);
+  }
+  .chat-bubble::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 16px;
+    width: 10px;
+    height: 10px;
+    background: white;
+    border-left: 1.5px solid var(--logo-blue, #2233CC);
+    border-top: 1.5px solid var(--logo-blue, #2233CC);
+    transform: rotate(45deg);
+  }
+  @keyframes chatBubbleIn {
+    0%   { transform: scale(0.5) translateY(-6px); opacity: 0; }
+    100% { transform: scale(1) translateY(0); opacity: 1; }
+  }
+
   #action-banner {
     position: fixed;
     top: 12px;
@@ -2599,6 +2701,16 @@
      GAME SCREEN
 ═══════════════════════════════════════════════════ -->
 <div id="game-screen" class="screen">
+  <!-- Chat picker sheet — opened by the trigger icon inline next to "YOUR
+       HAND" below. Picking a preset sends it anchored to the sender's own
+       score badge on every player's screen, so who-said-what is always
+       unambiguous regardless of player count. -->
+  <div id="chat-picker-backdrop" onclick="closeChatPicker()" style="display:none">
+    <div id="chat-picker-panel" onclick="event.stopPropagation()">
+      <div class="chat-picker-grid" id="chat-picker-grid"></div>
+    </div>
+  </div>
+
   <div class="game-main">
     <div class="board-container">
       <div class="board" id="board"></div>
@@ -2627,13 +2739,14 @@
     <div class="hand-area">
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
       <div id="forced-card-banner" class="forced-card-banner" style="display:none">🔒 You must play the card you just drew</div>
-      <!-- Hand label with gold lines -->
+      <!-- Hand label with gold lines + chat trigger (multiplayer only) -->
       <div class="hand-label-row">
         <div class="hand-label-line">
           <span class="hand-label-bar"></span>
           <span class="hand-label">YOUR HAND</span>
           <span class="hand-label-bar"></span>
         </div>
+        <button id="chat-trigger-btn" onclick="toggleChatPicker()" title="Send a quick message" style="display:none"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 2.68 1.38 5.08 3.55 6.7-.12.98-.5 2.44-1.4 3.9a.5.5 0 0 0 .55.75c1.98-.5 3.66-1.42 4.68-2.1.83.2 1.7.3 2.62.3 5.52 0 10-3.94 10-8.8S17.52 2 12 2z"/></svg></button>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
     </div>
@@ -4249,6 +4362,20 @@ async function createGame() {
     if (!fbGameStarted) renderWaitingPlayers();
   });
 
+  // Watch toasts — previously host-only broadcast these (jack usage, turn
+  // skip), never needed to RECEIVE them since it shows its own locally at
+  // the same time it sends. Chat messages break that assumption: a guest
+  // can send one, so the host needs to listen too, same as guests do.
+  const hostJoinTime = Date.now();
+  fbOn(roomRef.child('toasts'), 'child_added', snap => {
+    const d = snap.val();
+    if (!d || d.timestamp <= hostJoinTime) return;
+    if (d.fromId === myId) return; // already shown locally when sent
+    if (d.isChat) showChatBubble(d.fromId, d.text);
+    else if (d.isBanner) actionBanner(d.msg, d.icon, d.kind, d.dur);
+    else toast(d.msg);
+  });
+
   // Watch rematch requests/responses
   fbOn(roomRef.child('rematch'), 'value', snap => {
     onRematchUpdate(snap.val());
@@ -4345,7 +4472,9 @@ async function joinGame() {
   fbOn(roomRef.child('toasts'), 'child_added', snap => {
     const d = snap.val();
     if (!d || d.timestamp <= joinTime) return;
-    if (d.isBanner) actionBanner(d.msg, d.icon, d.kind, d.dur);
+    if (d.fromId === myId) return; // already shown locally when sent
+    if (d.isChat) showChatBubble(d.fromId, d.text);
+    else if (d.isBanner) actionBanner(d.msg, d.icon, d.kind, d.dur);
     else toast(d.msg);
   });
 
@@ -5101,6 +5230,98 @@ function broadcastActionBanner(msg, icon, kind, dur = 4500) {
   }
 }
 
+// ═══════════════════════════════════════════════════
+// CHAT — preset quick messages, multiplayer only
+// ═══════════════════════════════════════════════════
+// Every message is anchored to the SENDER's own score badge (not a shared
+// chat log), so who-said-what is automatic and unambiguous in every
+// player-count scenario — 1v1, 1v1v1, 2v2, 3v3, etc.
+const CHAT_PRESETS = [
+  { text: "Nice move!", emoji: "👍", cat: "Reactions" },
+  { text: "On fire!", emoji: "🔥", cat: "Reactions" },
+  { text: "Well played!", emoji: "👏", cat: "Reactions" },
+  { text: "Didn't see that coming!", emoji: "😲", cat: "Reactions" },
+  { text: "Lucky!", emoji: "🍀", cat: "Reactions" },
+  { text: "Ouch!", emoji: "🤕", cat: "Reactions" },
+  { text: "Sneaky!", emoji: "😏", cat: "Reactions" },
+  { text: "Genius!", emoji: "🧠", cat: "Reactions" },
+  { text: "Thinking...", emoji: "⏳", cat: "Social" },
+  { text: "Hurry up!", emoji: "😄", cat: "Social" },
+  { text: "One sec...", emoji: "✋", cat: "Social" },
+  { text: "Good game!", emoji: "🤝", cat: "Social" },
+  { text: "This won't end well for you...", emoji: "😬", cat: "Light Taunts" },
+  { text: "Not today!", emoji: "🙅", cat: "Light Taunts" },
+  { text: "Too easy!", emoji: "😎", cat: "Light Taunts" },
+  { text: "Big mistake...", emoji: "😈", cat: "Light Taunts" },
+];
+
+function toggleChatPicker() {
+  const backdrop = document.getElementById('chat-picker-backdrop');
+  if (!backdrop) return;
+  if (backdrop.style.display === 'flex') { closeChatPicker(); return; }
+  const grid = document.getElementById('chat-picker-grid');
+  if (grid && !grid.dataset.init) {
+    grid.innerHTML = CHAT_PRESETS.map((p, i) =>
+      `<button class="chat-preset-btn" onclick="sendChatPreset(${i})"><span>${p.text}</span><span class="chat-preset-emoji">${p.emoji}</span></button>`
+    ).join('');
+    grid.dataset.init = '1';
+  }
+  backdrop.style.display = 'flex';
+}
+
+function closeChatPicker() {
+  const backdrop = document.getElementById('chat-picker-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+function sendChatPreset(idx) {
+  const preset = CHAT_PRESETS[idx];
+  if (!preset || !myId) return;
+  const text = `${preset.text} ${preset.emoji}`;
+  closeChatPicker();
+  showChatBubble(myId, text); // show on my own screen immediately
+  if (roomRef) {
+    roomRef.child('toasts').push({ isChat: true, fromId: myId, text, timestamp: Date.now() }).catch(() => {});
+  }
+}
+
+// Shows a speech-bubble anchored directly above/beside the sending player's
+// TEAM badge — this is what makes attribution automatic without any extra
+// UI in the common case (1 player per team). When a team has 2+ players
+// (2v2, 3v3), the same badge is shared by teammates, so the sender's name
+// is prefixed in the bubble itself so teammates can still tell each other
+// apart, not just tell their team apart from the opponents'.
+let chatBubbleTimers = {};
+function showChatBubble(fromId, text) {
+  const sender = players.find(p => p.id === fromId);
+  if (!sender) return;
+  const badge = document.querySelector(`.score-badge[data-team="${sender.team}"]`);
+  if (!badge) return; // sender's team badge isn't on screen (shouldn't normally happen)
+  if (getComputedStyle(badge).position === 'static') badge.style.position = 'relative';
+
+  const teammateCount = players.filter(p => p.team === sender.team).length;
+  const displayText = teammateCount > 1 ? `${sender.name}: ${text}` : text;
+
+  // Keyed by TEAM (the actual shared DOM anchor), not by individual sender —
+  // if two teammates message in quick succession, the second correctly
+  // replaces the first on the shared badge rather than leaving a dangling
+  // timer that tries to remove an element that's already been swapped out.
+  const timerKey = sender.team;
+  const existing = badge.querySelector('.chat-bubble');
+  if (existing) existing.remove();
+  if (chatBubbleTimers[timerKey]) clearTimeout(chatBubbleTimers[timerKey]);
+
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble';
+  bubble.textContent = displayText;
+  badge.appendChild(bubble);
+
+  chatBubbleTimers[timerKey] = setTimeout(() => {
+    bubble.remove();
+    delete chatBubbleTimers[timerKey];
+  }, 4000);
+}
+
 function isOneEyedJack(card) {
   if (card.rank !== 'J') return false;
   return card.suit === 'spades' || card.suit === 'hearts';
@@ -5416,6 +5637,12 @@ function showGameScreen() {
     if (handCards) handCards.style.display = '';
   }
 
+  // Chat preset trigger — only for active players in real multiplayer games;
+  // hidden for VS AI (no one else to message) and for spectators (not
+  // active participants).
+  const chatBtn = document.getElementById('chat-trigger-btn');
+  if (chatBtn) chatBtn.style.display = (!aiMode && !isSpectator) ? 'flex' : 'none';
+
   if (aiTurnHandle) { clearTimeout(aiTurnHandle); aiTurnHandle = null; }
   renderGame();
   startCountdownDisplay();
@@ -5513,9 +5740,11 @@ function renderGame() {
   }
 }
 
-function renderTopBar() {
-  const CHIP_HEX = { t0: '#1E90FF', t1: '#61AF41', t2: '#AE42D0' };
+// Chip color per team-color-key — shared by score badges, board chips, and
+// chat bubble initials so a player's color reads consistently everywhere.
+const CHIP_HEX = { t0: '#1E90FF', t1: '#61AF41', t2: '#AE42D0' };
 
+function renderTopBar() {
   function teamLabel(t) {
     const teamPlayers = players.filter(p => p.team === t);
     if (teamPlayers.length === 0) return TEAM_NAMES[t];
