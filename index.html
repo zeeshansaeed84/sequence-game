@@ -484,6 +484,34 @@
     text-align: left;
   }
 
+  /* Lobby "my stats" strip — quick glance at this device's history */
+  #lobby-stats-box {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(201,168,76,0.3);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+  .lobby-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .lobby-stat-item { display: flex; flex-direction: column; align-items: center; }
+  .lobby-stat-val {
+    font-family: 'Cinzel', serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--gold-light, #E8D9A0);
+  }
+  .lobby-stat-label {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.58rem;
+    color: rgba(245,240,232,0.65);
+    letter-spacing: 0.04em;
+    margin-top: 2px;
+    text-align: center;
+  }
+
   .lobby-section-title {
     font-family: 'Cinzel', serif;
     font-size: 0.85rem;
@@ -2073,6 +2101,12 @@
 
     <div id="lobby-main" style="display:flex;flex-direction:column;gap:8px">
 
+      <!-- Lobby stats strip — quick glance at this device's history, hidden
+           until there's at least one game logged -->
+      <div id="lobby-stats-box" style="display:none">
+        <div class="lobby-stats-grid" id="lobby-stats-grid"></div>
+      </div>
+
       <!-- SECTION: Player Setup -->
       <div class="lobby-section">
         <div class="lobby-section-title">Player Setup</div>
@@ -2530,6 +2564,7 @@ window.addEventListener('load', () => {
   updateSoundToggleUI();
   initOpponentChipIcons();
   initLobbySidePanel();
+  renderLobbyStats();
   // Auto-spectate if ?watch=CODE in URL
   const params = new URLSearchParams(window.location.search);
   const watchCode = params.get('watch');
@@ -4467,6 +4502,7 @@ function leaveGame() {
   document.getElementById('win-modal').classList.remove('open');
   resetRematchUI();
   showScreen('lobby-screen');
+  renderLobbyStats(); // pick up the just-finished game's result immediately
 }
 
 // ═══════════════════════════════════════════════════
@@ -5751,54 +5787,106 @@ async function logPersonalResult(outcome, isDraw) {
 // Fetches this device's full game history and renders the "Your Stats" box
 // on the results screen. Called after logPersonalResult so the just-finished
 // game is included in the aggregates.
+// Computes the full stats aggregate from this device's game history. Shared
+// by both the post-game results modal and the lobby's "My Stats" card so
+// they can never drift out of sync with each other.
+function computeMyStats(games) {
+  const totalGames = games.length;
+  const wins = games.filter(g => g.outcome === 'win').length;
+  const losses = games.filter(g => g.outcome === 'loss').length;
+  const draws = games.filter(g => g.outcome === 'draw').length;
+  const winRate = totalGames ? Math.round((wins / totalGames) * 100) : 0;
+
+  // Current streak: walk backwards from the most recent game
+  let streak = 0, streakType = null;
+  for (let i = games.length - 1; i >= 0; i--) {
+    const o = games[i].outcome;
+    if (o === 'draw') break; // a draw breaks any streak
+    if (streakType === null) { streakType = o; streak = 1; }
+    else if (o === streakType) { streak++; }
+    else break;
+  }
+
+  // Max win streak: longest run of consecutive wins anywhere in history
+  // (a draw or a loss both break a win streak in progress)
+  let maxWinStreak = 0, running = 0;
+  for (const g of games) {
+    if (g.outcome === 'win') { running++; maxWinStreak = Math.max(maxWinStreak, running); }
+    else running = 0;
+  }
+
+  // Per-difficulty VS AI win rate
+  const aiGames = games.filter(g => g.mode === 'vs_ai' && g.aiDifficulty);
+  const byDifficulty = {};
+  ['easy','medium','hard'].forEach(level => {
+    const levelGames = aiGames.filter(g => g.aiDifficulty === level);
+    if (!levelGames.length) return;
+    const levelWins = levelGames.filter(g => g.outcome === 'win').length;
+    byDifficulty[level] = Math.round((levelWins / levelGames.length) * 100);
+  });
+
+  return { totalGames, wins, losses, draws, winRate, streak, streakType, maxWinStreak, byDifficulty };
+}
+
+// Fetches this device's raw game history from Firebase. Returns [] if none.
+async function fetchMyStatsHistory() {
+  if (!db) return [];
+  try {
+    const deviceId = getDeviceId();
+    const snap = await db.ref('sq_player_stats/' + deviceId + '/games').once('value');
+    if (!snap.exists()) return [];
+    return Object.values(snap.val()).sort((a,b) => a.timestamp - b.timestamp);
+  } catch(e) { return []; }
+}
+
+// Renders the compact stats strip at the top of the lobby — same underlying
+// data and computation as the post-game modal, just a different, shorter
+// layout (Games / Won / Lost / Best Streak) suited to a glance-and-go view.
+async function renderLobbyStats() {
+  const box = document.getElementById('lobby-stats-box');
+  const grid = document.getElementById('lobby-stats-grid');
+  if (!box || !grid) return;
+  if (!fbInit() || !db) { box.style.display = 'none'; return; }
+  const games = await fetchMyStatsHistory();
+  if (!games.length) { box.style.display = 'none'; return; }
+  const s = computeMyStats(games);
+
+  grid.innerHTML = `
+    <div class="lobby-stat-item"><div class="lobby-stat-val">${s.totalGames}</div><div class="lobby-stat-label">GAMES</div></div>
+    <div class="lobby-stat-item"><div class="lobby-stat-val">${s.wins}</div><div class="lobby-stat-label">WON</div></div>
+    <div class="lobby-stat-item"><div class="lobby-stat-val">${s.losses}</div><div class="lobby-stat-label">LOST</div></div>
+    <div class="lobby-stat-item"><div class="lobby-stat-val">${s.maxWinStreak || '—'}</div><div class="lobby-stat-label">BEST STREAK</div></div>
+  `;
+  box.style.display = 'block';
+}
+
 async function renderMyStats() {
   const box = document.getElementById('my-stats-box');
   const grid = document.getElementById('my-stats-grid');
   if (!box || !grid || !db) return;
-  try {
-    const deviceId = getDeviceId();
-    const snap = await db.ref('sq_player_stats/' + deviceId + '/games').once('value');
-    if (!snap.exists()) { box.style.display = 'none'; return; }
-    const games = Object.values(snap.val()).sort((a,b) => a.timestamp - b.timestamp);
+  const games = await fetchMyStatsHistory();
+  if (!games.length) { box.style.display = 'none'; return; }
+  const s = computeMyStats(games);
+  const streakLabel = s.streak >= 2 ? `${s.streak}${s.streakType === 'win' ? '🔥' : '❄️'}` : '—';
 
-    const totalGames = games.length;
-    const wins = games.filter(g => g.outcome === 'win').length;
-    const winRate = totalGames ? Math.round((wins / totalGames) * 100) : 0;
+  grid.innerHTML = `
+    <div class="my-stat-item"><div class="my-stat-val">${s.totalGames}</div><div class="my-stat-label">GAMES</div></div>
+    <div class="my-stat-item"><div class="my-stat-val">${s.winRate}%</div><div class="my-stat-label">WIN RATE</div></div>
+    <div class="my-stat-item"><div class="my-stat-val">${streakLabel}</div><div class="my-stat-label">STREAK</div></div>
+  `;
 
-    // Current streak: walk backwards from the most recent game
-    let streak = 0, streakType = null;
-    for (let i = games.length - 1; i >= 0; i--) {
-      const o = games[i].outcome;
-      if (o === 'draw') break; // a draw breaks any streak
-      if (streakType === null) { streakType = o; streak = 1; }
-      else if (o === streakType) { streak++; }
-      else break;
-    }
-    const streakLabel = streak >= 2 ? `${streak}${streakType === 'win' ? '🔥' : '❄️'}` : '—';
+  // Per-difficulty VS AI win rate — only shown once the player has some
+  // VS AI history, so this row doesn't clutter multiplayer-only players.
+  let diffHtml = '';
+  ['easy','medium','hard'].forEach(level => {
+    if (s.byDifficulty[level] === undefined) return;
+    diffHtml += `<div class="my-stats-diff-item"><div class="lvl">${level.toUpperCase()}</div><div class="pct">${s.byDifficulty[level]}%</div></div>`;
+  });
+  if (diffHtml) {
+    grid.insertAdjacentHTML('afterend', `<div class="my-stats-diff-row" id="my-stats-diff-row">${diffHtml}</div>`);
+  }
 
-    grid.innerHTML = `
-      <div class="my-stat-item"><div class="my-stat-val">${totalGames}</div><div class="my-stat-label">GAMES</div></div>
-      <div class="my-stat-item"><div class="my-stat-val">${winRate}%</div><div class="my-stat-label">WIN RATE</div></div>
-      <div class="my-stat-item"><div class="my-stat-val">${streakLabel}</div><div class="my-stat-label">STREAK</div></div>
-    `;
-
-    // Per-difficulty VS AI win rate — only shown once the player has some
-    // VS AI history, so this row doesn't clutter multiplayer-only players.
-    const aiGames = games.filter(g => g.mode === 'vs_ai' && g.aiDifficulty);
-    let diffHtml = '';
-    ['easy','medium','hard'].forEach(level => {
-      const levelGames = aiGames.filter(g => g.aiDifficulty === level);
-      if (!levelGames.length) return;
-      const levelWins = levelGames.filter(g => g.outcome === 'win').length;
-      const pct = Math.round((levelWins / levelGames.length) * 100);
-      diffHtml += `<div class="my-stats-diff-item"><div class="lvl">${level.toUpperCase()}</div><div class="pct">${pct}%</div></div>`;
-    });
-    if (diffHtml) {
-      grid.insertAdjacentHTML('afterend', `<div class="my-stats-diff-row" id="my-stats-diff-row">${diffHtml}</div>`);
-    }
-
-    box.style.display = 'block';
-  } catch(e) { box.style.display = 'none'; }
+  box.style.display = 'block';
 }
 
 // ═══════════════════════════════════════════════════
