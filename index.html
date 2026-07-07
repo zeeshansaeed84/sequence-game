@@ -4039,6 +4039,11 @@ function evalPlacement(r, c, team, gs, diff) {
 //   - hits more than one of the opponent's live lines at once (intersection)
 //   - the freed cell is also good for the AI's own offense/defense there
 //   - the AI holds the matching card and can immediately retake the cell
+//   ALL LEVELS: checks whether freeing this cell hands a meaningful
+//   advantage to a THIRD team (relevant in 3+ team games) — removing one
+//   opponent's blocking chip can accidentally open up a winning cell for a
+//   completely different team, which is a real own-goal the AI should avoid
+//   walking into blindly.
 function evalRemoval(r, c, oppTeam, threat, diff, gs, aiTeam, hand) {
   // Core rule across ALL levels: one-eyed jack only makes sense when the
   // opponent has a genuinely live near-complete line through this cell.
@@ -4048,7 +4053,34 @@ function evalRemoval(r, c, oppTeam, threat, diff, gs, aiTeam, hand) {
 
   let score = diff==='hard' ? 10000 : diff==='medium' ? 9000 : 8000;
 
-  // Easy/Medium stop here — simple flat scoring, no further calculation.
+  // Third-party collateral check — applies at EVERY difficulty, not just
+  // Hard, since walking straight into helping a different opponent win is a
+  // basic tactical error, not a nuance. If a third team (neither the AI nor
+  // the chip's owner) would gain a strong offensive position from this cell
+  // opening up, the removal is penalized — enough to usually rule it out
+  // entirely, matching how dangerous a free near-win cell really is.
+  if (gs && aiTeam !== undefined && players && players.length) {
+    const otherTeams = [...new Set(players.map(p => p.team))].filter(t => t !== aiTeam && t !== oppTeam);
+    let worstCollateral = 0;
+    for (const thirdTeam of otherTeams) {
+      const thirdPartyValue = evalPlacement(r, c, thirdTeam, gs, diff);
+      // Only count it if it's a genuinely strong opportunity for them (a
+      // near-win, not just "slightly more central") — offensive component
+      // of evalPlacement crosses into the thousands specifically once
+      // maxFriendly hits 4 (one away from winning) or completes a sequence.
+      if (thirdPartyValue > worstCollateral) worstCollateral = thirdPartyValue;
+    }
+    if (worstCollateral >= 3000) {
+      // Freeing this cell would hand someone else a near-win or better —
+      // this scales the penalty with how bad it is, and can drive the score
+      // to 0 or below (ruling the move out) for a genuine game-losing gift.
+      score -= worstCollateral * 1.2;
+    }
+  }
+  if (score <= 0) return 0;
+
+  // Easy/Medium stop here — simple flat scoring (plus the collateral check
+  // above), no further calculation.
   if (diff !== 'hard') return score;
 
   // Multi-line bonus: does this single chip sit at the intersection of more
