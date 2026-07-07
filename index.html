@@ -5462,8 +5462,15 @@ function updateTurnTimerDisplay() {
 function renderGame() {
   if (!GS) return;
   try {
+    // Capture whether this is a genuinely new move BEFORE renderBoard() runs,
+    // since renderBoard() itself updates lastAnimatedSeq as a side effect —
+    // checking GS.moveSeq !== lastAnimatedSeq AFTER that call would always
+    // be false, silently breaking anything gated on it (this is what was
+    // making the "your turn" ting sound never actually play).
+    const isNewMove = GS.moveSeq !== lastAnimatedSeq;
+
     // ── Sound triggers (keyed by moveSeq so they fire once per move) ──
-    if (GS.moveSeq !== lastAnimatedSeq) { // new move
+    if (isNewMove) {
       if (GS.lastRemoved && GS.lastRemoved.jackRemove && GS.lastRemoved.seq === GS.moveSeq) {
         playSound('Chip_removal_jack');
       } else if (GS.lastMove && GS.lastMove.seq === GS.moveSeq) {
@@ -5480,7 +5487,7 @@ function renderGame() {
 
     const cp = players[GS.currentTurn];
     const isMyTurn = cp && cp.id === myId;
-    if (isMyTurn && GS.moveSeq !== lastAnimatedSeq) {
+    if (isMyTurn && isNewMove) {
       setTimeout(() => playSound('Your_turn_ting'), 300);
     }
 
