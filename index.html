@@ -3668,7 +3668,7 @@ function aiTakeTurn() {
         for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
           const ct = GS.chips[r][c];
           if (ct === null || ct === aiTeam || isSequenceCellInState(r,c,GS)) continue;
-          const threat = runLengthAt(r, c, ct, GS);
+          const threat = genuineThreatAt(r, c, ct, GS);
           const score = evalRemoval(r, c, ct, threat, diff, GS, aiTeam, hand);
           if (score > bestScore) { bestScore = score; bestMove = {cardIdx: forcedIdx, dead:false, row:r, col:c}; }
         }
@@ -3712,8 +3712,11 @@ function aiTakeTurn() {
     for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
       const ct = GS.chips[r][c];
       if (ct === null || ct === aiTeam || isSequenceCellInState(r,c,GS)) continue;
-      // Measure how dangerous THIS chip is — its own team's run through this cell
-      const threat = runLengthAt(r, c, ct, GS);
+      // Measure how dangerous THIS chip is — its own team's run through this
+      // cell, but ONLY counting it as a threat if the line is still genuinely
+      // winnable (not blocked on both ends, not already a completed sequence
+      // that doesn't need extending further).
+      const threat = genuineThreatAt(r, c, ct, GS);
       const score = evalRemoval(r, c, ct, threat, diff, GS, aiTeam, hand);
       if (score > bestRemoveScore) { bestRemoveScore = score; bestRemoveMove = {cardIdx, dead:false, row:r, col:c}; bestRemoveCardIdx = cardIdx; }
     }
@@ -3935,17 +3938,27 @@ function runLengthAt(r, c, t, gs) {
   return max;
 }
 
-// Maximum run any opponent team has through (r,c) — for defensive placement scoring
-function maxOppRunThrough(r, c, aiTeam, gs) {
+// Correctly measures whether team t has a GENUINE, winnable threat through
+// (r,c) — unlike runLengthAt/countRun, which only count consecutive same-team
+// chips with no regard for whether the line can actually be extended into a
+// real 5-in-a-row. That gap let the AI treat a 4-chain blocked on BOTH ends
+// (0% winnable) identically to a live, one-move-from-winning 4-chain, and
+// treat cells next to an already-COMPLETED sequence as if they still needed
+// defending, since a locked sequence's chips still "count" toward a run.
+// This scans every possible 5-cell window through (r,c) the same way
+// bestWindowGaps does (which already correctly rejects blocked windows), and
+// only returns a friendly-count if that specific window is still open AND
+// isn't entirely composed of cells already locked into a completed sequence.
+function genuineThreatAt(r, c, t, gs) {
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
-  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==aiTeam);
   let max = 0;
   for (const [dr,dc] of dirs) {
-    for (const opp of oppTeams) {
-      const fwd = countRun(r,c,dr,dc,opp,gs);
-      const bwd = countRun(r,c,-dr,-dc,opp,gs);
-      max = Math.max(max, fwd+bwd);
-    }
+    const { count, gaps } = bestWindowGaps(r, c, dr, dc, t, gs);
+    if (count < 0) continue; // no open window in this direction at all
+    if (gaps.length === 0) continue; // window has no empty cell left — nothing to gain by defending here
+    // "Friendly count" here includes the pivot cell itself (see bestWindowGaps),
+    // so subtract 1 to match runLengthAt's convention (excludes the pivot).
+    max = Math.max(max, count - 1);
   }
   return max;
 }
@@ -3976,12 +3989,14 @@ function evalPlacement(r, c, team, gs, diff) {
   for (const [dr,dc] of dirs) {
     const w = bestWindow(r,c,dr,dc,team,gs);
     if (w > maxFriendly) maxFriendly = w;
-    for (const opp of oppTeams) {
-      const fwd = countRun(r,c,dr,dc,opp,gs);
-      const bwd = countRun(r,c,-dr,-dc,opp,gs);
-      const run = fwd+bwd;
-      if (run > maxOppThreat) maxOppThreat = run;
-    }
+  }
+  // Defensive threat: use genuineThreatAt (not raw countRun) so a 4-chain
+  // that's blocked on both ends, or cells adjacent to an already-COMPLETED
+  // sequence, don't register as something that still needs defending — both
+  // are 0% winnable for the opponent regardless of what the AI does here.
+  for (const opp of oppTeams) {
+    const run = genuineThreatAt(r, c, opp, gs);
+    if (run > maxOppThreat) maxOppThreat = run;
   }
 
   // Offensive scoring
@@ -4120,17 +4135,6 @@ function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx, surpriseRo
     return diff==='easy' ? 7000 : diff==='medium' ? 7500 : 8000;
   }
   // Anything below 4: never worth wasting a wild jack
-  return 0;
-}
-
-// scoreMove kept for compatibility (used nowhere critical now but may be referenced)
-function scoreMove(row, col, team, action, gs) {
-  const diff = aiDifficulty || 'medium';
-  if (action==='place') return evalPlacement(row, col, team, gs, diff);
-  if (action==='remove') {
-    const threat = maxOppRunThrough(row, col, team, gs);
-    return evalRemoval(row, col, team, threat, diff);
-  }
   return 0;
 }
 
