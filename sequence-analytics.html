@@ -142,7 +142,7 @@
     <div class="stat-card"><div class="stat-value" id="s-hard-rate">—</div><div class="stat-label">Hard · AI Win %</div></div>
   </div>
 
-  <div class="section-title">Recent Games</div>
+  <div class="section-title">Recent Games <span id="table-scope-note" style="font-weight:400;font-size:0.75em;opacity:0.7"></span></div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -217,7 +217,15 @@ function fmtDate(ts) {
 
 async function loadData() {
   document.getElementById('last-updated').textContent = 'Loading…';
-  const snap = await db.ref('sq_analytics').orderByChild('startedAt').limitToLast(200).once('value');
+  // Previously capped at limitToLast(200) — but that cap silently applied to
+  // EVERY stat on this dashboard (Total Games, win rates, sequences, mobile
+  // %, countries), not just the table. Once past 200 total games, "Total
+  // Games" was permanently stuck showing 200 rather than the real count,
+  // and every other stat was quietly scoped to only the 200 most recent
+  // games too. Fetching the full history fixes the stats; the table below
+  // still only displays the most recent TABLE_DISPLAY_LIMIT rows for
+  // readability, via a separate slice — that limit no longer affects stats.
+  const snap = await db.ref('sq_analytics').orderByChild('startedAt').once('value');
   const raw = snap.val() || {};
   const games = Object.values(raw).sort((a,b) => (b.startedAt||0) - (a.startedAt||0));
 
@@ -275,11 +283,22 @@ async function loadData() {
   });
 
   // ── Games table ─────────────────────────────────
+  // Table shows only the most recent TABLE_DISPLAY_LIMIT games for
+  // readability — this is purely a display slice and does NOT affect any
+  // of the stats above, which are computed from the complete games array.
+  const TABLE_DISPLAY_LIMIT = 200;
+  const tableGames = games.slice(0, TABLE_DISPLAY_LIMIT);
+  const scopeNote = document.getElementById('table-scope-note');
+  if (scopeNote) {
+    scopeNote.textContent = games.length > TABLE_DISPLAY_LIMIT
+      ? `(showing ${TABLE_DISPLAY_LIMIT} most recent of ${games.length} total)`
+      : '';
+  }
   const tbody = document.getElementById('games-tbody');
   if (!games.length) {
     tbody.innerHTML = '<tr><td colspan="12" class="loading">No games yet</td></tr>';
   } else {
-    tbody.innerHTML = games.map(g => {
+    tbody.innerHTML = tableGames.map(g => {
       const playerNames = (g.players||[]).filter(p=>!p.isAI).map(p=>p.name).join(', ') || '—';
       const statusClass = g.status === 'completed' ? 'badge-done' : g.status === 'abandoned' ? 'badge-abandoned' : 'badge-started';
       const loc = [g.location?.city, g.location?.country].filter(Boolean).join(', ') || '—';
