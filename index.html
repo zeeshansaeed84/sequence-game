@@ -4136,12 +4136,17 @@ function evalPlacement(r, c, team, gs, diff) {
     if (run > maxOppThreat) maxOppThreat = run;
   }
 
-  // Offensive scoring
+  // Offensive scoring — previously Easy and Medium were nearly identical
+  // here (both fell into the same ": X" fallback in the old ternaries),
+  // meaning Easy's only real weakness was extra random jitter, not a
+  // genuinely weaker sense of its own offense. Now a real 3-tier gap,
+  // roughly mirroring the same proportional spacing already used in the
+  // defensive scoring below.
   if      (maxFriendly>=5) offScore = 100000; // completes sequence!
-  else if (maxFriendly===4) offScore = diff==='hard' ? 6000 : 3000; // one away
-  else if (maxFriendly===3) offScore = diff==='hard' ? 900 : 500;
-  else if (maxFriendly===2) offScore = diff==='hard' ? 160 : 90;
-  else if (maxFriendly===1) offScore = diff==='hard' ? 35 : 20;
+  else if (maxFriendly===4) offScore = diff==='hard' ? 6000 : diff==='medium' ? 3000 : 1200; // one away
+  else if (maxFriendly===3) offScore = diff==='hard' ? 900 : diff==='medium' ? 500 : 180;
+  else if (maxFriendly===2) offScore = diff==='hard' ? 160 : diff==='medium' ? 90 : 30;
+  else if (maxFriendly===1) offScore = diff==='hard' ? 35 : diff==='medium' ? 20 : 8;
   else offScore = diff==='easy' ? 10 : 5;
 
   // Defensive scoring — block opponent runs
@@ -5570,14 +5575,24 @@ function checkSequences(team) {
   const board = GS.board;
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
 
-  // Drop this team's previously-tracked protected cells; we recompute them fresh below.
-  // (Corners/other teams' cells are untouched — a cell only ever belongs to one team's chips.)
-  GS.seqCells = (GS.seqCells || []).filter(([r,c]) => chips[r][c] !== team);
+  // Cells already locked into a completed sequence for this team, from any
+  // PREVIOUS call — these are permanent and must never be reassigned or
+  // dropped, even if a chip is later added that extends the same run
+  // further. Previously this function wiped and fully recomputed this
+  // team's seqCells on every call, which reassigned which 5 cells counted
+  // as "the" sequence whenever a run grew past 5 — causing a chip that was
+  // already inverted/crowned to silently revert back to normal the moment
+  // a new chip was placed adjacent to it in the same line.
+  const alreadyLocked = new Set(
+    (GS.seqCells || []).filter(([r,c]) => chips[r][c] === team).map(([r,c]) => r+','+c)
+  );
 
   const isTeamOrWild = (r,c) => chips[r][c] === team || board[r][c].type === 'wild';
 
-  let totalSequences = 0;
-  const protectedCells = [];
+  // Count of NEW sequences found this call (added to whatever was already
+  // locked in before, never recalculated from scratch).
+  let newSequencesFound = 0;
+  const newlyProtectedCells = [];
 
   for (const [dr,dc] of dirs) {
     for (let r = 0; r < 10; r++) {
@@ -5593,29 +5608,40 @@ function checkSequences(team) {
           runCells.push([nr,nc]);
           nr += dr; nc += dc;
         }
+        if (runCells.length < 5) continue;
 
-        if (runCells.length >= 5) {
-          // Official rule: two sequences may share at most one chip, so each extra
-          // sequence beyond the first needs 4 fresh cells (5 + 4*(k-1) cells for k sequences).
-          const k = 1 + Math.floor((runCells.length - 5) / 4);
-          totalSequences += k;
-          const usedCount = 4 * k + 1;
-          for (let i = 0; i < usedCount; i++) protectedCells.push(runCells[i]);
+        // Walk this run and claim 5-cell windows that share AT MOST 1 cell
+        // with anything already locked (from this call OR any previous
+        // one) — the official "sequences may share at most one chip" rule.
+        // A window sharing 2+ already-locked cells is an illegal overlap
+        // and must be skipped, even if it also contains new cells — e.g. a
+        // 6-chip run (one past a completed 5) only has 1 free cell, which
+        // is nowhere near enough for a genuinely new sequence.
+        let i = 0;
+        while (i <= runCells.length - 5) {
+          const window = runCells.slice(i, i + 5);
+          const windowKeys = window.map(([r,c]) => r+','+c);
+          const lockedOverlapCount = windowKeys.filter(k => alreadyLocked.has(k)).length;
+          if (lockedOverlapCount > 1) { i++; continue; } // illegal overlap — not a valid new sequence here
+
+          newSequencesFound++;
+          window.forEach(([wr,wc]) => {
+            const key = wr+','+wc;
+            if (!alreadyLocked.has(key)) {
+              alreadyLocked.add(key);
+              newlyProtectedCells.push([wr,wc]);
+            }
+          });
+          i += 4; // next sequence in this run may share the last cell of this one
         }
       }
     }
   }
 
-  GS.sequences[team] = totalSequences;
-
-  const merged = [...GS.seqCells, ...protectedCells];
-  const seen = new Set();
-  GS.seqCells = merged.filter(([r,c]) => {
-    const key = r + ',' + c;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  GS.sequences[team] = (GS.sequences[team] || 0) + newSequencesFound;
+  if (newlyProtectedCells.length) {
+    GS.seqCells = [...(GS.seqCells || []), ...newlyProtectedCells];
+  }
 }
 
 // ═══════════════════════════════════════════════════
