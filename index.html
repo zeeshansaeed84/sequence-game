@@ -574,6 +574,7 @@
     align-items: center;
     gap: 10px;
     width: 100%;
+    margin-bottom: 14px;
   }
   .format-step-btn {
     width: 40px;
@@ -2216,7 +2217,7 @@
       </div>
       <input type="hidden" id="match-format" value="1">
       <button class="lobby-btn-primary" onclick="createGame()">CREATE ROOM</button>
-      <button class="lobby-btn-outline" onclick="document.getElementById('lobby-create').style.display='none';document.getElementById('lobby-main').style.display='block'">BACK</button>
+      <button class="lobby-btn-outline" onclick="document.getElementById('lobby-create').style.display='none';document.getElementById('lobby-main').style.display='flex'">BACK</button>
     </div>
 
     <div id="lobby-waiting" class="lobby-section" style="display:none">
@@ -4452,8 +4453,10 @@ function leaveGame() {
   isHost = false;
   isSpectator = false;
   aiMode = false;
-  // Reset lobby UI
-  document.getElementById('lobby-main').style.display = 'block';
+  // Reset lobby UI — lobby-main relies on display:flex for its gap-based
+  // section spacing, so restoring it as 'block' here previously collapsed
+  // all the spacing between Player Setup / Game Rules / Difficulty etc.
+  document.getElementById('lobby-main').style.display = 'flex';
   document.getElementById('lobby-create').style.display = 'none';
   document.getElementById('lobby-waiting').style.display = 'none';
   document.getElementById('player-name').value = '';
