@@ -3456,7 +3456,11 @@ function actionBanner(msg, iconHtml, kind, dur=4500) {
 // of the whole message rendering in one flat color.
 function coloredSuitText(rank, suit) {
   const isRed = suit === 'hearts' || suit === 'diamonds';
-  const color = isRed ? '#ff6b6b' : '#ffffff';
+  // White was blending into the banner's own navy/blue background, making
+  // black suits (spades/clubs) effectively invisible. Using the same warm
+  // gold as the banner's border instead, so it reads clearly against navy
+  // while still looking visually distinct from the red suits.
+  const color = isRed ? '#ff6b6b' : '#E8D9A0';
   return `${rank}<span style="color:${color}">${SUIT_SYM[suit]}</span>`;
 }
 
@@ -4968,11 +4972,12 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = null;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastRemoved = {row, col, team: target, seq: GS.moveSeq, jackRemove: true};
-    // Announce one-eyed jack to all players — show the real card that was
-    // on that cell, with its suit colored correctly in the message text
+    // Announce one-eyed jack to all players — show the actual JACK card
+    // that was played (not the target cell's card), since that's the
+    // information the text doesn't already cover; "where" is in the message.
     const targetCell = GS.board[row][col];
     const cellName = targetCell.type === 'card' ? coloredSuitText(targetCell.rank, targetCell.suit) : '★';
-    const cardIcon = targetCell.type === 'card' ? buildBoardCardSVG(targetCell.rank, targetCell.suit, 30, 42) : '🗡️';
+    const cardIcon = buildBoardCardSVG(card.rank, card.suit, 30, 42);
     broadcastActionBanner(`${p.name} used a One-Eyed Jack to remove the chip on ${cellName}`, cardIcon, 'jack-remove');
   } else if (isTwoEyedJack(card)) {
     if (GS.chips[row][col] !== null) return;
@@ -4981,11 +4986,11 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: true, fromId};
-    // Announce two-eyed jack to all players — show the real card that was
-    // played there, with its suit colored correctly in the message text
+    // Announce two-eyed jack to all players — show the actual JACK card
+    // that was played (not the target cell's card), matching the fix above.
     const targetCell = GS.board[row][col];
     const cellName = targetCell.type === 'card' ? coloredSuitText(targetCell.rank, targetCell.suit) : '★';
-    const cardIcon = targetCell.type === 'card' ? buildBoardCardSVG(targetCell.rank, targetCell.suit, 30, 42) : '🃏';
+    const cardIcon = buildBoardCardSVG(card.rank, card.suit, 30, 42);
     broadcastActionBanner(`${p.name} used a Two-Eyed Jack to play on ${cellName}`, cardIcon, 'jack-wild');
   } else {
     const cell = GS.board[row][col];
