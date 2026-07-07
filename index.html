@@ -1594,7 +1594,7 @@
     gap: 5px;
     overflow-x: auto;
     overflow-y: visible;
-    padding: 3px 10px 5px;
+    padding: 16px 10px 5px;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -1615,7 +1615,16 @@
     flex-direction: column;
   }
 
-  .hand-card:hover { transform: translateY(-10px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+  /* Only apply the hover-lift on devices that genuinely support hover (a
+     real mouse) — on touch devices, a tap can leave a phantom :hover state
+     stuck active (a known mobile browser quirk) since there's no pointer to
+     move away and clear it, making a tapped card appear to never return to
+     its resting position until a DIFFERENT card is tapped. The .selected
+     class (below) is what actually drives the lift/reset on tap for every
+     device; this rule just adds a nicety for real hover input. */
+  @media (hover: hover) {
+    .hand-card:hover { transform: translateY(-10px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+  }
   .hand-card.selected {
     border-color: var(--gold);
     transform: translateY(-12px);
@@ -1814,6 +1823,26 @@
     font-size: 0.82rem;
     color: rgba(245,240,232,0.7);
     line-height: 1.4;
+  }
+
+  /* New personal-best streak congratulation banner */
+  #streak-congrats-box {
+    background: linear-gradient(135deg, #D4AF37, #F5DC8C, #D4AF37);
+    color: #1a1a3a;
+    font-family: 'Cinzel', serif;
+    font-size: 0.88rem;
+    font-weight: 700;
+    text-align: center;
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 16px rgba(212,175,55,0.5);
+    animation: streakPopIn 0.5s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes streakPopIn {
+    0%   { transform: scale(0.6); opacity: 0; }
+    60%  { transform: scale(1.08); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
   }
 
   /* Personal stats summary shown on the results screen */
@@ -2063,7 +2092,9 @@
       justify-content: center;
     }
     .hand-card { width: 66px; height: 92px; flex-shrink: 0; }
-    .hand-card:hover    { transform: translateY(-8px); }
+    @media (hover: hover) {
+      .hand-card:hover { transform: translateY(-8px); }
+    }
     .hand-card.selected { transform: translateY(-12px); }
 
     .board { padding: 8px; }
@@ -2490,6 +2521,12 @@
     <div id="series-box" style="display:none">
       <div class="series-title" id="series-title">SERIES · GAME <span id="series-game-num">1</span> OF <span id="series-max-games"></span></div>
       <div class="series-score-row" id="series-score-row"></div>
+    </div>
+
+    <!-- New personal-best win streak congratulation — shown only when a
+         game just extended the player's best-ever streak -->
+    <div id="streak-congrats-box" style="display:none">
+      🎉 New Personal Best! <span id="streak-congrats-count"></span>-Game Win Streak!
     </div>
 
     <!-- Personal stats summary — populated after each game via renderMyStats() -->
@@ -4337,6 +4374,8 @@ function resetRematchUI() {
   if (statsBox) statsBox.style.display = 'none';
   const oldDiffRow = document.getElementById('my-stats-diff-row');
   if (oldDiffRow) oldDiffRow.remove();
+  const streakBox = document.getElementById('streak-congrats-box');
+  if (streakBox) streakBox.style.display = 'none';
 }
 
 function requestRematch() {
@@ -5769,8 +5808,14 @@ function sendMove(move) {
 // record (which only the host writes). This is what powers the "My Stats"
 // summary shown on the results screen after each game.
 async function logPersonalResult(outcome, isDraw) {
-  if (!fbInit() || !db) return;
+  if (!fbInit() || !db) return { newBestStreak: false };
   const deviceId = getDeviceId();
+
+  // Capture the best-ever win streak BEFORE this game is added, so the
+  // caller can tell whether this game just set a new personal best.
+  const priorGames = await fetchMyStatsHistory();
+  const priorBest = computeMyStats(priorGames).maxWinStreak;
+
   const entry = {
     gameId:       analyticsGameId || ('local_' + Date.now()),
     timestamp:    Date.now(),
@@ -5781,7 +5826,15 @@ async function logPersonalResult(outcome, isDraw) {
   };
   try {
     await db.ref('sq_player_stats/' + deviceId + '/games').push(entry);
-  } catch(e) {}
+  } catch(e) { return { newBestStreak: false }; }
+
+  // Only a genuine WIN can extend a win streak, and only if the new streak
+  // is strictly longer than whatever the best-ever was before this game —
+  // matching a streak (not beating it) isn't a new record.
+  if (outcome !== true) return { newBestStreak: false };
+  const afterGames = [...priorGames, entry];
+  const newBest = computeMyStats(afterGames).maxWinStreak;
+  return { newBestStreak: newBest > priorBest && newBest >= 2, streakLength: newBest };
 }
 
 // Fetches this device's full game history and renders the "Your Stats" box
@@ -5858,6 +5911,22 @@ async function renderLobbyStats() {
     <div class="lobby-stat-item"><div class="lobby-stat-val">${s.maxWinStreak || '—'}</div><div class="lobby-stat-label">BEST STREAK</div></div>
   `;
   box.style.display = 'block';
+}
+
+// Shows the personal-best-streak celebration banner on the results screen.
+// Called only when logPersonalResult() reports this game just extended the
+// player's best-ever win streak past its previous record.
+function showStreakCongrats(streakLength) {
+  const box = document.getElementById('streak-congrats-box');
+  const countEl = document.getElementById('streak-congrats-count');
+  if (!box || !countEl) return;
+  countEl.textContent = streakLength;
+  // Re-trigger the pop-in animation even if the box was already visible
+  // from a moment ago (e.g. rapid rematches)
+  box.style.display = 'none';
+  void box.offsetWidth; // force reflow so the animation restarts cleanly
+  box.style.display = 'block';
+  playSound('Sequence_complete_'); // reuse an existing celebratory sound
 }
 
 async function renderMyStats() {
@@ -5984,7 +6053,10 @@ function showWinModal() {
   }
 
   const iWon = aiMode ? w === 0 : w === players[myIndex]?.team;
-  logPersonalResult(iWon, false).then(renderMyStats);
+  logPersonalResult(iWon, false).then(result => {
+    renderMyStats();
+    if (result?.newBestStreak) showStreakCongrats(result.streakLength);
+  });
   updateSeriesScore(w);
   renderSeriesBox();
 
