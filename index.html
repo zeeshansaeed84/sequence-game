@@ -1388,8 +1388,8 @@
     background: white;
     display: flex;
     align-items: center;
-    padding: 4px 8px;
-    gap: 6px;
+    padding: 4px 5px;
+    gap: 3px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     position: relative;
   }
@@ -1410,6 +1410,31 @@
     border: 1.5px solid #E0E4F0;
     border-radius: 20px;
     background: white;
+    transition: box-shadow 0.3s, border-color 0.3s, background 0.3s;
+  }
+
+  /* Highlights whichever team's turn it currently is — this is now the
+     PRIMARY way players see whose turn it is, replacing per-player turn
+     text that could get clipped once 3 team badges + the timer all share
+     the same info bar. */
+  .score-badge.active-turn {
+    border-color: var(--team-color, #1a2080);
+    background: rgba(26,32,128,0.06); /* fallback for browsers without color-mix() */
+    background: color-mix(in srgb, var(--team-color, #1a2080) 8%, white);
+    box-shadow: 0 0 0 2px rgba(26,32,128,0.35), 0 2px 8px rgba(26,32,128,0.4); /* fallback */
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--team-color, #1a2080) 35%, transparent),
+                0 2px 8px color-mix(in srgb, var(--team-color, #1a2080) 40%, transparent);
+    animation: activeTurnPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes activeTurnPulse {
+    0%, 100% {
+      box-shadow: 0 0 0 2px rgba(26,32,128,0.35), 0 2px 8px rgba(26,32,128,0.4);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--team-color, #1a2080) 35%, transparent), 0 2px 8px color-mix(in srgb, var(--team-color, #1a2080) 40%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 3px rgba(26,32,128,0.55), 0 3px 10px rgba(26,32,128,0.55);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--team-color, #1a2080) 55%, transparent), 0 3px 10px color-mix(in srgb, var(--team-color, #1a2080) 55%, transparent);
+    }
   }
 
   .score-initial {
@@ -1440,8 +1465,12 @@
     display: block;
   }
 
-  /* Turn info */
+  /* Turn info — hidden on mobile (score badge highlight conveys whose turn
+     it is instead; even the fixed "YOUR TURN" string got clipped in the
+     tightest 3-team layout). Re-shown at the wide-screen breakpoint below,
+     where there's room and it also serves as a divider in the sidebar. */
   .turn-info {
+    display: none;
     font-family: 'Cinzel', serif;
     font-size: 0.7rem;
     font-weight: 700;
@@ -1524,22 +1553,6 @@
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
-  }
-
-  .timer-col {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1px;
-  }
-
-  .timer-label {
-    font-family: 'Cinzel', serif;
-    font-size: 0.42rem;
-    color: rgba(26,32,128,0.55);
-    letter-spacing: 0.06em;
-    text-align: center;
-    margin-top: 1px;
   }
 
   .timer-sound-btn {
@@ -2166,17 +2179,14 @@
     .team-scores { flex-direction: column; gap: 8px; }
     .score-badge { font-size: 0.85rem; padding: 5px 10px 5px 4px; width: 100%; box-sizing: border-box; }
     .score-initial { width: 28px; height: 28px; font-size: 0.75rem; }
-    .turn-info { font-size: 0.9rem; text-align: center; padding: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
+    .turn-info { display: block; font-size: 0.9rem; text-align: center; padding: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
 
     /* Timer sits in the sidebar too, below the turn text */
     .timer-wrap {
-      flex-direction: column;
-      gap: 6px;
+      gap: 8px;
     }
-    .timer-col { flex-direction: row; gap: 8px; align-items: center; }
     .turn-timer { width: 44px; height: 44px; }
     #timer-num { font-size: 1rem; }
-    .timer-label { font-size: 0.5rem; margin-top: 0; }
     .timer-sound-btn { width: 44px; height: 44px; font-size: 0.95rem; }
 
     /* Hand strip — full width, bottom, only the cards (label hidden to save
@@ -2601,16 +2611,13 @@
       <div class="team-scores" id="team-scores"></div>
       <div class="turn-info" id="turn-info">—</div>
       <div class="timer-wrap">
-        <div class="timer-col">
-          <div class="turn-timer" id="turn-timer">
-            <svg viewBox="0 0 48 48" width="44" height="44">
-              <circle class="timer-track" cx="24" cy="24" r="20" fill="none" stroke-width="3.5"/>
-              <circle class="timer-ring" id="timer-ring" cx="24" cy="24" r="20" fill="none" stroke-width="3.5"
-                      stroke-dasharray="125.6" stroke-dashoffset="0" stroke-linecap="round"/>
-            </svg>
-            <span id="timer-num">60</span>
-          </div>
-          <div class="timer-label">TIME LEFT</div>
+        <div class="turn-timer" id="turn-timer">
+          <svg viewBox="0 0 48 48" width="44" height="44">
+            <circle class="timer-track" cx="24" cy="24" r="20" fill="none" stroke-width="3.5"/>
+            <circle class="timer-ring" id="timer-ring" cx="24" cy="24" r="20" fill="none" stroke-width="3.5"
+                    stroke-dasharray="125.6" stroke-dashoffset="0" stroke-linecap="round"/>
+          </svg>
+          <span id="timer-num">60</span>
         </div>
         <button class="sound-toggle timer-sound-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
       </div>
@@ -5511,16 +5518,21 @@ function renderTopBar() {
     return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('');
   }
 
-  // Scores — new badge design: coloured circle + name + score
+  // Scores — new badge design: coloured circle + name + score. The badge
+  // for whichever team's turn it currently is gets a glowing highlight, so
+  // "whose turn" is conveyed visually/spatially rather than through text
+  // that can get clipped with 3 team badges + timer all sharing the bar.
   const scoresEl = document.getElementById('team-scores');
   scoresEl.innerHTML = '';
   for (let t = 0; t < numTeams; t++) {
     const div = document.createElement('div');
     div.className = 'score-badge';
+    if (t === GS.currentTurn) div.classList.add('active-turn');
     div.dataset.team = t;
     const colour = CHIP_HEX[TEAM_COLORS[t]] || '#1E90FF';
     const initial = teamInitial(t);
     const label   = teamLabel(t);
+    div.style.setProperty('--team-color', colour);
     div.innerHTML = `
       <div class="score-initial" style="background:${colour}">${initial}</div>
       <div class="score-name-wrap">
@@ -5530,25 +5542,20 @@ function renderTopBar() {
     scoresEl.append(div);
   }
 
-  // Turn info — name is truncated to 7 characters (consistent with the player-name
-  // input's own limit) so it fits next to 3-player score badges
+  // Turn info text — hidden on mobile via CSS (the score badge highlight
+  // above already conveys whose turn it is, and even the fixed "YOUR TURN"
+  // string got clipped to "YO…" in the tightest 3-team layout). Still
+  // rendered here and shown on wide screens, which have room to spare and
+  // use this element as a visual divider in the sidebar layout.
   const turnEl = document.getElementById('turn-info');
   const cp = players[GS.currentTurn];
   const isMe = cp && cp.id === myId;
-  const isAI = cp && cp.id.startsWith(AI_ID);
-  const shortName = (n) => n && n.length > 7 ? n.slice(0, 7) : n;
   if (isMe) {
     turnEl.innerHTML = '<strong>YOUR TURN</strong>';
     turnEl.style.color = '#C0392B';
-    turnEl.style.fontStyle = 'normal';
-  } else if (isAI) {
-    turnEl.textContent = `${shortName(cp.name) || 'AI'}'s turn`;
-    turnEl.style.color = '#1a2080';
-    turnEl.style.fontStyle = 'normal';
   } else {
-    turnEl.textContent = `${cp ? shortName(cp.name) : '?'}'s turn`;
+    turnEl.textContent = cp ? `${cp.name}'s turn` : '';
     turnEl.style.color = '#1a2080';
-    turnEl.style.fontStyle = 'normal';
   }
 }
 
