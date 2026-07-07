@@ -1453,12 +1453,12 @@
 
   /* Icon buttons in info bar */
   .info-icon-btn {
-    width: 30px; height: 30px;
+    width: 40px; height: 40px;
     border-radius: 50%;
     border: 1.5px solid #D0D5E8;
     background: white;
     color: #1a2080;
-    font-size: 0.9rem;
+    font-size: 1rem;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
@@ -1543,8 +1543,8 @@
   }
 
   .timer-sound-btn {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     flex-shrink: 0;
     border-radius: 50%;
     border: 1.5px solid #D0D5E8;
@@ -1561,33 +1561,40 @@
 
   .turn-timer {
     flex-shrink: 0;
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
+  }
+  .turn-timer svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg); /* start the ring at 12 o'clock, not 3 o'clock */
+  }
+  .timer-track {
+    stroke: rgba(34,51,204,0.15);
+  }
+  .timer-ring {
+    stroke: #2233CC;
+    transition: stroke-dashoffset 1s linear, stroke 0.3s;
+  }
+  #timer-num {
+    position: relative;
+    z-index: 1;
     font-family: 'Cinzel', serif;
     font-size: 0.9rem;
     font-weight: 700;
-    color: white;
-    background: conic-gradient(white calc(var(--pct, 100) * 1%), rgba(255,255,255,0.15) 0%);
-    box-shadow: 0 0 0 2px rgba(255,255,255,0.3), inset 0 0 0 4px rgba(26,32,128,0.9);
+    color: #2233CC;
     transition: color 0.3s;
-    position: relative;
   }
-  .turn-timer::before {
-    content: '';
-    position: absolute;
-    inset: 5px;
-    border-radius: 50%;
-    background: #1a2080;
-  }
-  .turn-timer span { position: relative; z-index: 1; }
+  .turn-timer.low .timer-ring { stroke: #ef4444; }
+  .turn-timer.low #timer-num { color: #ef4444; }
   .turn-timer.low {
-    color: #ff8a80;
-    background: conic-gradient(#ef4444 calc(var(--pct, 100) * 1%), rgba(255,255,255,0.15) 0%);
-    box-shadow: 0 0 0 2px rgba(220,38,38,0.5), inset 0 0 0 4px rgba(26,32,128,0.9);
     animation: timer-urgent 0.9s ease-in-out infinite;
   }
   @keyframes timer-urgent {
@@ -2002,10 +2009,21 @@
     align-items: center;
     justify-content: center;
     font-size: 0.9rem;
+    overflow: hidden;
   }
-  #action-banner.jack-remove .action-banner-icon { background: #C0392B; }
-  #action-banner.jack-wild .action-banner-icon { background: #D4AF37; color: #1a1a3a; }
   #action-banner.turn-skip .action-banner-icon { background: rgba(255,255,255,0.2); }
+  /* Jack announcements show the real card instead of an emoji badge — a
+     small rectangular card image with a colored ring instead of a circle */
+  #action-banner.jack-remove .action-banner-icon,
+  #action-banner.jack-wild .action-banner-icon {
+    width: 30px;
+    height: 42px;
+    border-radius: 5px;
+    background: white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  #action-banner.jack-remove .action-banner-icon { box-shadow: 0 0 0 2px #C0392B, 0 2px 6px rgba(0,0,0,0.4); }
+  #action-banner.jack-wild .action-banner-icon { box-shadow: 0 0 0 2px #D4AF37, 0 2px 6px rgba(0,0,0,0.4); }
 
   /* Waiting for turn indicator */
   .waiting-banner {
@@ -2142,6 +2160,8 @@
       position: static;
       align-self: flex-end;
       margin-top: auto;
+      width: 44px;
+      height: 44px;
     }
     .team-scores { flex-direction: column; gap: 8px; }
     .score-badge { font-size: 0.85rem; padding: 5px 10px 5px 4px; width: 100%; box-sizing: border-box; }
@@ -2154,9 +2174,10 @@
       gap: 6px;
     }
     .timer-col { flex-direction: row; gap: 8px; align-items: center; }
-    .turn-timer { width: 52px; height: 52px; font-size: 1.1rem; }
+    .turn-timer { width: 44px; height: 44px; }
+    #timer-num { font-size: 1rem; }
     .timer-label { font-size: 0.5rem; margin-top: 0; }
-    .timer-sound-btn { width: 32px; height: 32px; font-size: 0.85rem; }
+    .timer-sound-btn { width: 44px; height: 44px; font-size: 0.95rem; }
 
     /* Hand strip — full width, bottom, only the cards (label hidden to save
        every last pixel of height; the sidebar's "YOUR TURN" already orients
@@ -2193,7 +2214,10 @@
   @media (min-width: 1440px) {
     .game-main { grid-template-columns: 1fr 200px; }
     .hand-card { width: 74px; height: 104px; }
-    .turn-timer { width: 58px; height: 58px; font-size: 1.2rem; }
+    .turn-timer { width: 50px; height: 50px; }
+    #timer-num { font-size: 1.05rem; }
+    .timer-sound-btn { width: 50px; height: 50px; font-size: 1.05rem; }
+    .hand-info-bar .info-icon-btn { width: 50px; height: 50px; }
   }
 </style>
 </head>
@@ -2578,12 +2602,19 @@
       <div class="turn-info" id="turn-info">—</div>
       <div class="timer-wrap">
         <div class="timer-col">
-          <div class="turn-timer" id="turn-timer"><span>60</span></div>
+          <div class="turn-timer" id="turn-timer">
+            <svg viewBox="0 0 48 48" width="44" height="44">
+              <circle class="timer-track" cx="24" cy="24" r="20" fill="none" stroke-width="3.5"/>
+              <circle class="timer-ring" id="timer-ring" cx="24" cy="24" r="20" fill="none" stroke-width="3.5"
+                      stroke-dasharray="125.6" stroke-dashoffset="0" stroke-linecap="round"/>
+            </svg>
+            <span id="timer-num">60</span>
+          </div>
           <div class="timer-label">TIME LEFT</div>
         </div>
         <button class="sound-toggle timer-sound-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
       </div>
-      <button class="info-icon-btn" onclick="leaveGame()" title="Quit game"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+      <button class="info-icon-btn" onclick="leaveGame()" title="Quit game"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
     </div>
 
     <div class="hand-area">
@@ -2791,7 +2822,7 @@ function playSound(name) {
 // iOS blocks audio.play() from setTimeout — but if we call play()+pause() during a
 // gesture, iOS marks the element as "user-activated" and allows later timer-triggered plays.
 function primeTimerSounds() {
-  ['Sequence_complete_', 'Lose', 'Win'].forEach(name => {
+  ['Sequence_complete_', 'Lose', 'Win', 'Chip_removal_jack', 'Chip_placement'].forEach(name => {
     const el = audioEls[name];
     if (!el) return;
     el.muted = true;
@@ -3390,16 +3421,36 @@ function toast(msg, dur=2500) {
 // usage (remove/wild) and turn-skip notices — as opposed to toast()'s quick
 // disposable nudges. Slides down from the top of the board. `kind` drives
 // the icon badge color: 'jack-remove' | 'jack-wild' | 'turn-skip'.
+// `iconHtml` can be a plain emoji string OR a small rendered card SVG (via
+// buildBoardCardSVG) for jack announcements, so the banner shows the actual
+// card involved rather than a generic emoji.
+//
+// actionBannerActiveUntil tracks when the CURRENT banner will finish, so the
+// AI's next-turn auto-trigger (and similar "what happens next" logic) can
+// wait for it — otherwise the next move plays out visually while the
+// banner is still covering the board, and the player can miss exactly what
+// the opponent just did.
 let actionBannerHandle = null;
-function actionBanner(msg, icon, kind, dur=4500) {
+let actionBannerActiveUntil = 0;
+function actionBanner(msg, iconHtml, kind, dur=4500) {
   const el = document.getElementById('action-banner');
   if (!el) return;
   el.className = ''; // clear any previous kind
   if (kind) el.classList.add(kind);
-  el.innerHTML = `<span class="action-banner-icon">${icon}</span><span>${msg}</span>`;
+  el.innerHTML = `<span class="action-banner-icon">${iconHtml}</span><span>${msg}</span>`;
   el.classList.add('show');
+  actionBannerActiveUntil = Date.now() + dur;
   if (actionBannerHandle) clearTimeout(actionBannerHandle);
   actionBannerHandle = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+// Wraps a suit symbol in a colored span so it reads correctly inside a
+// banner message (hearts/diamonds red, spades/clubs white-on-navy) instead
+// of the whole message rendering in one flat color.
+function coloredSuitText(rank, suit) {
+  const isRed = suit === 'hearts' || suit === 'diamonds';
+  const color = isRed ? '#ff6b6b' : '#ffffff';
+  return `${rank}<span style="color:${color}">${SUIT_SYM[suit]}</span>`;
 }
 
 function setError(id, msg) {
@@ -4910,10 +4961,12 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = null;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastRemoved = {row, col, team: target, seq: GS.moveSeq, jackRemove: true};
-    // Announce one-eyed jack to all players
+    // Announce one-eyed jack to all players — show the real card that was
+    // on that cell, with its suit colored correctly in the message text
     const targetCell = GS.board[row][col];
-    const cellName = targetCell.type === 'card' ? `${targetCell.rank}${SUIT_SYM[targetCell.suit]}` : '★';
-    broadcastActionBanner(`${p.name} used a One-Eyed Jack to remove the chip on ${cellName}`, '🗡️', 'jack-remove');
+    const cellName = targetCell.type === 'card' ? coloredSuitText(targetCell.rank, targetCell.suit) : '★';
+    const cardIcon = targetCell.type === 'card' ? buildBoardCardSVG(targetCell.rank, targetCell.suit, 30, 42) : '🗡️';
+    broadcastActionBanner(`${p.name} used a One-Eyed Jack to remove the chip on ${cellName}`, cardIcon, 'jack-remove');
   } else if (isTwoEyedJack(card)) {
     if (GS.chips[row][col] !== null) return;
     if (GS.board[row][col].type === 'wild') return;
@@ -4921,10 +4974,12 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: true, fromId};
-    // Announce two-eyed jack to all players
+    // Announce two-eyed jack to all players — show the real card that was
+    // played there, with its suit colored correctly in the message text
     const targetCell = GS.board[row][col];
-    const cellName = targetCell.type === 'card' ? `${targetCell.rank}${SUIT_SYM[targetCell.suit]}` : '★';
-    broadcastActionBanner(`${p.name} used a Two-Eyed Jack to play on ${cellName}`, '🃏', 'jack-wild');
+    const cellName = targetCell.type === 'card' ? coloredSuitText(targetCell.rank, targetCell.suit) : '★';
+    const cardIcon = targetCell.type === 'card' ? buildBoardCardSVG(targetCell.rank, targetCell.suit, 30, 42) : '🃏';
+    broadcastActionBanner(`${p.name} used a Two-Eyed Jack to play on ${cellName}`, cardIcon, 'jack-wild');
   } else {
     const cell = GS.board[row][col];
     if (cell.type === 'wild') return;
@@ -5007,7 +5062,12 @@ function broadcastGameState() {
     const cp = players[GS.currentTurn];
     if (cp && cp.id.startsWith(AI_ID)) {
       if (aiTurnHandle) clearTimeout(aiTurnHandle);
-      aiTurnHandle = setTimeout(() => { aiTurnHandle = null; aiTakeTurn(); }, 600);
+      // If an action banner (jack usage, turn skip) is still showing, wait
+      // for it to actually finish before the AI's next move plays out —
+      // otherwise the move happens visually behind the banner and the
+      // player can miss what the opponent (or AI) just did.
+      const bannerWaitMs = Math.max(0, actionBannerActiveUntil - Date.now());
+      aiTurnHandle = setTimeout(() => { aiTurnHandle = null; aiTakeTurn(); }, 600 + bannerWaitMs);
     }
   }
 }
@@ -5365,6 +5425,8 @@ function stopCountdownDisplay() {
 }
 function updateTurnTimerDisplay() {
   const el = document.getElementById('turn-timer');
+  const ring = document.getElementById('timer-ring');
+  const numEl = document.getElementById('timer-num');
   if (!GS || !el || GS.phase === 'done') {
     if (el) el.style.visibility = 'hidden';
     stopTickSound();
@@ -5373,10 +5435,11 @@ function updateTurnTimerDisplay() {
   el.style.visibility = 'visible';
   const remainingMs = Math.max(0, (GS.turnDeadline || 0) - Date.now());
   const secs = Math.ceil(remainingMs / 1000);
-  const pct  = Math.round((secs / TURN_SECONDS) * 100);
-  const span = el.querySelector('span') || el;
-  span.textContent = secs;
-  el.style.setProperty('--pct', pct);
+  const pct  = Math.max(0, Math.min(100, (secs / TURN_SECONDS) * 100));
+  if (numEl) numEl.textContent = secs;
+  // Ring circumference is 125.6 (2*π*20) — shrinks clockwise as time runs
+  // out by increasing the dash offset (hiding more of the stroke).
+  if (ring) ring.style.strokeDashoffset = (125.6 * (1 - pct / 100)).toFixed(1);
   const isLow = secs <= 10 && secs > 0;
   el.classList.toggle('low', isLow);
 
@@ -6273,11 +6336,13 @@ function animateSequenceInversion(newCells, allSeqCells, isWin) {
   setTimeout(() => {
     blinkCellsList(newCells, 1, () => {
       if (isWin) {
-        // Blink only the winning sequence(s) — not previous completed sequences
-        blinkCellsList(newCells, 2, () => {
-          playSound('Sequence_complete_');
-          setTimeout(() => showWinModal(), 200);
-        });
+        // Blink only the winning sequence(s) — not previous completed sequences.
+        // Start the win/lose music DURING this final blink rather than waiting
+        // for it to finish — the sound lands closer to the actual visual
+        // payoff instead of feeling delayed after everything's already done.
+        blinkCellsList(newCells, 2, () => {});
+        playSound('Sequence_complete_');
+        setTimeout(() => showWinModal(), 900);
       } else {
         playSound('Sequence_complete_');
       }
