@@ -2524,7 +2524,7 @@
     <div id="lobby-create" class="lobby-section" style="display:none">
       <div class="lobby-section-title">Create Online Game</div>
       <div class="lbl">TEAMS</div>
-      <select id="num-teams" class="lobby-select">
+      <select id="num-teams" class="lobby-select" onchange="refreshMatchFormatLabel('mp')">
         <option value="2">2 Teams</option>
         <option value="3">3 Teams</option>
       </select>
@@ -3335,13 +3335,29 @@ function selectSeg(group, btn, val) {
                  : 'ai-difficulty';
   const hidden = document.getElementById(hiddenId);
   if (hidden) hidden.value = val;
+  // Changing opponent count flips whether the current match format selection
+  // reads as "Best of N" (2 teams) or "Race to N" (3 teams) — refresh the
+  // stepper's label live so it never shows a stale/wrong format name.
+  if (group === 'opponents') refreshMatchFormatLabel('ai');
 }
 
 // Compact +/- stepper for Match Format — cycles through Single Game, Best of
 // 3, Best of 5, Best of 7. `scope` is 'ai' or 'mp' so the same function
 // drives both the VS AI lobby and the Create Online Game screen.
 const MATCH_FORMAT_STEPS = [1, 3, 5, 7];
-const MATCH_FORMAT_LABELS = { 1: 'Single Game', 3: 'Best of 3', 5: 'Best of 5', 7: 'Best of 7' };
+// Label depends on how many teams are currently selected: with 2 teams this
+// is a true Best-of-N (fixed total games, majority wins); with 3 teams it's
+// a Race-to-N instead (first to reach the win count, no fixed total) — see
+// updateSeriesScore() for why Best-of-N's math doesn't work with 3+ teams.
+function matchFormatLabel(val, numTeamsNow) {
+  if (val === 1) return 'Single Game';
+  const winsNeeded = seriesWinsNeeded(val, numTeamsNow);
+  return numTeamsNow > 2 ? `Race to ${winsNeeded}` : `Best of ${val}`;
+}
+function currentTeamCountFor(scope) {
+  const el = document.getElementById(scope === 'ai' ? 'ai-num-teams' : 'num-teams');
+  return parseInt(el?.value || '2');
+}
 function stepMatchFormat(scope, dir) {
   const hiddenId = scope === 'ai' ? 'ai-match-format' : 'match-format';
   const hidden = document.getElementById(hiddenId);
@@ -3353,7 +3369,17 @@ function stepMatchFormat(scope, dir) {
   idx = Math.max(0, Math.min(MATCH_FORMAT_STEPS.length - 1, idx + dir));
   const newVal = MATCH_FORMAT_STEPS[idx];
   hidden.value = newVal;
-  valEl.textContent = MATCH_FORMAT_LABELS[newVal];
+  valEl.textContent = matchFormatLabel(newVal, currentTeamCountFor(scope));
+}
+// Re-labels the match format display without changing the selected value —
+// called when the opponent/team-count selector changes, since that flips
+// whether the current selection reads as "Best of N" or "Race to N".
+function refreshMatchFormatLabel(scope) {
+  const hiddenId = scope === 'ai' ? 'ai-match-format' : 'match-format';
+  const hidden = document.getElementById(hiddenId);
+  const valEl = document.getElementById('format-step-val-' + scope);
+  if (!hidden || !valEl) return;
+  valEl.textContent = matchFormatLabel(parseInt(hidden.value) || 1, currentTeamCountFor(scope));
 }
 
 // Render Magnus (green/t1) and Kaspar (purple/t2) chip icons in the opponent pills
@@ -4006,20 +4032,70 @@ function runLengthAt(r, c, t, gs) {
 // (0% winnable) identically to a live, one-move-from-winning 4-chain, and
 // treat cells next to an already-COMPLETED sequence as if they still needed
 // defending, since a locked sequence's chips still "count" toward a run.
-// This scans every possible 5-cell window through (r,c) the same way
-// bestWindowGaps does (which already correctly rejects blocked windows), and
-// only returns a friendly-count if that specific window is still open AND
-// isn't entirely composed of cells already locked into a completed sequence.
+//
+// IMPORTANT: bestWindowGaps always counts the pivot cell (r,c) itself as
+// "friendly" (since its original purpose is "if I place my own chip here,
+// how good is my line") — so when (r,c) is actually EMPTY and being
+// evaluated as a potential defensive block point, a window that's exactly
+// "4 real opponent chips + this pivot" reports zero remaining gaps, which
+// looks IDENTICAL to an already-complete, nothing-to-gain-here window. That
+// collapsed the single most urgent case (the actual game-winning cell) into
+// the same "ignore this" bucket as a truly dead line — a real regression.
+// The fix: only apply the "zero gaps = ignore" rule when the pivot cell is
+// ALREADY occupied by team t (a real chip, not a hypothetical). If the pivot
+// is empty, zero gaps instead means "this IS the winning cell" — the
+// opposite conclusion, and the most dangerous case there is.
 function genuineThreatAt(r, c, t, gs) {
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  const pivotIsRealChip = gs.chips[r][c] === t;
   let max = 0;
   for (const [dr,dc] of dirs) {
-    const { count, gaps } = bestWindowGaps(r, c, dr, dc, t, gs);
-    if (count < 0) continue; // no open window in this direction at all
-    if (gaps.length === 0) continue; // window has no empty cell left — nothing to gain by defending here
-    // "Friendly count" here includes the pivot cell itself (see bestWindowGaps),
-    // so subtract 1 to match runLengthAt's convention (excludes the pivot).
-    max = Math.max(max, count - 1);
+    // Scan every 5-cell window through (r,c) in this direction directly
+    // (rather than reusing bestWindowGaps, which doesn't expose which
+    // window it picked — needed here to check each cell individually).
+    for (let off = -4; off <= 0; off++) {
+      let gapCount = 0, blocked = false, friendlyCount = 0, realLiveChips = 0;
+      for (let k = 0; k < 5; k++) {
+        const nr = r + (off+k)*dr, nc = c + (off+k)*dc;
+        if (nr < 0 || nr >= 10 || nc < 0 || nc >= 10) { blocked = true; break; }
+        const isPivot = nr === r && nc === c;
+        const ch = gs.chips[nr][nc];
+        const isWild = gs.board[nr][nc].type === 'wild';
+        if (isPivot || ch === t || isWild) {
+          friendlyCount++;
+          if (!isPivot && ch === t && !isWild && !isSequenceCellInState(nr, nc, gs)) realLiveChips++;
+        } else if (ch !== null) {
+          blocked = true; break;
+        } else {
+          gapCount++;
+        }
+      }
+      if (blocked) continue;
+
+      if (pivotIsRealChip) {
+        // Original, working case: pivot is one of team t's actual chips —
+        // friendlyCount-1 (excluding the pivot) is the real run length,
+        // matching runLengthAt's convention. gapCount===0 here genuinely
+        // means "no room left" (either a live 5th cell was just taken, or
+        // the whole window is already a locked sequence) — either way,
+        // nothing further to defend, so it's correctly skipped.
+        if (gapCount === 0) continue;
+        max = Math.max(max, friendlyCount - 1);
+      } else {
+        // Pivot is EMPTY — being evaluated as a potential defensive cell.
+        if (gapCount === 0) {
+          // This exact cell would complete the window. Only a real threat
+          // if the other 4 cells are genuinely live (unlocked) chips — if
+          // they're already part of a completed sequence, this would just
+          // be a redundant overlap, not a new win.
+          if (realLiveChips >= 4) max = Math.max(max, 4);
+        } else if (gapCount === 1) {
+          // One other gap besides this cell — a live near-complete window
+          // (mirrors "one away" elsewhere), a strong but non-maximal threat.
+          if (realLiveChips >= 3) max = Math.max(max, 3);
+        }
+      }
+    }
   }
   return max;
 }
@@ -6570,17 +6646,39 @@ async function renderMyStats() {
 // TOURNAMENT SERIES SCORING
 // ═══════════════════════════════════════════════════
 
+// How many wins does a team need to take the series outright?
+// Same "majority of matchFormat" math for every team count — Best of 3/5/7
+// needs 2/3/4 wins regardless of whether there are 2 or 3 teams. The only
+// difference between 2-team and 3+-team games is HOW that number is reached
+// (see updateSeriesScore below): with 2 teams it's a fixed-total Best-of-N,
+// with 3+ teams it's an open-ended Race-to-N — but the win target itself is
+// identical either way.
+function seriesWinsNeeded(format, teamsCount) {
+  if (format <= 1) return 1;
+  return Math.ceil(format / 2);
+}
+
 // Host-only: called once per completed (non-draw) game when matchFormat>1.
 // Increments the winning team's series tally and checks whether the series
-// itself is now decided (a team reached the Best-of-N majority).
+// itself is now decided.
+//   2 teams:  Best-of-N — majority of a FIXED total (matchFormat) games.
+//             With only 2 possible winners this always resolves cleanly.
+//   3+ teams: Race-to-N — first team to reach N wins outright, however many
+//             total games that takes. Best-of-N's fixed-total math can
+//             mathematically fail to produce a winner once wins split across
+//             3+ teams (e.g. a 1-2-2 split has no team reaching a majority —
+//             the series would be stuck with no way to ever resolve).
+//             Race-to-N sidesteps this since it doesn't depend on a total
+//             game count, and directly uses matchFormat (3/5/7) as the win
+//             target rather than a halved majority-of-N number.
 function updateSeriesScore(winnerTeam) {
   if (matchFormat <= 1) return; // not a series — nothing to track
   if (!isHost) return; // host is the single source of truth for series state
   if (!seriesWins || seriesWins.length !== numTeams) seriesWins = Array(numTeams).fill(0);
   seriesWins[winnerTeam] = (seriesWins[winnerTeam] || 0) + 1;
 
-  const majorityNeeded = Math.ceil(matchFormat / 2);
-  if (seriesWins[winnerTeam] >= majorityNeeded) {
+  const winsNeeded = seriesWinsNeeded(matchFormat, numTeams);
+  if (seriesWins[winnerTeam] >= winsNeeded) {
     seriesWinnerTeam = winnerTeam;
   }
   seriesGameNum++;
@@ -6601,12 +6699,18 @@ function renderSeriesBox() {
   if (matchFormat <= 1) { box.style.display = 'none'; return; }
 
   const titleEl = document.getElementById('series-title');
-  const gameNumEl = document.getElementById('series-game-num');
-  const maxGamesEl = document.getElementById('series-max-games');
   const rowEl = document.getElementById('series-score-row');
+  const winsNeeded = seriesWinsNeeded(matchFormat, numTeams);
+  const isRaceFormat = numTeams > 2; // 3+ teams: Race-to-N, no fixed total game count
 
   if (seriesWinnerTeam !== null) {
-    titleEl.innerHTML = '🏆 SERIES FINAL — BEST OF ' + matchFormat;
+    titleEl.innerHTML = isRaceFormat
+      ? `🏆 SERIES FINAL — RACE TO ${winsNeeded}`
+      : `🏆 SERIES FINAL — BEST OF ${matchFormat}`;
+  } else if (isRaceFormat) {
+    // No fixed total games in a race format — just show which game is
+    // coming up and what's needed to win, not "X of Y" (there is no Y).
+    titleEl.innerHTML = `SERIES · GAME ${seriesGameNum} · RACE TO ${winsNeeded} WINS`;
   } else {
     // Game number shown is the one just played, capped at matchFormat so a
     // just-finished decisive final game doesn't show e.g. "Game 4 of 3"
@@ -6693,8 +6797,10 @@ function showWinModal() {
     // Winner's score always leads, e.g. "3 – 1" not "1 – 3" regardless of team order
     const finalScore = [seriesWins[seriesWinnerTeam], ...seriesWins.filter((_, i) => i !== seriesWinnerTeam)].join(' – ');
     const seriesWinnerWon = aiMode ? seriesWinnerTeam === 0 : seriesWinnerTeam === players[myIndex]?.team;
+    const winsNeeded = seriesWinsNeeded(matchFormat, numTeams);
+    const formatLabel = numTeams > 2 ? `Race to ${winsNeeded}` : `Best of ${matchFormat}`;
     title = seriesWinnerWon ? `🏆🏆 Series Won!` : `🏆 ${seriesWinnerName} Wins the Series!`;
-    msg = `${seriesWinnerName} takes the series ${finalScore} (Best of ${matchFormat}).`;
+    msg = `${seriesWinnerName} takes the series ${finalScore} (${formatLabel}).`;
   }
 
   document.getElementById('win-title').textContent = title;
