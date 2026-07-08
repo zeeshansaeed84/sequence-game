@@ -1061,7 +1061,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
   .player-action-btn {
     flex-shrink: 0;
@@ -1075,10 +1075,26 @@
     font-weight: 600;
     font-size: 0.88rem;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .player-action-btn:disabled { opacity: 0.3; cursor: default; }
   .player-action-btn:active:not(:disabled) { background: rgba(255,255,255,0.28); }
-  .player-action-btn-wide { padding: 0 12px; white-space: nowrap; }
+  /* Up/down/remove — compact square icon buttons using bold SVG glyphs
+     instead of thin Unicode arrow characters (↑ ↓), which were nearly
+     imperceptible at small sizes even with technically-passing color
+     contrast — a thin single-pixel-stroke glyph just doesn't have enough
+     visible "ink" to read clearly on a phone screen. */
+  .player-action-btn-icon { width: 34px; padding: 0; flex-shrink: 0; }
+  .player-action-btn-wide {
+    flex: 1;
+    min-width: 0;
+    padding: 0 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .player-action-btn-danger { border-color: #ff8a80; color: #ff8a80; background: rgba(220,38,38,0.15); }
   .player-action-btn-danger:active { background: rgba(220,38,38,0.3); }
 
@@ -4780,8 +4796,8 @@ function renderWaitingPlayers() {
       row2.className = 'player-item-row2';
 
       const upBtn = document.createElement('button');
-      upBtn.className = 'player-action-btn';
-      upBtn.textContent = '↑';
+      upBtn.className = 'player-action-btn player-action-btn-icon';
+      upBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
       upBtn.title = 'Move earlier in turn order';
       upBtn.disabled = i === 0;
       upBtn.onclick = () => {
@@ -4791,8 +4807,8 @@ function renderWaitingPlayers() {
         renderWaitingPlayers();
       };
       const downBtn = document.createElement('button');
-      downBtn.className = 'player-action-btn';
-      downBtn.textContent = '↓';
+      downBtn.className = 'player-action-btn player-action-btn-icon';
+      downBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
       downBtn.title = 'Move later in turn order';
       downBtn.disabled = i === players.length - 1;
       downBtn.onclick = () => {
@@ -4810,8 +4826,8 @@ function renderWaitingPlayers() {
         renderWaitingPlayers();
       };
       const removeBtn = document.createElement('button');
-      removeBtn.className = 'player-action-btn player-action-btn-danger';
-      removeBtn.textContent = '✕';
+      removeBtn.className = 'player-action-btn player-action-btn-icon player-action-btn-danger';
+      removeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
       removeBtn.title = 'Remove player';
       removeBtn.onclick = () => {
         players.splice(i, 1);
