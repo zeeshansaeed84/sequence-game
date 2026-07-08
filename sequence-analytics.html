@@ -128,11 +128,11 @@
     <div class="stat-card"><div class="stat-value" id="s-total">—</div><div class="stat-label">Total Games</div></div>
     <div class="stat-card"><div class="stat-value" id="s-completed">—</div><div class="stat-label">Completed</div></div>
     <div class="stat-card"><div class="stat-value" id="s-abandoned">—</div><div class="stat-label">Abandoned</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-devices">—</div><div class="stat-label">Unique Devices</div></div>
     <div class="stat-card"><div class="stat-value" id="s-players">—</div><div class="stat-label">Unique Players</div></div>
     <div class="stat-card"><div class="stat-value" id="s-sequences">—</div><div class="stat-label">Total Sequences</div></div>
     <div class="stat-card"><div class="stat-value" id="s-avg-dur">—</div><div class="stat-label">Avg Duration</div></div>
     <div class="stat-card"><div class="stat-value" id="s-mobile">—</div><div class="stat-label">Mobile %</div></div>
-    <div class="stat-card"><div class="stat-value" id="s-countries">—</div><div class="stat-label">Countries</div></div>
   </div>
 
   <div class="section-title">AI Win Rate by Difficulty</div>
@@ -157,18 +157,22 @@
           <th>Duration</th>
           <th>Location</th>
           <th>Device</th>
+          <th>Device ID</th>
           <th>Status</th>
           <th>Room</th>
         </tr>
       </thead>
       <tbody id="games-tbody">
-        <tr><td colspan="12" class="loading">Loading…</td></tr>
+        <tr><td colspan="13" class="loading">Loading…</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="section-title">Top Player Names</div>
   <div id="top-players" class="loading">Loading…</div>
+
+  <div class="section-title">Active Devices</div>
+  <div id="devices-list" class="loading">Loading…</div>
 
   <div class="section-title">Countries</div>
   <div id="countries-list" class="loading">Loading…</div>
@@ -233,8 +237,9 @@ async function loadData() {
   const completed  = games.filter(g => g.status === 'completed');
   const abandoned  = games.filter(g => g.status === 'abandoned');
   const allPlayers = new Set();
+  const allDevices = new Set();
   let totalSeq = 0, totalDur = 0, durCount = 0, mobileCount = 0;
-  const countryCounts = {}, playerCounts = {};
+  const countryCounts = {}, playerCounts = {}, deviceCounts = {};
 
   games.forEach(g => {
     (g.players || []).forEach(p => {
@@ -243,6 +248,10 @@ async function loadData() {
         playerCounts[p.name] = (playerCounts[p.name] || 0) + 1;
       }
     });
+    if (g.myDeviceId) {
+      allDevices.add(g.myDeviceId);
+      deviceCounts[g.myDeviceId] = (deviceCounts[g.myDeviceId] || 0) + 1;
+    }
     totalSeq += g.totalSequences || 0;
     if (g.durationSecs) { totalDur += g.durationSecs; durCount++; }
     if (g.device === 'mobile') mobileCount++;
@@ -253,11 +262,11 @@ async function loadData() {
   document.getElementById('s-total').textContent     = games.length;
   document.getElementById('s-completed').textContent = completed.length;
   document.getElementById('s-abandoned').textContent = abandoned.length;
+  document.getElementById('s-devices').textContent   = allDevices.size;
   document.getElementById('s-players').textContent   = allPlayers.size;
   document.getElementById('s-sequences').textContent = totalSeq;
   document.getElementById('s-avg-dur').textContent   = durCount ? fmtDur(Math.round(totalDur/durCount)) : '—';
   document.getElementById('s-mobile').textContent    = games.length ? Math.round(mobileCount/games.length*100)+'%' : '—';
-  document.getElementById('s-countries').textContent = Object.keys(countryCounts).length;
 
   // ── AI win rate by difficulty ────────────────────
   // Only counts completed, non-draw VS AI games that have an aiDifficulty
@@ -296,7 +305,7 @@ async function loadData() {
   }
   const tbody = document.getElementById('games-tbody');
   if (!games.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="loading">No games yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="loading">No games yet</td></tr>';
   } else {
     tbody.innerHTML = tableGames.map(g => {
       const playerNames = (g.players||[]).filter(p=>!p.isAI).map(p=>p.name).join(', ') || '—';
@@ -325,6 +334,7 @@ async function loadData() {
         <td>${fmtDur(g.durationSecs)}</td>
         <td>${loc}</td>
         <td>${g.device || '—'}</td>
+        <td style="font-family:monospace;font-size:0.7rem;color:rgba(232,224,208,0.6)" title="${g.myDeviceId || '—'}">${g.myDeviceId ? g.myDeviceId.slice(0, 10) + '…' : '—'}</td>
         <td><span class="badge ${statusClass}">${g.status||'—'}</span></td>
         <td>${g.roomCode && g.status === 'started'
           ? `<a href="/?watch=${g.roomCode}" target="_blank"
@@ -350,6 +360,18 @@ async function loadData() {
         ).join('')
       }</div>`
     : '<div class="loading">No data yet</div>';
+
+  // ── Active devices ───────────────────────────────
+  const sortedDevices = Object.entries(deviceCounts).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('devices-list').innerHTML = sortedDevices.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">${
+        sortedDevices.map(([deviceId,count]) =>
+          `<span style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:5px 12px;font-size:0.8rem;font-family:monospace" title="${deviceId}">
+            ${deviceId.slice(0, 10)}… <span style="color:rgba(232,224,208,0.5)">${count}</span>
+          </span>`
+        ).join('')
+      }</div>`
+    : '<div class="loading">No device data yet</div>';
 
   // ── Countries ────────────────────────────────────
   const sortedCountries = Object.entries(countryCounts).sort((a,b)=>b[1]-a[1]);
