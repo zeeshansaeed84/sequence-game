@@ -1038,11 +1038,11 @@
   .player-item {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px 12px;
-    border-radius: 6px;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
     margin-bottom: 6px;
-    background: rgba(255,255,255,0.04);
+    background: rgba(255,255,255,0.08);
     font-size: 0.95rem;
   }
   .player-item-row1 {
@@ -1065,21 +1065,22 @@
   }
   .player-action-btn {
     flex-shrink: 0;
-    height: 28px;
-    min-width: 28px;
-    padding: 0 8px;
-    border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.2);
-    background: rgba(255,255,255,0.06);
-    color: rgba(255,255,255,0.85);
-    font-size: 0.8rem;
+    height: 34px;
+    min-width: 34px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1.5px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.14);
+    color: white;
+    font-weight: 600;
+    font-size: 0.88rem;
     cursor: pointer;
   }
   .player-action-btn:disabled { opacity: 0.3; cursor: default; }
-  .player-action-btn:active:not(:disabled) { background: rgba(255,255,255,0.15); }
-  .player-action-btn-wide { padding: 0 10px; white-space: nowrap; }
-  .player-action-btn-danger { border-color: rgba(220,38,38,0.4); color: #ff8a80; }
-  .player-action-btn-danger:active { background: rgba(220,38,38,0.2); }
+  .player-action-btn:active:not(:disabled) { background: rgba(255,255,255,0.28); }
+  .player-action-btn-wide { padding: 0 12px; white-space: nowrap; }
+  .player-action-btn-danger { border-color: #ff8a80; color: #ff8a80; background: rgba(220,38,38,0.15); }
+  .player-action-btn-danger:active { background: rgba(220,38,38,0.3); }
 
   #lobby-screen .btn-primary {
     background: linear-gradient(135deg, #2233CC, #1a2580);
@@ -5477,9 +5478,16 @@ const CHAT_PRESETS = [
   { text: "Sneaky!", emoji: "😏", cat: "Reactions" },
   { text: "Genius!", emoji: "🧠", cat: "Reactions" },
   { text: "Hurry up!", emoji: "😄", cat: "Social" },
-  { text: "This won't end well for you...", emoji: "😬", cat: "Light Taunts" },
+  { text: "This won't end well for you...", emoji: "🤨", cat: "Light Taunts" },
   { text: "Too easy!", emoji: "😎", cat: "Light Taunts" },
   { text: "Big mistake...", emoji: "😈", cat: "Light Taunts" },
+  { text: "Need a Jack!", emoji: "🥺", cat: "Reactions" },
+  { text: "So many Jacks?", emoji: "😳", cat: "Reactions" },
+  { text: "Red Alert!", emoji: "‼️", cat: "Social" },
+  { text: "Game On!", emoji: "💪🏼", cat: "Social" },
+  { text: "Why only me?", emoji: "🤷🏻‍♂️", cat: "Light Taunts" },
+  { text: "Wait a sec...", emoji: "🤌🏼", cat: "Social" },
+  { text: "Ha ha ha!", emoji: "😂", cat: "Reactions" },
 ];
 
 function toggleChatPicker() {
