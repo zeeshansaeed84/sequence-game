@@ -3766,7 +3766,7 @@ function aiTakeTurn() {
 
   hand.forEach((card, cardIdx) => {
     if (card.rank === 'J') return; // jacks handled separately
-    if (isDeadCardForState(card, GS)) return; // skip dead cards here
+    if (isDeadCardForState(card, GS, aiTeam)) return; // skip dead cards here
     for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
       const cell = GS.board[r][c];
       if (cell.type==='card' && cell.suit===card.suit && cell.rank===card.rank && GS.chips[r][c]===null) {
@@ -3813,7 +3813,7 @@ function aiTakeTurn() {
       for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
         if (GS.chips[r][c] !== null || GS.board[r][c].type === 'wild') continue;
         // Only consider if cell is unreachable by any normal card in hand
-        const reachable = hand.some((nc,ni) => ni!==cardIdx && nc.rank!=='J' && !isDeadCardForState(nc,GS) &&
+        const reachable = hand.some((nc,ni) => ni!==cardIdx && nc.rank!=='J' && !isDeadCardForState(nc,GS,aiTeam) &&
           GS.board[r][c].type==='card' && GS.board[r][c].suit===nc.suit && GS.board[r][c].rank===nc.rank);
         const score = evalWildJack(r, c, aiTeam, GS, diff, reachable, hand, cardIdx, wildSurpriseRoll, players.length);
         if (score === 100000) completionCandidates.push({cardIdx, row:r, col:c});
@@ -3846,7 +3846,7 @@ function aiTakeTurn() {
   // ── Step 4: Dead card discard (last resort) ──────────────────────
   let deadMove = null;
   hand.forEach((card, cardIdx) => {
-    if (card.rank !== 'J' && isDeadCardForState(card, GS) && !deadMove) {
+    if (isDeadCardForState(card, GS, aiTeam) && !deadMove) {
       deadMove = {cardIdx, dead:true, row:0, col:0};
     }
   });
@@ -3938,19 +3938,33 @@ function countRun(r, c, dr, dc, t, gs) {
   return n;
 }
 
-// Best open window of 5 through (r,c) for team t — returns count of friendly+wild, or -1 if blocked
+// Best open window of 5 through (r,c) for team t — returns count of friendly+wild, or -1 if blocked.
+// Skips windows that overlap 2+ already-locked (completed-sequence) cells
+// for this team, since checkSequences enforces "a new sequence may share at
+// most 1 cell with anything already locked" — a window that fails this can
+// NEVER become a genuine new sequence no matter how "full" it looks (e.g. a
+// 6th chip tacked onto an already-completed 5-in-a-row reads as friendly=5,
+// identical to a real completion, unless this overlap is excluded). Without
+// this, the AI's offensive scoring — and evalWildJack's completion check,
+// which reuses bestWindowGaps below — could mistake extending a dead run
+// past a locked sequence for "completing a sequence" and burn a two-eyed
+// jack (or a normal card) on a move that adds zero new sequences.
 function bestWindow(r, c, dr, dc, t, gs) {
   let best = -1;
   for (let off = -4; off <= 0; off++) {
-    let friendly=0, blocked=false;
+    let friendly=0, blocked=false, lockedOverlap=0;
     for (let k=0; k<5; k++) {
       const nr=r+(off+k)*dr, nc=c+(off+k)*dc;
       if (nr<0||nr>=10||nc<0||nc>=10) { blocked=true; break; }
       const ch=gs.chips[nr][nc];
-      if ((nr===r&&nc===c)||ch===t||gs.board[nr][nc].type==='wild') friendly++;
+      const isPivot = nr===r&&nc===c;
+      if (isPivot||ch===t||gs.board[nr][nc].type==='wild') {
+        friendly++;
+        if (!isPivot && ch===t && isSequenceCellInState(nr,nc,gs)) lockedOverlap++;
+      }
       else if (ch!==null) { blocked=true; break; }
     }
-    if (!blocked) best=Math.max(best,friendly);
+    if (!blocked && lockedOverlap<=1) best=Math.max(best,friendly);
   }
   return best;
 }
@@ -3958,19 +3972,24 @@ function bestWindow(r, c, dr, dc, t, gs) {
 // Same scan as bestWindow, but also returns the empty (non-friendly, non-wild)
 // cells in the best window found — used to check whether a 4-chip line from a
 // wild jack can actually be finished, rather than just rewarding "getting close".
+// Same locked-overlap exclusion as bestWindow above (see comment there).
 function bestWindowGaps(r, c, dr, dc, t, gs) {
   let best = -1, bestGaps = [];
   for (let off = -4; off <= 0; off++) {
-    let friendly = 0, blocked = false, gaps = [];
+    let friendly = 0, blocked = false, gaps = [], lockedOverlap = 0;
     for (let k = 0; k < 5; k++) {
       const nr = r+(off+k)*dr, nc = c+(off+k)*dc;
       if (nr<0||nr>=10||nc<0||nc>=10) { blocked = true; break; }
       const ch = gs.chips[nr][nc];
-      if ((nr===r && nc===c) || ch===t || gs.board[nr][nc].type==='wild') { friendly++; }
+      const isPivot = nr===r && nc===c;
+      if (isPivot || ch===t || gs.board[nr][nc].type==='wild') {
+        friendly++;
+        if (!isPivot && ch===t && isSequenceCellInState(nr,nc,gs)) lockedOverlap++;
+      }
       else if (ch !== null) { blocked = true; break; }
       else { gaps.push([nr, nc]); } // empty, non-wild cell — needed to complete this window
     }
-    if (!blocked && friendly > best) { best = friendly; bestGaps = gaps; }
+    if (!blocked && lockedOverlap<=1 && friendly > best) { best = friendly; bestGaps = gaps; }
   }
   return { count: best, gaps: bestGaps };
 }
@@ -4300,8 +4319,34 @@ function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx, surpriseRo
 }
 
 
-function isDeadCardForState(card, gs) {
-  if (card.rank === 'J') return false;
+// `team` is required to evaluate jacks correctly — a one-eyed jack needs an
+// opposing, non-sequence-locked chip to remove; a two-eyed jack needs an
+// empty, non-wild cell. Previously jacks were hard-coded as NEVER dead
+// regardless of whether they had any legal target that turn — usually
+// harmless since jacks are normally useful, but it meant a hand made up
+// entirely of currently-unusable jacks (e.g. a one-eyed jack with no
+// unlocked opposing chip on the board, most likely very early game or once
+// most chips are sequence-locked late game) had no way into the
+// dead-card discard/escape-valve mechanic every other card type gets.
+function isDeadCardForState(card, gs, team) {
+  if (card.rank === 'J') {
+    if (isOneEyedJack(card)) {
+      for (let r = 0; r < 10; r++) {
+        for (let c = 0; c < 10; c++) {
+          const ct = gs.chips[r][c];
+          if (ct !== null && ct !== team && !isSequenceCellInState(r, c, gs)) return false;
+        }
+      }
+      return true; // no valid target anywhere right now — genuinely dead
+    }
+    // Two-eyed jack: live only if at least one empty, non-wild cell exists.
+    for (let r = 0; r < 10; r++) {
+      for (let c = 0; c < 10; c++) {
+        if (gs.chips[r][c] === null && gs.board[r][c].type !== 'wild') return false;
+      }
+    }
+    return true;
+  }
   for (let r = 0; r < 10; r++) {
     for (let c = 0; c < 10; c++) {
       const cell = gs.board[r][c];
@@ -5192,7 +5237,7 @@ function applyMoveInner(move, fromId) {
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     const newCardIdx = hand.length - 1; // drawCard pushes the replacement to the end
     const newCard = hand[newCardIdx];
-    if (newCard && !isDeadCardForState(newCard, GS)) {
+    if (newCard && !isDeadCardForState(newCard, GS, p.team)) {
       GS.forcedCardIdx = newCardIdx; // live card — lock the player into it
     }
     // else: still dead — forcedCardIdx stays null, player can discard again
@@ -5270,9 +5315,15 @@ function applyMoveInner(move, fromId) {
     GS.winner = p.team;
   }
 
-  // Check draw — board full with no winner
+  // Check draw — every PLAYABLE (non-wild) cell full with no winner. The 4
+  // wild corners never receive a chip (GS.chips[r][c] stays null there for
+  // the entire game, since both placement paths explicitly skip wild
+  // cells), so a raw "every cell non-null" check could NEVER become true —
+  // this must specifically exclude wild cells, not just check the raw grid.
   if (GS.phase !== 'done') {
-    const boardFull = GS.chips.every(row => row.every(cell => cell !== null));
+    const boardFull = GS.chips.every((row, r) => row.every((cell, c) =>
+      cell !== null || GS.board[r][c].type === 'wild'
+    ));
     if (boardFull) {
       GS.phase = 'done';
       GS.winner = -1; // -1 = draw
@@ -6137,7 +6188,7 @@ function renderHand() {
 
     if (i === selectedCardIdx) el.classList.add('selected');
 
-    const isDead = isDeadCard(card, i);
+    const isDead = isDeadCard(card, i, players[myIndex]?.team);
     const isRevealed = revealedDeadCardKeys.has(deadCardRevealKey(i, card));
     // The red dashed frame only shows once the player has actually
     // tapped/selected this specific card — never proactively, since an
@@ -6196,8 +6247,25 @@ function renderHand() {
   });
 }
 
-function isDeadCard(card, idx) {
-  if (card.rank === 'J') return false;
+function isDeadCard(card, idx, team) {
+  if (card.rank === 'J') {
+    if (isOneEyedJack(card)) {
+      for (let r = 0; r < 10; r++) {
+        for (let c = 0; c < 10; c++) {
+          const ct = GS.chips[r][c];
+          if (ct !== null && ct !== team && !isSequenceCell(r, c)) return false;
+        }
+      }
+      return true; // no removable opposing chip anywhere right now
+    }
+    // Two-eyed jack: dead only if literally no empty, non-wild cell remains.
+    for (let r = 0; r < 10; r++) {
+      for (let c = 0; c < 10; c++) {
+        if (GS.chips[r][c] === null && GS.board[r][c].type !== 'wild') return false;
+      }
+    }
+    return true;
+  }
   // Dead if both board spaces for this card already have chips
   let openSpaces = 0;
   for (let r = 0; r < 10; r++) {
