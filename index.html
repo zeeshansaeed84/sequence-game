@@ -4405,9 +4405,19 @@ function registerPresence() {
 }
 
 // Called from the players-list / gameState listeners whenever presence data
+// ⚠️ FEATURE FLAG: series-pause-on-disconnect is temporarily disabled.
+// Turned off because in larger groups it was causing more disruption than
+// it prevented — a single player briefly switching apps/tabs would pause
+// the whole series for everyone. The underlying presence-tracking system
+// (registerPresence, onPresenceUpdate, the 5-minute countdown/timeout
+// resolution) is left fully intact below so this can be flipped back on
+// later without rebuilding it — just set this back to true.
+const SERIES_PAUSE_ON_DISCONNECT_ENABLED = false;
+
 // changes. Only meaningful mid-series; single games and finished series
 // ignore this entirely.
 function onPresenceUpdate(presenceData) {
+  if (!SERIES_PAUSE_ON_DISCONNECT_ENABLED) { hideSeriesPauseModal(); return; }
   if (matchFormat <= 1 || seriesWinnerTeam !== null) { hideSeriesPauseModal(); return; }
   if (!presenceData) return;
   // Never treat the LOCAL player as "the disconnected one" on their own
