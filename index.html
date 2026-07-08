@@ -2358,7 +2358,13 @@
       padding: 10px 20px;
       overflow: visible;
     }
-    .hand-label-row { display: none; }
+    /* Hide the "YOUR HAND" text + gold divider lines on wide screens (the
+       sidebar's turn indicator already makes this redundant) — but NOT the
+       whole .hand-label-row, since the chat trigger button also lives in
+       that row and was being hidden along with it as unintended collateral,
+       making chat impossible to open on laptop/desktop widths. */
+    .hand-label-line { display: none; }
+    .hand-label-row { justify-content: flex-end; }
 
     .hand-cards {
       flex-wrap: nowrap;
@@ -5883,6 +5889,19 @@ let jackMode = null; // 'wild' or 'anti'
 let lastAnimatedSeq = -1; // tracks which GS.moveSeq has already played its board animation
 let lastBlinkSeq = -1;    // tracks which GS.moveSeq has already triggered a sequence blink
 
+// Tracks which of the player's OWN hand cards have been "revealed" as dead
+// by the player actually tapping/selecting them — the red dashed frame and
+// discard ✕ badge only show up AFTER that, not automatically the instant a
+// card becomes dead. Otherwise the UI itself would hint at hand composition
+// (e.g. a freshly-dealt card immediately flagged dead gives away that the
+// player didn't cause it, or a card silently going dead from someone else's
+// move would surface without the player ever having looked at it). Keyed by
+// "index:rank:suit" so a NEW card dealt into the same hand slot later is
+// correctly treated as unrevealed, rather than inheriting the old card's
+// revealed status just because it landed in the same position.
+let revealedDeadCardKeys = new Set();
+function deadCardRevealKey(idx, card) { return `${idx}:${card.rank}:${card.suit}`; }
+
 function showGameScreen() {
   showScreen('game-screen');
   setVh();
@@ -5890,6 +5909,7 @@ function showGameScreen() {
   lastBlinkSeq    = 0;
   selectedCardIdx = -1;
   jackMode = null;
+  revealedDeadCardKeys.clear();
 
   // Show/hide spectator banner and hand area
   const spectatorBanner = document.getElementById('spectator-banner');
@@ -6253,7 +6273,15 @@ function renderHand() {
     if (i === selectedCardIdx) el.classList.add('selected');
 
     const isDead = isDeadCard(card, i);
-    if (isDead) el.classList.add('dead-card');
+    const isRevealed = revealedDeadCardKeys.has(deadCardRevealKey(i, card));
+    // The red dashed frame only shows once the player has actually
+    // tapped/selected this specific card — never proactively, since an
+    // automatically-appearing frame (e.g. on a freshly-dealt card the
+    // player hasn't looked at yet) would hint at hand composition the
+    // player should be figuring out themselves. isDead (the TRUE status)
+    // still drives all real game logic below (locking, badge eligibility)
+    // — only the VISUAL frame is gated on isRevealed.
+    if (isDead && isRevealed) el.classList.add('dead-card');
 
     if (hardLocked) {
       if (i === GS.forcedCardIdx) el.classList.add('forced-card');
@@ -6270,7 +6298,9 @@ function renderHand() {
     // badge is appended to the WRAP (not the card), since the card itself
     // has overflow:hidden (needed to clip its own SVG art cleanly) which
     // would otherwise cut off a badge positioned just outside its corner.
-    const canDiscardThis = isDead && myTurn && GS.forcedCardIdx === null;
+    // Only shown once the player has revealed this card by selecting it —
+    // same reasoning as the frame above.
+    const canDiscardThis = isDead && isRevealed && myTurn && GS.forcedCardIdx === null;
     if (canDiscardThis) {
       const badge = document.createElement('button');
       badge.className = 'dead-card-x';
@@ -6320,6 +6350,17 @@ function selectCard(idx) {
   if (players[GS.currentTurn] && players[GS.currentTurn].id !== myId) return;
   const wasSelected = selectedCardIdx === idx;
   selectedCardIdx = wasSelected ? -1 : idx;
+
+  // The moment a player actually taps/selects a card, reveal its dead
+  // status if it has one — this is the only trigger; a card's dead frame
+  // should never appear proactively, since that would hint at hand
+  // composition (e.g. flagging a freshly-dealt card as dead immediately,
+  // before the player has even looked at it).
+  if (!wasSelected) {
+    const hand = GS.hands?.[myId] || [];
+    const card = hand[idx];
+    if (card) revealedDeadCardKeys.add(deadCardRevealKey(idx, card));
+  }
 
   // Re-render hand — needed to show/hide inline discard button
   renderHand();
