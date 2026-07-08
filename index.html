@@ -1037,7 +1037,7 @@
 
   .player-item {
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 8px;
     padding: 10px 12px;
     border-radius: 8px;
@@ -1045,23 +1045,12 @@
     background: rgba(255,255,255,0.08);
     font-size: 0.95rem;
   }
-  .player-item-row1 {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
   .player-item-name {
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
-  }
-  .player-item-row2 {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: nowrap;
   }
   .player-action-btn {
     flex-shrink: 0;
@@ -1087,14 +1076,6 @@
      contrast — a thin single-pixel-stroke glyph just doesn't have enough
      visible "ink" to read clearly on a phone screen. */
   .player-action-btn-icon { width: 34px; padding: 0; flex-shrink: 0; }
-  .player-action-btn-wide {
-    flex: 1;
-    min-width: 0;
-    padding: 0 8px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .player-action-btn-danger { border-color: #ff8a80; color: #ff8a80; background: rgba(220,38,38,0.15); }
   .player-action-btn-danger:active { background: rgba(220,38,38,0.3); }
 
@@ -4796,25 +4777,20 @@ function renderWaitingPlayers() {
     const div = document.createElement('div');
     div.className = 'player-item';
 
-    const row1 = document.createElement('div');
-    row1.className = 'player-item-row1';
     const dot = document.createElement('div');
     dot.className = `team-dot ${TEAM_DOT[p.team]}`;
     const name = document.createElement('span');
     name.className = 'player-item-name';
     name.textContent = `${p.name}${p.id === myId ? ' (you)' : ''} — ${TEAM_NAMES[p.team]}`;
-    row1.append(dot, name);
-    div.append(row1);
+    div.append(dot, name);
 
     // Host can reorder (controls turn sequence), switch teams, or remove
-    // players. Laid out as its own compact icon-button row underneath the
-    // name — a single row with 4 text/icon buttons plus a name was
-    // overflowing off-screen on real phone widths (e.g. iPhone SE), making
-    // the reorder buttons and even Remove unreachable for longer names.
+    // players — all in the same row as the name. Switch Team is a compact
+    // ⇄ icon (not a text label) specifically so all 4 controls fit
+    // alongside the name on one line even on narrow phones; the earlier
+    // text-label version needed ~70-80px on its own, which didn't leave
+    // enough room once a name plus the other 3 icon buttons were present.
     if (isHost && p.id !== myId) {
-      const row2 = document.createElement('div');
-      row2.className = 'player-item-row2';
-
       const upBtn = document.createElement('button');
       upBtn.className = 'player-action-btn player-action-btn-icon';
       upBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
@@ -4838,8 +4814,9 @@ function renderWaitingPlayers() {
         renderWaitingPlayers();
       };
       const switchBtn = document.createElement('button');
-      switchBtn.className = 'player-action-btn player-action-btn-wide';
-      switchBtn.textContent = 'Switch Team';
+      switchBtn.className = 'player-action-btn player-action-btn-icon';
+      switchBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>';
+      switchBtn.title = 'Switch team';
       switchBtn.onclick = () => {
         players[i].team = (players[i].team + 1) % numTeams;
         broadcastLobbyState();
@@ -4854,8 +4831,7 @@ function renderWaitingPlayers() {
         broadcastLobbyState();
         renderWaitingPlayers();
       };
-      row2.append(upBtn, downBtn, switchBtn, removeBtn);
-      div.append(row2);
+      div.append(upBtn, downBtn, switchBtn, removeBtn);
     }
     list.append(div);
   });
