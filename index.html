@@ -4387,11 +4387,9 @@ function fbOff() {
 
 // ═══════════════════════════════════════════════════
 // PRESENCE — used to pause an active tournament series if a player
-// disconnects unexpectedly (network drop, app crash, battery death), as
-// opposed to a deliberate Quit (handled separately by leaveGame()).
-// ═══════════════════════════════════════════════════
 const SERIES_PAUSE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 let seriesPauseCountdownHandle = null;
+let latestPresenceData = null; // cached so scheduleTurnTimer can check synchronously
 
 // Registers this player's presence + an onDisconnect hook that fires
 // automatically (server-side, even if this device goes fully dark) the
@@ -4404,47 +4402,49 @@ function registerPresence() {
   presenceRef.onDisconnect().set(false);
 }
 
-// Called from the players-list / gameState listeners whenever presence data
-// ⚠️ FEATURE FLAG: series-pause-on-disconnect is temporarily disabled.
-// Turned off because in larger groups it was causing more disruption than
-// it prevented — a single player briefly switching apps/tabs would pause
-// the whole series for everyone. The underlying presence-tracking system
-// (registerPresence, onPresenceUpdate, the 5-minute countdown/timeout
-// resolution) is left fully intact below so this can be flipped back on
-// later without rebuilding it — just set this back to true.
-const SERIES_PAUSE_ON_DISCONNECT_ENABLED = false;
-
-// changes. Only meaningful mid-series; single games and finished series
-// ignore this entirely.
+// Called whenever presence data changes for anyone in the room. This does
+// NOT pause the game just because someone, anyone, is disconnected — only
+// the HOST's scheduleTurnTimer() decides to pause, and only at the exact
+// moment it's about to start a turn for that specific disconnected player
+// (see scheduleTurnTimer below). This listener's other job: if a pause is
+// currently active for the player being waited on, notice they've come
+// back and let the host resume immediately rather than waiting the full
+// 5 minutes.
 function onPresenceUpdate(presenceData) {
-  if (!SERIES_PAUSE_ON_DISCONNECT_ENABLED) { hideSeriesPauseModal(); return; }
-  if (matchFormat <= 1 || seriesWinnerTeam !== null) { hideSeriesPauseModal(); return; }
-  if (!presenceData) return;
-  // Never treat the LOCAL player as "the disconnected one" on their own
-  // screen — if this code is actively running, their tab is clearly here,
-  // regardless of what a stale presence flag says (e.g. right after
-  // returning from a backgrounded tab, before registerPresence() has had a
-  // chance to clear the flag Firebase's onDisconnect() set while they were
-  // away). Showing yourself a "waiting for you to reconnect" modal with no
-  // way to dismiss it was the actual bug being reported.
-  const disconnectedPlayer = players.find(p => p.id !== myId && presenceData[p.id] === false);
-  if (disconnectedPlayer) {
-    showSeriesPauseModal(disconnectedPlayer);
-  } else {
-    hideSeriesPauseModal();
+  latestPresenceData = presenceData || null;
+  if (!isHost || !GS?.turnPausedForId) return;
+  if (latestPresenceData?.[GS.turnPausedForId] === true) {
+    resumeFromTurnPause();
   }
 }
 
-function showSeriesPauseModal(disconnectedPlayer) {
+// Host-only: is the given player currently marked disconnected? Used right
+// before starting a fresh turn timer, so the pause only ever triggers for
+// whoever's turn it actually is — a disconnected player who isn't up yet
+// never affects anyone else's turn or timer in the meantime.
+function isPlayerDisconnected(playerId) {
+  if (!latestPresenceData) return false;
+  return latestPresenceData[playerId] === false;
+}
+
+// Renders the pause modal purely from GS's synced pause fields — runs on
+// EVERY client (host and guests alike) whenever GS updates, so everyone
+// sees the same "waiting for X" state and countdown, not just the host.
+function renderTurnPauseModal() {
   const modal = document.getElementById('series-pause-modal');
-  if (!modal) return;
-  document.getElementById('series-pause-name').textContent = disconnectedPlayer.name;
+  if (!modal || !GS) return;
+  if (!GS.turnPausedForId) {
+    modal.classList.remove('open');
+    if (seriesPauseCountdownHandle) { clearInterval(seriesPauseCountdownHandle); seriesPauseCountdownHandle = null; }
+    return;
+  }
+  const waitingOn = players.find(p => p.id === GS.turnPausedForId);
+  document.getElementById('series-pause-name').textContent = waitingOn ? waitingOn.name : 'a player';
   modal.classList.add('open');
 
-  if (seriesPauseCountdownHandle) return; // already counting down for this disconnect
-  const deadline = Date.now() + SERIES_PAUSE_TIMEOUT_MS;
+  if (seriesPauseCountdownHandle) return; // already ticking
   seriesPauseCountdownHandle = setInterval(() => {
-    const remainingMs = Math.max(0, deadline - Date.now());
+    const remainingMs = Math.max(0, (GS.turnPauseDeadline || 0) - Date.now());
     const mins = Math.floor(remainingMs / 60000);
     const secs = Math.floor((remainingMs % 60000) / 1000);
     const el = document.getElementById('series-pause-countdown');
@@ -4452,37 +4452,47 @@ function showSeriesPauseModal(disconnectedPlayer) {
     if (remainingMs <= 0) {
       clearInterval(seriesPauseCountdownHandle);
       seriesPauseCountdownHandle = null;
-      if (isHost) resolveSeriesPauseTimeout();
+      if (isHost) resolveTurnPauseTimeout();
     }
   }, 250);
 }
 
-function hideSeriesPauseModal() {
-  const modal = document.getElementById('series-pause-modal');
-  if (modal) modal.classList.remove('open');
-  if (seriesPauseCountdownHandle) { clearInterval(seriesPauseCountdownHandle); seriesPauseCountdownHandle = null; }
+// Host-only: the specific disconnected player reconnected while we were
+// waiting on their turn — resume normally with a FRESH full turn timer, as
+// if their turn had just begun (not whatever was left when they vanished).
+function resumeFromTurnPause() {
+  GS.turnPausedForId = null;
+  GS.turnPauseDeadline = null;
+  scheduleTurnTimer(); // starts a clean, full-length timer for the current turn
+  broadcastGameState(); // let everyone know play has resumed
 }
 
-// Host-only: the 5-minute wait expired with no reconnect. Whichever team is
-// currently ahead in the series is declared the winner; a tie is left
-// inconclusive (no winner declared) rather than guessing.
-function resolveSeriesPauseTimeout() {
+// Host-only: the 5-minute wait expired with no reconnect.
+//   Active tournament series: resolve the SERIES using current standings
+//   (whichever team is ahead wins; a tie is left inconclusive).
+//   Single game (no series in progress): just skip this one turn, exactly
+//   like a normal timeout — the disconnected player's team doesn't lose the
+//   whole game over it, only forfeits that turn, same as anyone else who
+//   lets the clock run out.
+function resolveTurnPauseTimeout() {
   if (!isHost) return;
-  const maxWins = Math.max(...seriesWins);
-  const leaders = seriesWins.map((w,i) => w === maxWins ? i : -1).filter(i => i !== -1);
-  if (leaders.length === 1) {
-    seriesWinnerTeam = leaders[0];
+  GS.turnPausedForId = null;
+  GS.turnPauseDeadline = null;
+
+  if (matchFormat > 1 && seriesWinnerTeam === null) {
+    const maxWins = Math.max(...seriesWins);
+    const leaders = seriesWins.map((w,i) => w === maxWins ? i : -1).filter(i => i !== -1);
+    seriesWinnerTeam = leaders.length === 1 ? leaders[0] : -2; // -2 = inconclusive (tied at timeout)
+    if (roomRef) {
+      roomRef.update({
+        series: { wins: seriesWins, gameNum: seriesGameNum, winnerTeam: seriesWinnerTeam },
+        phase: 'abandoned'
+      }).catch(() => {});
+    }
+    showSeriesTimeoutResult();
   } else {
-    seriesWinnerTeam = -2; // -2 = inconclusive (tied at timeout) — distinct from -1 (single-game draw)
+    skipTurn(); // single game — just forfeit this turn and continue normally
   }
-  if (roomRef) {
-    roomRef.update({
-      series: { wins: seriesWins, gameNum: seriesGameNum, winnerTeam: seriesWinnerTeam },
-      phase: 'abandoned'
-    }).catch(() => {});
-  }
-  hideSeriesPauseModal();
-  showSeriesTimeoutResult();
 }
 
 // Shown to whoever's still around when the disconnect timeout resolves the
@@ -5073,7 +5083,8 @@ function leaveGame() {
   stopCountdownDisplay();
   stopTickSound();
   stopWinMusic();
-  hideSeriesPauseModal();
+  document.getElementById('series-pause-modal')?.classList.remove('open');
+  if (seriesPauseCountdownHandle) { clearInterval(seriesPauseCountdownHandle); seriesPauseCountdownHandle = null; }
   // Log abandoned if game was in progress and not yet won
   if (GS && GS.phase !== 'done' && isHost) logGameAbandoned();
   if (aiTurnHandle) { clearTimeout(aiTurnHandle); aiTurnHandle = null; }
@@ -5236,6 +5247,9 @@ function initGameState() {
     discardLockActive: false, // true from the moment the FIRST discard happens
                                // this turn, even before a live card is found —
                                // disables the rest of the hand during the chain
+    turnPausedForId: null,    // playerId we're currently waiting on (disconnected,
+                               // and it's genuinely their turn) — null = not paused
+    turnPauseDeadline: null,  // when the 5-minute wait expires, if paused
   };
 }
 
@@ -5263,6 +5277,25 @@ function scheduleTurnTimer() {
   if (!isHost) return;
   if (hostTurnTimerHandle) { clearTimeout(hostTurnTimerHandle); hostTurnTimerHandle = null; }
   if (!GS || GS.phase === 'done') return;
+
+  // Multiplayer only (VS AI has no real disconnect risk — AI players are
+  // never "away"). If the player whose turn is about to start is currently
+  // disconnected, don't start a normal countdown at all — pause and wait
+  // for them specifically, rather than letting their 60s silently run out
+  // while they're not even here to see it (which is what unfairly skipped
+  // OTHER players' turns before: the pause modal used to appear for ANY
+  // disconnect regardless of whose turn it was, while the real timer kept
+  // running underneath it the whole time).
+  if (!aiMode && roomRef) {
+    const currentPlayer = players[GS.currentTurn];
+    if (currentPlayer && isPlayerDisconnected(currentPlayer.id)) {
+      GS.turnPausedForId = currentPlayer.id;
+      GS.turnPauseDeadline = Date.now() + SERIES_PAUSE_TIMEOUT_MS;
+      broadcastGameState(); // synced fields — every client renders the same pause modal
+      return; // no normal timer while paused
+    }
+  }
+
   GS.turnDeadline = Date.now() + TURN_SECONDS * 1000;
   const turnAtSchedule = GS.currentTurn;
   hostTurnTimerHandle = setTimeout(() => {
@@ -5970,6 +6003,21 @@ function updateTurnTimerDisplay() {
     return;
   }
   el.style.visibility = 'visible';
+
+  // While paused waiting on a disconnected player, the pause modal already
+  // covers the screen — but keep the timer itself in a clean, neutral state
+  // underneath rather than ticking down to a stale "0:00" from before the
+  // pause began (scheduleTurnTimer intentionally stops updating
+  // turnDeadline while paused, so without this it would just freeze at
+  // whatever was left, then hit 0 and look like a timeout happened).
+  if (GS.turnPausedForId) {
+    if (numEl) numEl.textContent = '–';
+    if (ring) ring.style.strokeDashoffset = '0';
+    el.classList.remove('low');
+    stopTickSound();
+    return;
+  }
+
   const remainingMs = Math.max(0, (GS.turnDeadline || 0) - Date.now());
   const secs = Math.ceil(remainingMs / 1000);
   const pct  = Math.max(0, Math.min(100, (secs / TURN_SECONDS) * 100));
@@ -5992,6 +6040,8 @@ function updateTurnTimerDisplay() {
 function renderGame() {
   if (!GS) return;
   try {
+    renderTurnPauseModal();
+
     // Capture whether this is a genuinely new move BEFORE renderBoard() runs,
     // since renderBoard() itself updates lastAnimatedSeq as a side effect —
     // checking GS.moveSeq !== lastAnimatedSeq AFTER that call would always
