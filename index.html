@@ -1129,6 +1129,26 @@
     background: rgba(34,51,204,0.06);
     color: #2233CC;
   }
+  /* Player action buttons (reorder/switch/remove) — the base .player-action-btn
+     styling above (white text, translucent white background) was designed
+     for a dark background and was previously the ONLY styling shipped, but
+     the real waiting-room screen (#lobby-screen) has a WHITE card with navy
+     text throughout — white-on-white-ish is exactly why these read as
+     washed out/invisible there. This scopes proper high-contrast navy
+     styling specifically for that context. */
+  #lobby-screen .player-action-btn {
+    border-color: rgba(34,51,204,0.4);
+    background: rgba(34,51,204,0.1);
+    color: #2233CC;
+  }
+  #lobby-screen .player-action-btn:disabled { opacity: 0.35; }
+  #lobby-screen .player-action-btn:active:not(:disabled) { background: rgba(34,51,204,0.22); }
+  #lobby-screen .player-action-btn-danger {
+    border-color: #c0392b;
+    color: #c0392b;
+    background: rgba(192,57,43,0.1);
+  }
+  #lobby-screen .player-action-btn-danger:active { background: rgba(192,57,43,0.22); }
   #lobby-screen .sound-toggle {
     color: #2233CC;
     border-color: rgba(34,51,204,0.4);
