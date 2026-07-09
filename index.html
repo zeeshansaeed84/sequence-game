@@ -1555,6 +1555,28 @@
     display: block;
   }
 
+  /* 3-team fix — narrow phones (below ~390px width) can't fit 3 score
+     badges + timer + quit button in one row at their natural size, and the
+     row was overflowing off the right edge (quit button partly unreachable
+     on an iPhone SE — confirmed up to 64px of overflow at 320px width).
+     .scores-compact is added by JS only when numTeams===3, so 2-team games
+     never see this rule at all. Even when present, flex-shrink only ever
+     activates once content stops fitting — on anything wide enough (≥390px
+     phones, tablets in this row-based mobile layout, and the entire desktop
+     sidebar which is a different flex-direction/layout altogether) there's
+     no deficit to correct, so nothing visually changes there either. Only
+     the name truncates (via ellipsis) under real pressure; the colored
+     initial circle and the "2/2" sequence count both keep their fixed size
+     since those are the parts that actually need to stay legible. */
+  .team-scores.scores-compact { flex-shrink: 1; min-width: 0; }
+  .team-scores.scores-compact .score-badge { flex-shrink: 1; min-width: 0; }
+  .team-scores.scores-compact .score-name-wrap { min-width: 0; }
+  .team-scores.scores-compact .score-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* Turn info — hidden on mobile (score badge highlight conveys whose turn
      it is instead; even the fixed "YOUR TURN" string got clipped in the
      tightest 3-team layout). Re-shown at the wide-screen breakpoint below,
@@ -6006,6 +6028,11 @@ function renderTopBar() {
   // that can get clipped with 3 team badges + timer all sharing the bar.
   const scoresEl = document.getElementById('team-scores');
   scoresEl.innerHTML = '';
+  // 3-team mode gets a class enabling graceful shrink-with-ellipsis instead
+  // of the default flex-shrink:0 — see .team-scores.scores-compact below for
+  // why this is scoped to exactly the case that actually overflows on
+  // narrow phones, and never touches 2-team layouts or the desktop sidebar.
+  scoresEl.classList.toggle('scores-compact', numTeams === 3);
   // GS.currentTurn is a PLAYER index (into the players array), not a team
   // number — comparing it directly against the team loop index `t` only
   // ever coincidentally worked for the first 2 players in a 2-team game
