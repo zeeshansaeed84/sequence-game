@@ -1457,6 +1457,7 @@
 
   /* Score badge — circle initial + name + score */
   .score-badge {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -1492,6 +1493,7 @@
   }
 
   .score-initial {
+    position: relative;
     width: 24px; height: 24px;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -1499,6 +1501,40 @@
     font-size: 0.62rem; font-weight: 700;
     color: white;
     flex-shrink: 0;
+  }
+
+  /* Series win count — notification-style counter sitting astride the
+     bottom-right corner of the WHOLE score pill (not the small initial
+     circle — more room there, and reads as "this pill's score" at a
+     glance). Only in the DOM when an actual series is active
+     (matchFormat>1); ordinary single-game play never has this element at
+     all. Deliberately NOT a separate row/badge (tried first, rejected: cost
+     real board height on mobile) — zero extra vertical space either way.
+     Sized/offset to deliberately overlap the pill's rounded corner (that's
+     the intended look — reads as "attached" rather than floating nearby),
+     while the right offset specifically stays inside the ~4px gap to the
+     next team's pill in the tightest 3-team mobile layout, so it never
+     bleeds into a different team's score. */
+  .series-win-badge {
+    position: absolute;
+    bottom: -6px;
+    right: -4px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 3px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    background: #D32F2F;
+    color: white;
+    border: 2px solid white;
+    font-family: 'Cinzel', serif;
+    font-size: 0.68rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
   }
 
   .score-name-wrap { line-height: 1.1; }
@@ -2315,6 +2351,7 @@
     .score-badge { font-size: 0.85rem; padding: 5px 10px 5px 4px; width: 100%; box-sizing: border-box; }
     .score-initial { width: 28px; height: 28px; font-size: 0.75rem; }
     .turn-info { display: block; font-size: 0.9rem; text-align: center; padding: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
+
 
     /* Timer sits in the sidebar too, below the turn text */
     .timer-wrap {
@@ -5996,12 +6033,23 @@ function renderTopBar() {
     const initial = teamInitial(t);
     const label   = teamLabel(t);
     div.style.setProperty('--team-color', colour);
+    // Series win count — a small notification-style counter overlaid on the
+    // bottom-right corner of the WHOLE score pill (not just the small
+    // initial circle — there's more room on the pill's own corner, and it
+    // reads more clearly as "this pill's score" rather than crowding the
+    // tiny circle). Zero extra vertical space either way (a standalone
+    // badge row was tried first and rejected: it shrank the board on
+    // mobile by however tall that row was). Each team's own pill shows its
+    // own win count, so comparing scores is just glancing at the two pills.
+    const seriesWinHtml = (matchFormat > 1 && seriesWins && seriesWins[t] !== undefined)
+      ? `<span class="series-win-badge">${seriesWins[t]}</span>` : '';
     div.innerHTML = `
       <div class="score-initial" style="background:${colour}">${initial}</div>
       <div class="score-name-wrap">
         <span class="score-name">${label}</span>
         <span class="score-val">${GS.sequences[t]}/${GS.seqToWin}</span>
-      </div>`;
+      </div>
+      ${seriesWinHtml}`;
     scoresEl.append(div);
   }
 
