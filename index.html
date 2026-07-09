@@ -5464,24 +5464,24 @@ function broadcastActionBanner(msg, icon, kind, dur = 4500) {
 // chat log), so who-said-what is automatic and unambiguous in every
 // player-count scenario — 1v1, 1v1v1, 2v2, 3v3, etc.
 const CHAT_PRESETS = [
+  { text: "Game on", emoji: "😎", cat: "Social" },
+  { text: "All part of the plan", emoji: "🧠", cat: "Light Taunts" },
+  { text: "Too easy", emoji: "😌", cat: "Light Taunts" },
+  { text: "Nice try", emoji: "😉", cat: "Reactions" },
   { text: "Nice move!", emoji: "👍", cat: "Reactions" },
-  { text: "On fire!", emoji: "🔥", cat: "Reactions" },
+  { text: "Saw that coming", emoji: "👀", cat: "Reactions" },
   { text: "Didn't see that coming!", emoji: "😲", cat: "Reactions" },
-  { text: "Sneaky!", emoji: "😏", cat: "Reactions" },
-  { text: "Genius!", emoji: "🧠", cat: "Reactions" },
-  { text: "Hurry up!", emoji: "😄", cat: "Social" },
-  { text: "This won't end well for you...", emoji: "🤨", cat: "Light Taunts" },
-  { text: "Too easy!", emoji: "😎", cat: "Light Taunts" },
-  { text: "Big mistake...", emoji: "😈", cat: "Light Taunts" },
-  { text: "Need a Jack!", emoji: "🥺", cat: "Reactions" },
-  { text: "So many Jacks?", emoji: "😳", cat: "Reactions" },
-  { text: "Red Alert!", emoji: "‼️", cat: "Social" },
-  { text: "Game On!", emoji: "💪🏼", cat: "Social" },
-  { text: "Why only me?", emoji: "🤷🏻‍♂️", cat: "Light Taunts" },
   { text: "Wait a sec...", emoji: "🤌🏼", cat: "Social" },
+  { text: "Now it gets interesting", emoji: "🍿", cat: "Social" },
+  { text: "On fire!", emoji: "🔥", cat: "Reactions" },
+  { text: "Red Alert!", emoji: "‼️", cat: "Social" },
+  { text: "This won't end well for you...", emoji: "🤨", cat: "Light Taunts" },
+  { text: "Where are the Jacks?!?", emoji: "🤯", cat: "Reactions" },
+  { text: "You've got a Jackpot", emoji: "🎰", cat: "Reactions" },
   { text: "Ha ha ha!", emoji: "😂", cat: "Reactions" },
-  { text: "Roko Mat, Janay Do!", emoji: "🙏🏽", cat: "Social" },
-  { text: "Roko, Mat Janay Do!", emoji: "🛑", cat: "Social" },
+  { text: "Hurry up!", emoji: "⌛️", cat: "Social" },
+  { text: "Don't! … let it go!", emoji: "🙏🏽", cat: "Social" },
+  { text: "Don't let it go!", emoji: "✋🏼", cat: "Social" },
 ];
 
 function toggleChatPicker() {
