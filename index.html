@@ -5421,7 +5421,12 @@ function leaveGame() {
   document.getElementById('lobby-main').style.display = 'flex';
   document.getElementById('lobby-create').style.display = 'none';
   document.getElementById('lobby-waiting').style.display = 'none';
-  document.getElementById('player-name').value = '';
+  // Logged-in players get their display name restored, not wiped — this
+  // runs on every single return to the lobby (after a game, after quitting),
+  // which is a far more common trigger than the one-time cold-start prefill
+  // in loadActiveAccount(). Leaving this as an unconditional clear meant
+  // anyone logged in had to retype their name after every game.
+  document.getElementById('player-name').value = currentAccount ? currentAccount.displayName : '';
   document.getElementById('join-code').value = '';
   document.getElementById('start-btn').style.display = 'none';
   setError('lobby-error', '');
