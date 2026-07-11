@@ -2197,23 +2197,38 @@
 
   #h2h-box { margin-bottom: 16px; }
   .h2h-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 2px;
+    padding: 10px 2px;
     border-bottom: 1px solid rgba(201,168,76,0.15);
   }
   .h2h-row:last-child { border-bottom: none; }
+  .h2h-row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
   .h2h-opponent {
     font-family: 'EB Garamond', serif;
-    font-size: 0.85rem;
-    color: rgba(245,240,232,0.85);
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: rgba(245,240,232,0.9);
   }
-  .h2h-record {
+  .h2h-played {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.7rem;
+    color: rgba(245,240,232,0.5);
+  }
+  .h2h-row-bottom { display: flex; gap: 16px; }
+  .h2h-stat {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.72rem;
+    color: rgba(245,240,232,0.6);
+  }
+  .h2h-stat strong {
     font-family: 'Cinzel', serif;
     font-weight: 700;
     color: var(--gold-light);
-    font-size: 0.8rem;
+    font-size: 0.85rem;
   }
 
   /* Post-first-game "save your progress" nudge — same gold-tinted-on-dark
@@ -5568,6 +5583,25 @@ function setActiveAccount(usernameLower, displayUsername, displayName) {
   const nameInput = document.getElementById('player-name');
   if (nameInput && !nameInput.value.trim()) nameInput.value = displayName; // convenience prefill, still editable
   renderAccountStatus();
+  syncMyUsernameToRoom();
+}
+
+// A player's account link is written into the shared room player list ONCE,
+// at the moment they join (see createGame()/joinRoom()) — it's never
+// refreshed after that. Someone who creates an account or logs in AFTER
+// already joining a room (e.g. via the "Save Progress" prompt between
+// games, or the lobby's Account link while waiting for a rematch) would
+// otherwise stay permanently tagged as a guest for that room's H2H
+// crediting, even though they're now a real account holder. This re-pushes
+// the corrected username the moment it actually changes.
+function syncMyUsernameToRoom() {
+  if (!roomRef || aiMode || !myId || !players?.length) return;
+  const idx = players.findIndex(p => p.id === myId);
+  if (idx === -1) return;
+  const correctUsername = currentAccount ? currentAccount.username : null;
+  if (players[idx].username === correctUsername) return; // already in sync, nothing to push
+  players[idx].username = correctUsername;
+  roomRef.child('players').set(JSON.stringify(players)).catch(() => {});
 }
 
 // Re-fetches the account (rather than trusting any cached hash) so the
@@ -5596,6 +5630,7 @@ function logoutAccount() {
   renderAccountStatus();
   toast('Logged out — playing as guest.');
   renderLobbyStats();
+  syncMyUsernameToRoom();
 }
 
 function openAccountDetailsModal() {
@@ -7529,12 +7564,20 @@ async function renderH2HBox() {
   const validRows = rows.filter(Boolean);
   if (!validRows.length) { box.style.display = 'none'; return; }
 
-  document.getElementById('h2h-rows').innerHTML = validRows.map(r =>
-    `<div class="h2h-row">
-      <span class="h2h-opponent">vs ${r.name}</span>
-      <span class="h2h-record">${r.myWins}W ${r.theirWins}L${r.draws ? ' ' + r.draws + 'D' : ''}</span>
-    </div>`
-  ).join('');
+  document.getElementById('h2h-rows').innerHTML = validRows.map(r => {
+    const totalPlayed = r.myWins + r.theirWins + r.draws;
+    return `<div class="h2h-row">
+      <div class="h2h-row-top">
+        <span class="h2h-opponent">vs ${r.name}</span>
+        <span class="h2h-played">${totalPlayed} played</span>
+      </div>
+      <div class="h2h-row-bottom">
+        <span class="h2h-stat">Wins <strong>${r.myWins}</strong></span>
+        <span class="h2h-stat">Losses <strong>${r.theirWins}</strong></span>
+        <span class="h2h-stat">Draws <strong>${r.draws}</strong></span>
+      </div>
+    </div>`;
+  }).join('');
   box.style.display = 'block';
 }
 
