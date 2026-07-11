@@ -7527,22 +7527,46 @@ async function renderMyStats() {
   maybeShowSaveProgressPrompt(s.totalGames);
 }
 
-// Shows the LOCAL viewing player's own H2H record against each opponent
-// from THIS match — not teammates', and not a full pairwise matrix, to
-// stay personal/self-focused like the My Stats box above it. Multiplayer
-// only; absent entirely in VS AI games (no real opponent account exists),
-// and absent if I'm not logged in myself (nothing to look up).
+// Shows the LOCAL viewing player's own head-to-head record for THIS game's
+// matchup. Two distinct paths depending on mode:
 //
-// Reads happen after recordH2H() has had a moment to land (see the delay
-// at each call site in showWinModal) — not perfectly race-proof against a
-// slow host connection, but this is a bonus display, not the source of
-// truth; the actual write already happened correctly regardless of what
-// this shows.
+// VS AI: "vs AI · <Difficulty>" — grouped by difficulty, not by the AI's
+// flavor name (Magnus/Kaspar), since two AIs at the same difficulty play
+// identically; splitting by name would just fragment one meaningful number
+// into several indistinguishable ones. No new tracking needed — every game
+// already logs its difficulty and outcome (the same data already powering
+// the Easy/Medium/Hard row in "YOUR STATS" above it), just re-aggregated as
+// raw counts instead of a percentage. Works for guests too — same data
+// source and rules as "YOUR STATS" right next to it, so gating this behind
+// login would be an arbitrary inconsistency with its own neighbor.
+//
+// Multiplayer: per-opponent, account-to-account — not teammates', and not
+// a full pairwise matrix, to stay personal/self-focused like My Stats.
+// Requires both players logged in (see recordH2H); absent if I'm not
+// logged in myself. Reads happen after recordH2H() has had a moment to
+// land (see the delay at each call site in showWinModal) — not perfectly
+// race-proof against a slow host connection, but this is a bonus display,
+// not the source of truth; the actual write already happened correctly
+// regardless of what this shows.
 async function renderH2HBox() {
   const box = document.getElementById('h2h-box');
   if (!box) return;
-  if (aiMode || !currentAccount || !fbInit() || !db) { box.style.display = 'none'; return; }
+  if (!fbInit() || !db) { box.style.display = 'none'; return; }
 
+  if (aiMode) {
+    const games = await fetchMyStatsHistory();
+    const relevant = games.filter(g => g.mode === 'vs_ai' && g.aiDifficulty === aiDifficulty);
+    if (!relevant.length) { box.style.display = 'none'; return; }
+    const wins   = relevant.filter(g => g.outcome === 'win').length;
+    const losses = relevant.filter(g => g.outcome === 'loss').length;
+    const draws  = relevant.filter(g => g.outcome === 'draw').length;
+    const diffLabel = aiDifficulty.charAt(0).toUpperCase() + aiDifficulty.slice(1);
+    document.getElementById('h2h-rows').innerHTML = renderH2HRow(`AI · ${diffLabel}`, wins, losses, draws);
+    box.style.display = 'block';
+    return;
+  }
+
+  if (!currentAccount) { box.style.display = 'none'; return; }
   const myTeam = players[myIndex]?.team;
   const opponents = players.filter(p => p.team !== myTeam && p.username);
   if (!opponents.length) { box.style.display = 'none'; return; }
@@ -7564,21 +7588,27 @@ async function renderH2HBox() {
   const validRows = rows.filter(Boolean);
   if (!validRows.length) { box.style.display = 'none'; return; }
 
-  document.getElementById('h2h-rows').innerHTML = validRows.map(r => {
-    const totalPlayed = r.myWins + r.theirWins + r.draws;
-    return `<div class="h2h-row">
-      <div class="h2h-row-top">
-        <span class="h2h-opponent">vs ${r.name}</span>
-        <span class="h2h-played">${totalPlayed} played</span>
-      </div>
-      <div class="h2h-row-bottom">
-        <span class="h2h-stat">Wins <strong>${r.myWins}</strong></span>
-        <span class="h2h-stat">Losses <strong>${r.theirWins}</strong></span>
-        <span class="h2h-stat">Draws <strong>${r.draws}</strong></span>
-      </div>
-    </div>`;
-  }).join('');
+  document.getElementById('h2h-rows').innerHTML = validRows
+    .map(r => renderH2HRow(r.name, r.myWins, r.theirWins, r.draws))
+    .join('');
   box.style.display = 'block';
+}
+
+// Shared row template for both the VS AI and multiplayer paths above, so
+// the two stay visually identical rather than drifting apart over time.
+function renderH2HRow(label, wins, losses, draws) {
+  const totalPlayed = wins + losses + draws;
+  return `<div class="h2h-row">
+    <div class="h2h-row-top">
+      <span class="h2h-opponent">vs ${label}</span>
+      <span class="h2h-played">Played ${totalPlayed}</span>
+    </div>
+    <div class="h2h-row-bottom">
+      <span class="h2h-stat">Wins <strong>${wins}</strong></span>
+      <span class="h2h-stat">Losses <strong>${losses}</strong></span>
+      <span class="h2h-stat">Draws <strong>${draws}</strong></span>
+    </div>
+  </div>`;
 }
 
 // Shown exactly once — right after the very first game ever logged on this
