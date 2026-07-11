@@ -112,6 +112,71 @@
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
 
+  /* Account modal — reuses .htp-backdrop/.htp-modal (white card) and the
+     lobby's own .lbl/.input-wrap/.lobby-input/.lobby-btn-primary, so form
+     fields look identical to the ones the player already used to enter
+     their name — no new visual language to design or learn. */
+  .account-modal { position: relative; max-width: 380px; overflow-y: auto; }
+  .account-modal-close {
+    position: absolute;
+    top: 14px; right: 14px;
+    background: #F0F1F8;
+    border: none;
+    color: #666;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.85rem;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 2;
+  }
+  .account-modal-title {
+    font-family: 'Cinzel', serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1a2080;
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  .account-modal-sub {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.88rem;
+    color: #666;
+    text-align: center;
+    margin: 0 0 18px;
+    line-height: 1.4;
+  }
+  .account-field-feedback {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.75rem;
+    margin: -4px 0 10px 2px;
+    min-height: 1em;
+  }
+  .account-field-feedback.checking { color: #888; }
+  .account-field-feedback.available { color: #2E7D32; }
+  .account-field-feedback.taken { color: #C0392B; }
+  .account-modal-error {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.82rem;
+    color: #C0392B;
+    text-align: center;
+    min-height: 1.2em;
+    margin-bottom: 4px;
+  }
+  .account-modal-switch {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.85rem;
+    color: #666;
+    text-align: center;
+    padding: 12px 0 2px;
+    cursor: pointer;
+  }
+  .account-modal-switch strong { color: var(--logo-blue); }
+
   .htp-header {
     background: linear-gradient(180deg, #2233CC 0%, #1a2080 100%);
     padding: 14px 16px;
@@ -511,6 +576,45 @@
     margin-top: 2px;
     text-align: center;
   }
+
+  #account-status-box {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(201,168,76,0.3);
+    border-radius: 14px;
+    padding: 10px 14px;
+  }
+  #account-status-guest, #account-status-loggedin {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .account-status-icon { font-size: 0.9rem; flex-shrink: 0; }
+  .account-status-text {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.85rem;
+    color: rgba(245,240,232,0.85);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .account-status-text strong { color: var(--gold-light, #E8D9A0); font-weight: 700; }
+  .account-status-link {
+    background: none;
+    border: 1px solid rgba(201,168,76,0.5);
+    border-radius: 20px;
+    color: var(--gold-light, #E8D9A0);
+    font-family: 'Cinzel', serif;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 6px 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .account-status-link:active { background: rgba(201,168,76,0.15); }
 
   .lobby-section-title {
     font-family: 'Cinzel', serif;
@@ -2044,6 +2148,42 @@
   .my-stats-diff-item .lvl { font-size: 0.58rem; color: rgba(245,240,232,0.5); font-family:'Cinzel',serif; letter-spacing:0.05em; }
   .my-stats-diff-item .pct { font-size: 0.85rem; font-weight: 700; color: var(--gold-light); font-family:'Cinzel',serif; }
 
+  /* Post-first-game "save your progress" nudge — same gold-tinted-on-dark
+     treatment as #my-stats-box directly above it, so it reads as a natural
+     continuation of "here's what you just did" rather than a jarring
+     unrelated interruption. */
+  #save-progress-prompt {
+    background: rgba(201,168,76,0.1);
+    border: 1px solid rgba(201,168,76,0.3);
+    border-radius: 10px;
+    padding: 16px 14px;
+    margin-bottom: 16px;
+  }
+  .save-progress-title {
+    font-family: 'Cinzel', serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--gold-light);
+    margin-bottom: 6px;
+  }
+  .save-progress-text {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.82rem;
+    color: rgba(245,240,232,0.75);
+    line-height: 1.4;
+    margin: 0 0 14px;
+  }
+  .save-progress-actions { display: flex; flex-direction: column; gap: 6px; }
+  .save-progress-later {
+    background: none;
+    border: none;
+    font-family: 'EB Garamond', serif;
+    font-size: 0.8rem;
+    color: rgba(245,240,232,0.55);
+    padding: 6px 0 0;
+    cursor: pointer;
+  }
+
   /* Toast — quick, disposable nudges ("select a card first", "space taken") */
   #toast {
     position: fixed;
@@ -2461,6 +2601,24 @@
         <div class="lobby-stats-grid" id="lobby-stats-grid"></div>
       </div>
 
+      <!-- Account status — guest state offers a low-key way to save
+           progress anytime (not just the one-time post-first-game prompt);
+           logged-in state shows who's active and a way to switch/log out,
+           which also covers shared-device use (e.g. a parent and kid on
+           the same iPad reclaiming their own progress). -->
+      <div id="account-status-box">
+        <div id="account-status-guest">
+          <span class="account-status-icon">👤</span>
+          <span class="account-status-text">Playing as Guest</span>
+          <button class="account-status-link" onclick="openAccountModal('create')">Save Progress</button>
+        </div>
+        <div id="account-status-loggedin" style="display:none">
+          <span class="account-status-icon">✓</span>
+          <span class="account-status-text">Logged in as <strong id="account-status-name"></strong></span>
+          <button class="account-status-link" onclick="logoutAccount()">Log Out</button>
+        </div>
+      </div>
+
       <!-- SECTION: Player Setup -->
       <div class="lobby-section">
         <div class="lobby-section-title">Player Setup</div>
@@ -2795,6 +2953,72 @@
   </div>
 </div>
 
+<!-- Account Modal — Create and Log In share one modal via two toggleable
+     panels, so switching between them (via the "Already have an account?"
+     / "Need an account?" links) doesn't require juggling two backdrops. -->
+<div id="account-modal" class="htp-backdrop" style="display:none">
+  <div class="htp-modal account-modal">
+    <button class="account-modal-close" onclick="closeAccountModal()">✕</button>
+
+    <div id="account-panel-create" style="padding:26px 24px">
+      <div class="account-modal-title">💾 Save Your Progress</div>
+      <p class="account-modal-sub">Create a free username + PIN to keep your stats on any device.</p>
+
+      <div class="lbl">USERNAME</div>
+      <div class="input-wrap">
+        <span class="input-icon">👤</span>
+        <input id="account-username-input" class="lobby-input" type="text" placeholder="3-15 letters, numbers, _" maxlength="15" autocomplete="off" autocapitalize="off" spellcheck="false" oninput="onUsernameInput()">
+      </div>
+      <div class="account-field-feedback" id="account-username-feedback">&nbsp;</div>
+
+      <div class="lbl">DISPLAY NAME</div>
+      <div class="input-wrap">
+        <span class="input-icon">✏️</span>
+        <input id="account-displayname-input" class="lobby-input" type="text" placeholder="Shown to other players" maxlength="7" autocomplete="off">
+      </div>
+
+      <div class="lbl">CHOOSE A PIN</div>
+      <div class="input-wrap">
+        <span class="input-icon">🔒</span>
+        <input id="account-pin-input" class="lobby-input" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="4-6 digits" maxlength="6" autocomplete="off">
+      </div>
+
+      <div class="lbl">CONFIRM PIN</div>
+      <div class="input-wrap" style="margin-bottom:6px">
+        <span class="input-icon">🔒</span>
+        <input id="account-pin-confirm-input" class="lobby-input" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="Re-enter PIN" maxlength="6" autocomplete="off">
+      </div>
+
+      <div class="account-modal-error" id="account-create-error"></div>
+
+      <button class="lobby-btn-primary" onclick="submitCreateAccount()" id="account-create-btn">CREATE ACCOUNT</button>
+      <button class="account-modal-switch" onclick="switchAccountPanel('login')">Already have an account? <strong>Log in</strong></button>
+    </div>
+
+    <div id="account-panel-login" style="display:none;padding:26px 24px">
+      <div class="account-modal-title">👋 Welcome Back</div>
+      <p class="account-modal-sub">Log in to pick up your progress on this device.</p>
+
+      <div class="lbl">USERNAME</div>
+      <div class="input-wrap">
+        <span class="input-icon">👤</span>
+        <input id="login-username-input" class="lobby-input" type="text" placeholder="Your username" maxlength="15" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+
+      <div class="lbl">PIN</div>
+      <div class="input-wrap" style="margin-bottom:6px">
+        <span class="input-icon">🔒</span>
+        <input id="login-pin-input" class="lobby-input" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="Your PIN" maxlength="6" autocomplete="off">
+      </div>
+
+      <div class="account-modal-error" id="account-login-error"></div>
+
+      <button class="lobby-btn-primary" onclick="submitLoginAccount()" id="account-login-btn">LOG IN</button>
+      <button class="account-modal-switch" onclick="switchAccountPanel('create')">Need an account? <strong>Create one</strong></button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════════════════════════
      GAME SCREEN
 ═══════════════════════════════════════════════════ -->
@@ -2875,6 +3099,20 @@
       <div class="my-stats-grid" id="my-stats-grid"></div>
     </div>
 
+    <!-- One-time nudge, shown only right after the very first game ever
+         logged on this device/account (see maybeShowSaveProgressPrompt) —
+         the natural hook moment, right after they've just seen their own
+         stats for the first time. Never shown again after that, and never
+         shown at all if already logged into an account. -->
+    <div id="save-progress-prompt" style="display:none">
+      <div class="save-progress-title">💾 Save this progress?</div>
+      <p class="save-progress-text">Create a free username + PIN so your stats follow you to any device.</p>
+      <div class="save-progress-actions">
+        <button class="lobby-btn-primary" style="margin-bottom:0" onclick="dismissSaveProgressPrompt(); openAccountModal('create')">Create Account</button>
+        <button class="save-progress-later" onclick="dismissSaveProgressPrompt()">Maybe later</button>
+      </div>
+    </div>
+
     <!-- Default state: win/lose summary + action buttons -->
     <div id="win-actions">
       <div id="rematch-shuffle-row" style="display:none;align-items:center;justify-content:center;gap:8px;margin-bottom:10px">
@@ -2928,7 +3166,7 @@ window.addEventListener('load', () => {
   updateSoundToggleUI();
   initOpponentChipIcons();
   initLobbySidePanel();
-  renderLobbyStats();
+  loadActiveAccount().then(renderLobbyStats); // account must resolve first — it decides which stats key to read
   // Auto-spectate if ?watch=CODE in URL
   const params = new URLSearchParams(window.location.search);
   const watchCode = params.get('watch');
@@ -5086,6 +5324,253 @@ function getDeviceId() {
   return id;
 }
 
+// ═══════════════════════════════════════════════════
+// ACCOUNT SYSTEM — a lightweight username+PIN identity, layered on top of
+// (not replacing) the device-ID stats system above. No email, no password
+// reset flows, no backend server: this is a client-only Firebase app, so
+// PIN verification happens by the client reading the stored hash and
+// comparing locally. That's fine for a casual game with cosmetic stakes,
+// but it's NOT real security — anyone with direct Firebase access could
+// eventually brute-force a 4-6 digit PIN offline, since there's no server
+// rate-limiting a guessing attempt the way a real login system would.
+// Deliberately named/scoped this way rather than overselling it.
+// ═══════════════════════════════════════════════════
+
+let currentAccount = null; // { username (lowercase key), displayUsername, displayName } | null = guest
+
+// getStatsKey() is the ONE integration point: logPersonalResult() and
+// fetchMyStatsHistory() key their Firebase reads/writes off this instead of
+// getDeviceId() directly, so every downstream consumer (lobby stats card,
+// results-screen stats box, streak celebration, per-difficulty breakdown)
+// automatically becomes account-aware with zero changes to those functions.
+function getStatsKey() {
+  return currentAccount ? currentAccount.username : getDeviceId();
+}
+
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Usernames are the Firebase key (lowercased for case-insensitive matching)
+// so they're restricted to what's both a legal Firebase path segment and
+// comfortable to type on a phone: 3-15 chars, letters/numbers/underscore.
+function isValidUsername(u) {
+  return /^[a-zA-Z0-9_]{3,15}$/.test(u);
+}
+function isValidPin(p) {
+  return /^[0-9]{4,6}$/.test(p);
+}
+
+async function checkUsernameAvailable(usernameLower) {
+  if (!fbInit() || !db) return null; // null = "couldn't check", not "available"
+  try {
+    const snap = await db.ref('sq_accounts/' + usernameLower).once('value');
+    return !snap.exists();
+  } catch(e) { return null; }
+}
+
+// Creates the account via a transaction (atomic claim — two people can't
+// both grab the same username in the same instant), then carries this
+// device's existing game history over to the new account's stats key so
+// nobody starts at zero just because they created an account after already
+// playing a few games. Returns { ok: true } or { ok: false, reason }.
+async function createAccount(usernameRaw, pin, displayName) {
+  const usernameLower = usernameRaw.trim().toLowerCase();
+  if (!isValidUsername(usernameRaw.trim())) return { ok: false, reason: 'Username must be 3-15 letters, numbers, or underscores.' };
+  if (!isValidPin(pin)) return { ok: false, reason: 'PIN must be 4-6 digits.' };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+
+  const pinHash = await sha256Hex(usernameLower + ':' + pin); // salted with username so identical PINs don't hash identically across accounts
+  const accountRef = db.ref('sq_accounts/' + usernameLower);
+  let claimed = false;
+  try {
+    const result = await accountRef.transaction(existing => {
+      if (existing) return; // already taken — abort, don't overwrite
+      claimed = true;
+      return {
+        username: usernameRaw.trim(),
+        displayName: (displayName || usernameRaw).trim().slice(0, 7),
+        pinHash,
+        createdAt: Date.now(),
+      };
+    });
+    if (!claimed || !result.committed) return { ok: false, reason: 'That username was just taken — try another.' };
+  } catch(e) { return { ok: false, reason: "Couldn't create account — try again." }; }
+
+  // Carry over this device's existing game history, if any, so account
+  // creation never discards progress someone already made playing as a
+  // guest on this device.
+  try {
+    const existingGames = await db.ref('sq_player_stats/' + getDeviceId() + '/games').once('value');
+    if (existingGames.exists()) {
+      await db.ref('sq_player_stats/' + usernameLower + '/games').set(existingGames.val());
+    }
+  } catch(e) { /* non-fatal — account still works, just without carried-over history */ }
+
+  setActiveAccount(usernameLower, usernameRaw.trim(), (displayName || usernameRaw).trim().slice(0, 7));
+  return { ok: true };
+}
+
+// Deliberately generic failure reason on both "no such username" and "wrong
+// PIN" — doesn't confirm/deny whether a given username exists.
+async function loginAccount(usernameRaw, pin) {
+  const usernameLower = usernameRaw.trim().toLowerCase();
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const snap = await db.ref('sq_accounts/' + usernameLower).once('value');
+    if (!snap.exists()) return { ok: false, reason: 'Username or PIN incorrect.' };
+    const account = snap.val();
+    const pinHash = await sha256Hex(usernameLower + ':' + pin);
+    if (pinHash !== account.pinHash) return { ok: false, reason: 'Username or PIN incorrect.' };
+    setActiveAccount(usernameLower, account.username, account.displayName);
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't log in — try again." }; }
+}
+
+function setActiveAccount(usernameLower, displayUsername, displayName) {
+  currentAccount = { username: usernameLower, displayUsername, displayName };
+  localStorage.setItem('seq_account_username', usernameLower);
+  const nameInput = document.getElementById('player-name');
+  if (nameInput && !nameInput.value.trim()) nameInput.value = displayName; // convenience prefill, still editable
+  renderAccountStatus();
+}
+
+function logoutAccount() {
+  currentAccount = null;
+  localStorage.removeItem('seq_account_username');
+  renderAccountStatus();
+  toast('Logged out — playing as guest.');
+  renderLobbyStats();
+}
+
+// Called once at startup — if this device remembers being logged in,
+// re-fetch the account record (rather than trusting a stale local copy) so
+// a displayName changed on another device shows up correctly here too.
+async function loadActiveAccount() {
+  const saved = localStorage.getItem('seq_account_username');
+  if (!saved || !fbInit() || !db) { renderAccountStatus(); return; }
+  try {
+    const snap = await db.ref('sq_accounts/' + saved).once('value');
+    if (snap.exists()) {
+      const account = snap.val();
+      currentAccount = { username: saved, displayUsername: account.username, displayName: account.displayName };
+    } else {
+      localStorage.removeItem('seq_account_username'); // account was deleted server-side; don't keep referencing it
+    }
+  } catch(e) { /* offline — keep no active account for this session rather than guessing */ }
+  renderAccountStatus();
+}
+
+// ── Account modal UI wiring ─────────────────────────────────────────
+
+function renderAccountStatus() {
+  const guestEl = document.getElementById('account-status-guest');
+  const loggedInEl = document.getElementById('account-status-loggedin');
+  if (!guestEl || !loggedInEl) return;
+  if (currentAccount) {
+    guestEl.style.display = 'none';
+    loggedInEl.style.display = 'flex';
+    document.getElementById('account-status-name').textContent = currentAccount.displayName;
+  } else {
+    guestEl.style.display = 'flex';
+    loggedInEl.style.display = 'none';
+  }
+}
+
+function openAccountModal(panel) {
+  switchAccountPanel(panel || 'create');
+  // Convenience prefill: if they've already typed a name this session,
+  // offer it as the starting display name rather than making them retype it.
+  const typedName = document.getElementById('player-name')?.value.trim();
+  const displayNameInput = document.getElementById('account-displayname-input');
+  if (typedName && displayNameInput && !displayNameInput.value) displayNameInput.value = typedName;
+  document.getElementById('account-modal').style.display = 'flex';
+}
+
+function closeAccountModal() {
+  document.getElementById('account-modal').style.display = 'none';
+  ['account-create-error','account-login-error'].forEach(id => { document.getElementById(id).textContent = ''; });
+}
+
+function switchAccountPanel(panel) {
+  document.getElementById('account-panel-create').style.display = panel === 'create' ? 'block' : 'none';
+  document.getElementById('account-panel-login').style.display = panel === 'login' ? 'block' : 'none';
+}
+
+// Debounced live availability check as the player types a username —
+// separate from final validation at submit time, this is purely the
+// "green check / red taken" hint so they find out before hitting Create.
+let usernameCheckTimer = null;
+function onUsernameInput() {
+  const input = document.getElementById('account-username-input');
+  const feedback = document.getElementById('account-username-feedback');
+  const raw = input.value.trim();
+  clearTimeout(usernameCheckTimer);
+  if (!raw) { feedback.textContent = '\u00A0'; feedback.className = 'account-field-feedback'; return; }
+  if (!isValidUsername(raw)) {
+    feedback.textContent = '3-15 letters, numbers, or underscores';
+    feedback.className = 'account-field-feedback taken';
+    return;
+  }
+  feedback.textContent = 'Checking...';
+  feedback.className = 'account-field-feedback checking';
+  usernameCheckTimer = setTimeout(async () => {
+    const available = await checkUsernameAvailable(raw.toLowerCase());
+    // Guard against the input changing while the check was in flight
+    if (input.value.trim().toLowerCase() !== raw.toLowerCase()) return;
+    if (available === null) { feedback.textContent = '\u00A0'; feedback.className = 'account-field-feedback'; return; }
+    feedback.textContent = available ? '✓ Available' : '✕ Already taken';
+    feedback.className = 'account-field-feedback ' + (available ? 'available' : 'taken');
+  }, 450);
+}
+
+async function submitCreateAccount() {
+  const username = document.getElementById('account-username-input').value.trim();
+  const displayName = document.getElementById('account-displayname-input').value.trim() || username;
+  const pin = document.getElementById('account-pin-input').value.trim();
+  const pinConfirm = document.getElementById('account-pin-confirm-input').value.trim();
+  const errorEl = document.getElementById('account-create-error');
+  const btn = document.getElementById('account-create-btn');
+
+  if (!isValidUsername(username)) { errorEl.textContent = 'Username must be 3-15 letters, numbers, or underscores.'; return; }
+  if (!isValidPin(pin)) { errorEl.textContent = 'PIN must be 4-6 digits.'; return; }
+  if (pin !== pinConfirm) { errorEl.textContent = "PINs don't match."; return; }
+
+  errorEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'CREATING...';
+  const result = await createAccount(username, pin, displayName);
+  btn.disabled = false;
+  btn.textContent = 'CREATE ACCOUNT';
+
+  if (!result.ok) { errorEl.textContent = result.reason; return; }
+  closeAccountModal();
+  toast('Account created! Your progress is saved. 🎉');
+  renderLobbyStats(); // stats now read from the account's (possibly carried-over) history
+}
+
+async function submitLoginAccount() {
+  const username = document.getElementById('login-username-input').value.trim();
+  const pin = document.getElementById('login-pin-input').value.trim();
+  const errorEl = document.getElementById('account-login-error');
+  const btn = document.getElementById('account-login-btn');
+
+  if (!username || !pin) { errorEl.textContent = 'Enter your username and PIN.'; return; }
+
+  errorEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'LOGGING IN...';
+  const result = await loginAccount(username, pin);
+  btn.disabled = false;
+  btn.textContent = 'LOG IN';
+
+  if (!result.ok) { errorEl.textContent = result.reason; return; }
+  closeAccountModal();
+  toast(`Welcome back, ${currentAccount.displayName}! 👋`);
+  renderLobbyStats();
+}
+
 async function getApproxLocation() {
   try {
     const r = await fetch('https://ipapi.co/json/');
@@ -6578,12 +7063,13 @@ function sendMove(move) {
 }
 
 // Personal stats — written by EVERY player (host, guest, VS AI), tagged by
-// this browser's device ID, independent of the shared sq_analytics game
-// record (which only the host writes). This is what powers the "My Stats"
-// summary shown on the results screen after each game.
+// getStatsKey() (the active account's username if logged in, this browser's
+// device ID otherwise), independent of the shared sq_analytics game record
+// (which only the host writes). This is what powers the "My Stats" summary
+// shown on the results screen after each game.
 async function logPersonalResult(outcome, isDraw) {
   if (!fbInit() || !db) return { newBestStreak: false };
-  const deviceId = getDeviceId();
+  const statsKey = getStatsKey();
 
   // Capture the best-ever win streak BEFORE this game is added, so the
   // caller can tell whether this game just set a new personal best.
@@ -6599,7 +7085,7 @@ async function logPersonalResult(outcome, isDraw) {
     sequencesCompleted: GS.sequences?.[players[myIndex]?.team] ?? 0,
   };
   try {
-    await db.ref('sq_player_stats/' + deviceId + '/games').push(entry);
+    await db.ref('sq_player_stats/' + statsKey + '/games').push(entry);
   } catch(e) { return { newBestStreak: false }; }
 
   // Only a genuine WIN can extend a win streak, and only if the new streak
@@ -6655,12 +7141,13 @@ function computeMyStats(games) {
   return { totalGames, wins, losses, draws, winRate, streak, streakType, maxWinStreak, byDifficulty };
 }
 
-// Fetches this device's raw game history from Firebase. Returns [] if none.
+// Fetches this player's raw game history from Firebase — keyed by the
+// active account if logged in, this device otherwise. Returns [] if none.
 async function fetchMyStatsHistory() {
   if (!db) return [];
   try {
-    const deviceId = getDeviceId();
-    const snap = await db.ref('sq_player_stats/' + deviceId + '/games').once('value');
+    const statsKey = getStatsKey();
+    const snap = await db.ref('sq_player_stats/' + statsKey + '/games').once('value');
     if (!snap.exists()) return [];
     return Object.values(snap.val()).sort((a,b) => a.timestamp - b.timestamp);
   } catch(e) { return []; }
@@ -6730,6 +7217,22 @@ async function renderMyStats() {
   }
 
   box.style.display = 'block';
+  maybeShowSaveProgressPrompt(s.totalGames);
+}
+
+// Shown exactly once — right after the very first game ever logged on this
+// device/account, the natural moment right after they've just seen their
+// own stats for the first time. Never shown again after that (totalGames
+// only equals 1 once), and never shown at all if already logged in.
+function maybeShowSaveProgressPrompt(totalGames) {
+  const prompt = document.getElementById('save-progress-prompt');
+  if (!prompt) return;
+  prompt.style.display = (totalGames === 1 && !currentAccount) ? 'block' : 'none';
+}
+
+function dismissSaveProgressPrompt() {
+  const prompt = document.getElementById('save-progress-prompt');
+  if (prompt) prompt.style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════
