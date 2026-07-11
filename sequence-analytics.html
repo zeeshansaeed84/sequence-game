@@ -135,11 +135,37 @@
     <div class="stat-card"><div class="stat-value" id="s-mobile">—</div><div class="stat-label">Mobile %</div></div>
   </div>
 
+  <div class="section-title">Accounts</div>
+  <div class="stats-grid" id="accounts-stats-grid">
+    <div class="stat-card"><div class="stat-value" id="s-accounts-total">—</div><div class="stat-label">Accounts Created</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-accounts-week">—</div><div class="stat-label">New This Week</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-accounts-today">—</div><div class="stat-label">New Today</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-accounts-adoption">—</div><div class="stat-label">Adoption Rate</div></div>
+  </div>
+
   <div class="section-title">AI Win Rate by Difficulty</div>
   <div class="stats-grid" id="ai-stats-grid">
     <div class="stat-card"><div class="stat-value" id="s-easy-rate">—</div><div class="stat-label">Easy · AI Win %</div></div>
     <div class="stat-card"><div class="stat-value" id="s-medium-rate">—</div><div class="stat-label">Medium · AI Win %</div></div>
     <div class="stat-card"><div class="stat-value" id="s-hard-rate">—</div><div class="stat-label">Hard · AI Win %</div></div>
+  </div>
+
+  <div class="section-title">Recent Accounts</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Username</th>
+          <th>Display Name</th>
+          <th>Games Played</th>
+          <th>Progress Carried Over</th>
+        </tr>
+      </thead>
+      <tbody id="accounts-tbody">
+        <tr><td colspan="5" class="loading">Loading…</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <div class="section-title">Recent Games <span id="table-scope-note" style="font-weight:400;font-size:0.75em;opacity:0.7"></span></div>
@@ -267,6 +293,62 @@ async function loadData() {
   document.getElementById('s-sequences').textContent = totalSeq;
   document.getElementById('s-avg-dur').textContent   = durCount ? fmtDur(Math.round(totalDur/durCount)) : '—';
   document.getElementById('s-mobile').textContent    = games.length ? Math.round(mobileCount/games.length*100)+'%' : '—';
+
+  // ── Accounts ──────────────────────────────────────
+  // Two single fetches (not one per account) — sq_player_stats holds every
+  // account's AND every guest device's game history under the same node,
+  // keyed by whichever getStatsKey() resolved to at the time (see the main
+  // game file's account system), so cross-referencing here is just an
+  // in-memory lookup per account rather than N extra network round-trips.
+  const [accountsSnap, playerStatsSnap] = await Promise.all([
+    db.ref('sq_accounts').once('value'),
+    db.ref('sq_player_stats').once('value'),
+  ]);
+  const accountsRaw = accountsSnap.val() || {};
+  const playerStatsRaw = playerStatsSnap.val() || {};
+  const accounts = Object.entries(accountsRaw)
+    .map(([usernameLower, a]) => ({ usernameLower, ...a }))
+    .sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+
+  const now = Date.now();
+  const oneDayMs = 24*60*60*1000;
+  const newToday = accounts.filter(a => now - (a.createdAt||0) < oneDayMs).length;
+  const newThisWeek = accounts.filter(a => now - (a.createdAt||0) < 7*oneDayMs).length;
+  // Adoption rate: of the devices we've ever seen play a game, what fraction
+  // eventually created an account. A rough proxy (one person can of course
+  // play on several devices, or vice versa) rather than an exact figure,
+  // but useful as a trend to watch rather than a precise headcount.
+  const adoptionRate = allDevices.size ? Math.round((accounts.length / allDevices.size) * 100) : 0;
+
+  document.getElementById('s-accounts-total').textContent    = accounts.length;
+  document.getElementById('s-accounts-week').textContent     = newThisWeek;
+  document.getElementById('s-accounts-today').textContent    = newToday;
+  document.getElementById('s-accounts-adoption').textContent = allDevices.size ? adoptionRate + '%' : '—';
+
+  const accountsTbody = document.getElementById('accounts-tbody');
+  if (!accounts.length) {
+    accountsTbody.innerHTML = '<tr><td colspan="5" class="loading">No accounts yet</td></tr>';
+  } else {
+    accountsTbody.innerHTML = accounts.map(a => {
+      const accountGames = playerStatsRaw[a.usernameLower]?.games
+        ? Object.values(playerStatsRaw[a.usernameLower].games) : [];
+      const gamesPlayed = accountGames.length;
+      // "Carried over" = at least one logged game predates this account's
+      // creation — only possible if that history was copied in from a
+      // guest device at account-creation time (see createAccount() in the
+      // main game file), never by playing normally afterward.
+      const earliestGame = accountGames.length
+        ? Math.min(...accountGames.map(g => g.timestamp || Infinity)) : null;
+      const carriedOver = earliestGame && a.createdAt && earliestGame < a.createdAt;
+      return `<tr>
+        <td>${fmtDate(a.createdAt)}</td>
+        <td style="font-family:monospace">${a.username || a.usernameLower}</td>
+        <td>${a.displayName || '—'}</td>
+        <td style="text-align:center">${gamesPlayed}</td>
+        <td style="text-align:center">${carriedOver ? '✓' : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
 
   // ── AI win rate by difficulty ────────────────────
   // Only counts completed, non-draw VS AI games that have an aiDifficulty
