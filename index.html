@@ -2201,28 +2201,23 @@
     border-bottom: 1px solid rgba(201,168,76,0.15);
   }
   .h2h-row:last-child { border-bottom: none; }
-  .h2h-row-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 6px;
-  }
   .h2h-opponent {
     font-family: 'EB Garamond', serif;
     font-size: 0.88rem;
     font-weight: 600;
     color: rgba(245,240,232,0.9);
+    margin-bottom: 6px;
   }
-  .h2h-played {
-    font-family: 'EB Garamond', serif;
-    font-size: 0.7rem;
-    color: rgba(245,240,232,0.5);
+  .h2h-row-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 12px;
   }
-  .h2h-row-bottom { display: flex; gap: 16px; }
   .h2h-stat {
     font-family: 'EB Garamond', serif;
     font-size: 0.72rem;
     color: rgba(245,240,232,0.6);
+    white-space: nowrap;
   }
   .h2h-stat strong {
     font-family: 'Cinzel', serif;
@@ -7599,11 +7594,9 @@ async function renderH2HBox() {
 function renderH2HRow(label, wins, losses, draws) {
   const totalPlayed = wins + losses + draws;
   return `<div class="h2h-row">
-    <div class="h2h-row-top">
-      <span class="h2h-opponent">vs ${label}</span>
-      <span class="h2h-played">Played ${totalPlayed}</span>
-    </div>
+    <div class="h2h-opponent">vs ${label}</div>
     <div class="h2h-row-bottom">
+      <span class="h2h-stat">Played <strong>${totalPlayed}</strong></span>
       <span class="h2h-stat">Wins <strong>${wins}</strong></span>
       <span class="h2h-stat">Losses <strong>${losses}</strong></span>
       <span class="h2h-stat">Draws <strong>${draws}</strong></span>
