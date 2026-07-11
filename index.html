@@ -5643,6 +5643,13 @@ async function loadActiveAccount() {
     if (snap.exists()) {
       const account = snap.val();
       currentAccount = { username: saved, displayUsername: account.username, displayName: account.displayName };
+      // Same convenience prefill as setActiveAccount() — this is actually
+      // the MORE common path in practice: setActiveAccount() only fires at
+      // the moment of creating/logging in, but loadActiveAccount() runs on
+      // every normal app launch for anyone already logged in from a prior
+      // session, which is most launches for a returning player.
+      const nameInput = document.getElementById('player-name');
+      if (nameInput && !nameInput.value.trim()) nameInput.value = account.displayName;
     } else {
       localStorage.removeItem('seq_account_username'); // account was deleted server-side; don't keep referencing it
     }
