@@ -177,6 +177,53 @@
   }
   .account-modal-switch strong { color: var(--logo-blue); }
 
+  .account-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 8px 0;
+    border-bottom: 1px solid #F0F1F8;
+  }
+  .account-detail-label {
+    font-family: 'Cinzel', serif;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #9aa0c0;
+    letter-spacing: 0.1em;
+  }
+  .account-detail-value {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.95rem;
+    color: #1a2080;
+    font-weight: 600;
+  }
+  .account-modal-divider {
+    border-top: 1px solid #F0F1F8;
+    margin: 18px 0;
+  }
+  .account-modal-success {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.82rem;
+    color: #2E7D32;
+    text-align: center;
+    min-height: 1.2em;
+    margin-bottom: 4px;
+  }
+  .account-modal-logout {
+    display: block;
+    width: 100%;
+    background: none;
+    border: 1px solid #E0A0A0;
+    border-radius: 10px;
+    font-family: 'Cinzel', serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #C0392B;
+    padding: 10px 0;
+    cursor: pointer;
+  }
+
   .htp-header {
     background: linear-gradient(180deg, #2233CC 0%, #1a2080 100%);
     padding: 14px 16px;
@@ -2615,7 +2662,7 @@
         <div id="account-status-loggedin" style="display:none">
           <span class="account-status-icon">✓</span>
           <span class="account-status-text">Logged in as <strong id="account-status-name"></strong></span>
-          <button class="account-status-link" onclick="logoutAccount()">Log Out</button>
+          <button class="account-status-link" onclick="openAccountDetailsModal()">Account</button>
         </div>
       </div>
 
@@ -3015,6 +3062,59 @@
 
       <button class="lobby-btn-primary" onclick="submitLoginAccount()" id="account-login-btn">LOG IN</button>
       <button class="account-modal-switch" onclick="switchAccountPanel('create')">Need an account? <strong>Create one</strong></button>
+    </div>
+  </div>
+</div>
+
+<!-- Account Details Modal — reachable from the lobby's "Account" link while
+     logged in. Answers "what's my username?" just by showing it (the most
+     common recovery case: same device, forgot username), and lets someone
+     change their PIN pre-emptively before they forget it, rather than only
+     ever discovering a lost PIN once it's already too late to fix. -->
+<div id="account-details-modal" class="htp-backdrop" style="display:none">
+  <div class="htp-modal account-modal">
+    <button class="account-modal-close" onclick="closeAccountDetailsModal()">✕</button>
+    <div style="padding:26px 24px">
+      <div class="account-modal-title">👤 My Account</div>
+
+      <div class="account-detail-row">
+        <span class="account-detail-label">USERNAME</span>
+        <span class="account-detail-value" id="account-detail-username"></span>
+      </div>
+      <div class="account-detail-row">
+        <span class="account-detail-label">DISPLAY NAME</span>
+        <span class="account-detail-value" id="account-detail-displayname"></span>
+      </div>
+
+      <div class="account-modal-divider"></div>
+
+      <div class="account-modal-title" style="font-size:0.9rem;margin-bottom:14px">🔒 Change PIN</div>
+
+      <div class="lbl">CURRENT PIN</div>
+      <div class="input-wrap">
+        <span class="input-icon">🔒</span>
+        <input id="change-pin-current" class="lobby-input" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="Current PIN" maxlength="6" autocomplete="off">
+      </div>
+
+      <div class="lbl">NEW PIN</div>
+      <div class="input-wrap">
+        <span class="input-icon">🔒</span>
+        <input id="change-pin-new" class="lobby-input" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="4-6 digits" maxlength="6" autocomplete="off">
+      </div>
+
+      <div class="lbl">CONFIRM NEW PIN</div>
+      <div class="input-wrap" style="margin-bottom:6px">
+        <span class="input-icon">🔒</span>
+        <input id="change-pin-confirm" class="lobby-input" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="Re-enter new PIN" maxlength="6" autocomplete="off">
+      </div>
+
+      <div class="account-modal-error" id="change-pin-error"></div>
+      <div class="account-modal-success" id="change-pin-success"></div>
+
+      <button class="lobby-btn-primary" onclick="submitChangePin()" id="change-pin-btn">UPDATE PIN</button>
+
+      <div class="account-modal-divider"></div>
+      <button class="account-modal-logout" onclick="logoutAccount(); closeAccountDetailsModal();">Log Out</button>
     </div>
   </div>
 </div>
@@ -5436,12 +5536,71 @@ function setActiveAccount(usernameLower, displayUsername, displayName) {
   renderAccountStatus();
 }
 
+// Re-fetches the account (rather than trusting any cached hash) so the
+// current-PIN check is always against the actual stored value, then writes
+// only the pinHash field — username, displayName, createdAt untouched.
+async function changePin(currentPin, newPin) {
+  if (!currentAccount) return { ok: false, reason: 'Not logged in.' };
+  if (!isValidPin(newPin)) return { ok: false, reason: 'New PIN must be 4-6 digits.' };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  const usernameLower = currentAccount.username;
+  try {
+    const snap = await db.ref('sq_accounts/' + usernameLower).once('value');
+    if (!snap.exists()) return { ok: false, reason: 'Account not found.' };
+    const account = snap.val();
+    const currentHash = await sha256Hex(usernameLower + ':' + currentPin);
+    if (currentHash !== account.pinHash) return { ok: false, reason: 'Current PIN is incorrect.' };
+    const newHash = await sha256Hex(usernameLower + ':' + newPin);
+    await db.ref('sq_accounts/' + usernameLower + '/pinHash').set(newHash);
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't update PIN — try again." }; }
+}
+
 function logoutAccount() {
   currentAccount = null;
   localStorage.removeItem('seq_account_username');
   renderAccountStatus();
   toast('Logged out — playing as guest.');
   renderLobbyStats();
+}
+
+function openAccountDetailsModal() {
+  if (!currentAccount) return;
+  document.getElementById('account-detail-username').textContent = currentAccount.displayUsername;
+  document.getElementById('account-detail-displayname').textContent = currentAccount.displayName;
+  ['change-pin-current','change-pin-new','change-pin-confirm'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('change-pin-error').textContent = '';
+  document.getElementById('change-pin-success').textContent = '';
+  document.getElementById('account-details-modal').style.display = 'flex';
+}
+
+function closeAccountDetailsModal() {
+  document.getElementById('account-details-modal').style.display = 'none';
+}
+
+async function submitChangePin() {
+  const currentPin = document.getElementById('change-pin-current').value.trim();
+  const newPin = document.getElementById('change-pin-new').value.trim();
+  const newPinConfirm = document.getElementById('change-pin-confirm').value.trim();
+  const errorEl = document.getElementById('change-pin-error');
+  const successEl = document.getElementById('change-pin-success');
+  const btn = document.getElementById('change-pin-btn');
+
+  successEl.textContent = '';
+  if (!currentPin || !newPin) { errorEl.textContent = 'Fill in all PIN fields.'; return; }
+  if (newPin !== newPinConfirm) { errorEl.textContent = "New PINs don't match."; return; }
+  if (newPin === currentPin) { errorEl.textContent = 'New PIN must be different from your current one.'; return; }
+
+  errorEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'UPDATING...';
+  const result = await changePin(currentPin, newPin);
+  btn.disabled = false;
+  btn.textContent = 'UPDATE PIN';
+
+  if (!result.ok) { errorEl.textContent = result.reason; return; }
+  successEl.textContent = '✓ PIN updated successfully.';
+  ['change-pin-current','change-pin-new','change-pin-confirm'].forEach(id => document.getElementById(id).value = '');
 }
 
 // Called once at startup — if this device remembers being logged in,
