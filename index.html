@@ -2195,6 +2195,27 @@
   .my-stats-diff-item .lvl { font-size: 0.58rem; color: rgba(245,240,232,0.5); font-family:'Cinzel',serif; letter-spacing:0.05em; }
   .my-stats-diff-item .pct { font-size: 0.85rem; font-weight: 700; color: var(--gold-light); font-family:'Cinzel',serif; }
 
+  #h2h-box { margin-bottom: 16px; }
+  .h2h-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 2px;
+    border-bottom: 1px solid rgba(201,168,76,0.15);
+  }
+  .h2h-row:last-child { border-bottom: none; }
+  .h2h-opponent {
+    font-family: 'EB Garamond', serif;
+    font-size: 0.85rem;
+    color: rgba(245,240,232,0.85);
+  }
+  .h2h-record {
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    color: var(--gold-light);
+    font-size: 0.8rem;
+  }
+
   /* Post-first-game "save your progress" nudge — same gold-tinted-on-dark
      treatment as #my-stats-box directly above it, so it reads as a natural
      continuation of "here's what you just did" rather than a jarring
@@ -3197,6 +3218,14 @@
     <div id="my-stats-box" style="display:none">
       <div class="my-stats-title">📊 YOUR STATS</div>
       <div class="my-stats-grid" id="my-stats-grid"></div>
+    </div>
+
+    <!-- Head-to-head vs THIS match's opponents (not teammates) — multiplayer
+         only, and only shown if I'm logged in myself. Populated by
+         renderH2HBox(), called once the win/draw modal actually opens. -->
+    <div id="h2h-box" style="display:none">
+      <div class="my-stats-title">⚔️ HEAD-TO-HEAD</div>
+      <div id="h2h-rows"></div>
     </div>
 
     <!-- One-time nudge, shown only right after the very first game ever
@@ -4849,7 +4878,7 @@ async function createGame() {
   myId = generatePlayerId();
   fbGameStarted = false;
 
-  players = [{id: myId, name: myName, team: 0}];
+  players = [{id: myId, name: myName, team: 0, username: currentAccount ? currentAccount.username : null}];
   myIndex = 0;
 
   roomRef = db.ref('sq_rooms/' + roomCode);
@@ -4954,7 +4983,7 @@ async function joinGame() {
     updated = existing; // player list itself doesn't change on a reconnect
   } else {
     myId = generatePlayerId();
-    updated = [...existing, {id: myId, name: myName, team: existing.length % numTeams}];
+    updated = [...existing, {id: myId, name: myName, team: existing.length % numTeams, username: currentAccount ? currentAccount.username : null}];
     try {
       await roomRef.child('players').set(JSON.stringify(updated));
     } catch(e) {
@@ -5619,6 +5648,78 @@ async function loadActiveAccount() {
     }
   } catch(e) { /* offline — keep no active account for this session rather than guessing */ }
   renderAccountStatus();
+}
+
+// ═══════════════════════════════════════════════════
+// HEAD-TO-HEAD (H2H) — pairwise win/loss/draw tracking between logged-in
+// accounts, credited whenever two players end up on opposing teams in a
+// completed multiplayer game. Guests are excluded entirely: a pair only
+// records if BOTH players are logged in, so a reused name on a shared
+// device can never get credited to the wrong person. VS AI games never
+// call into this at all — there's no real opponent account to credit.
+//
+// Only the WINNING team earns credit against each losing team in 3+-way
+// games — two teams that both lost never "decided" anything between
+// themselves, so they get no entry against each other (matches the
+// agreed no-placement-below-1st scope). A draw credits every cross-team
+// pair, regardless of team count.
+// ═══════════════════════════════════════════════════
+
+// Sorted, so the same two players always resolve to the same key
+// regardless of who's "player A" in a given match.
+function h2hKey(usernameA, usernameB) {
+  return [usernameA, usernameB].sort().join('~');
+}
+
+// Builds one array per team, each containing that team's players' account
+// usernames (or null for a guest) — the shape recordH2H() needs, built
+// fresh from the live players array so it works regardless of whether the
+// calling client is the host, a guest, or logged in themselves.
+function buildTeamUsernames() {
+  const teams = Array.from({length: numTeams}, () => []);
+  players.forEach(p => { if (teams[p.team]) teams[p.team].push(p.username || null); });
+  return teams;
+}
+
+// teams: array of arrays of usernames (or null), grouped by team index.
+// winnerTeamIdx: the winning team's index, or null for a draw.
+async function recordH2H(teams, winnerTeamIdx) {
+  if (!fbInit() || !db) return;
+  const isDraw = winnerTeamIdx === null;
+  const pairs = [];
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      // Decisive 3+-way game: only pairs involving the WINNING team get
+      // credited. Two losing teams' players get no entry against each
+      // other — nothing was actually decided between them.
+      if (!isDraw && winnerTeamIdx !== i && winnerTeamIdx !== j) continue;
+      for (const a of teams[i]) {
+        for (const b of teams[j]) {
+          if (!a || !b) continue; // one or both are guests — this pair doesn't record
+          const winner = isDraw ? null : (winnerTeamIdx === i ? a : b);
+          pairs.push([a, b, winner]);
+        }
+      }
+    }
+  }
+  await Promise.all(pairs.map(([a, b, winner]) => creditH2HPair(a, b, winner)));
+}
+
+// Transaction, not read-then-write — two games between the same pair
+// finishing at nearly the same moment (rare, but not impossible with a
+// large enough friend group) must not clobber each other's increment.
+async function creditH2HPair(usernameA, usernameB, winnerUsername) {
+  const key = h2hKey(usernameA, usernameB);
+  try {
+    await db.ref('sq_h2h/' + key).transaction(existing => {
+      const rec = existing || { players: [usernameA, usernameB].sort(), wins: {}, draws: 0, totalMatches: 0 };
+      rec.totalMatches = (rec.totalMatches || 0) + 1;
+      if (winnerUsername) rec.wins[winnerUsername] = (rec.wins[winnerUsername] || 0) + 1;
+      else rec.draws = (rec.draws || 0) + 1;
+      rec.lastPlayed = Date.now();
+      return rec;
+    });
+  } catch(e) { /* non-fatal — H2H is a bonus feature, must never block game-end flow */ }
 }
 
 // ── Account modal UI wiring ─────────────────────────────────────────
@@ -7379,6 +7480,52 @@ async function renderMyStats() {
   maybeShowSaveProgressPrompt(s.totalGames);
 }
 
+// Shows the LOCAL viewing player's own H2H record against each opponent
+// from THIS match — not teammates', and not a full pairwise matrix, to
+// stay personal/self-focused like the My Stats box above it. Multiplayer
+// only; absent entirely in VS AI games (no real opponent account exists),
+// and absent if I'm not logged in myself (nothing to look up).
+//
+// Reads happen after recordH2H() has had a moment to land (see the delay
+// at each call site in showWinModal) — not perfectly race-proof against a
+// slow host connection, but this is a bonus display, not the source of
+// truth; the actual write already happened correctly regardless of what
+// this shows.
+async function renderH2HBox() {
+  const box = document.getElementById('h2h-box');
+  if (!box) return;
+  if (aiMode || !currentAccount || !fbInit() || !db) { box.style.display = 'none'; return; }
+
+  const myTeam = players[myIndex]?.team;
+  const opponents = players.filter(p => p.team !== myTeam && p.username);
+  if (!opponents.length) { box.style.display = 'none'; return; }
+
+  const rows = await Promise.all(opponents.map(async opp => {
+    try {
+      const snap = await db.ref('sq_h2h/' + h2hKey(currentAccount.username, opp.username)).once('value');
+      if (!snap.exists()) return null;
+      const rec = snap.val();
+      return {
+        name: opp.name,
+        myWins: rec.wins?.[currentAccount.username] || 0,
+        theirWins: rec.wins?.[opp.username] || 0,
+        draws: rec.draws || 0,
+      };
+    } catch(e) { return null; }
+  }));
+
+  const validRows = rows.filter(Boolean);
+  if (!validRows.length) { box.style.display = 'none'; return; }
+
+  document.getElementById('h2h-rows').innerHTML = validRows.map(r =>
+    `<div class="h2h-row">
+      <span class="h2h-opponent">vs ${r.name}</span>
+      <span class="h2h-record">${r.myWins}W ${r.theirWins}L${r.draws ? ' ' + r.draws + 'D' : ''}</span>
+    </div>`
+  ).join('');
+  box.style.display = 'block';
+}
+
 // Shown exactly once — right after the very first game ever logged on this
 // device/account, the natural moment right after they've just seen their
 // own stats for the first time. Never shown again after that (totalGames
@@ -7500,6 +7647,13 @@ function showWinModal() {
     document.getElementById('win-title').textContent = title;
     document.getElementById('win-msg').textContent = msg;
     logPersonalResult(null, true).then(renderMyStats);
+    // Host-only write (every client renders this same modal independently,
+    // so crediting from all of them would multiply every count by the
+    // number of players in the room). renderH2HBox() is NOT host-gated —
+    // every viewer wants to see their own record, and it's timed inside
+    // the existing 800ms modal-open delay below to give the write above a
+    // head start.
+    if (!aiMode && isHost) recordH2H(buildTeamUsernames(), null);
     renderSeriesBox();
     const inActiveSeries0 = matchFormat > 1 && seriesWinnerTeam === null;
     const rematchBtn0 = document.getElementById('rematch-btn');
@@ -7512,7 +7666,7 @@ function showWinModal() {
       rematchBtn0.style.display = 'none';
       shuffleRow0.style.display = 'none';
     }
-    setTimeout(() => document.getElementById('win-modal').classList.add('open'), 800);
+    setTimeout(() => { document.getElementById('win-modal').classList.add('open'); renderH2HBox(); }, 800);
     return;
   }
 
@@ -7521,6 +7675,9 @@ function showWinModal() {
     renderMyStats();
     if (result?.newBestStreak) showStreakCongrats(result.streakLength);
   });
+  // Host-only write — see the draw branch above for why (every client
+  // renders this same modal independently; only one of them may credit).
+  if (!aiMode && isHost) recordH2H(buildTeamUsernames(), w);
   updateSeriesScore(w);
   renderSeriesBox();
 
@@ -7577,7 +7734,7 @@ function showWinModal() {
     shuffleRow.style.display = 'none';
   }
 
-  const showModal = () => document.getElementById('win-modal').classList.add('open');
+  const showModal = () => { document.getElementById('win-modal').classList.add('open'); renderH2HBox(); };
 
   if (iWon) {
     playWinMusic(showModal);
