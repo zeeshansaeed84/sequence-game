@@ -1136,6 +1136,13 @@
     color: var(--gold);
     border: 1px solid var(--gold);
   }
+
+  .btn-danger {
+    background: transparent;
+    color: #E08080;
+    border: 1px solid #E08080;
+  }
+  .btn-danger:active { background: rgba(224,128,128,0.12); }
   .btn-secondary:hover { background: rgba(201,168,76,0.1); }
 
   .btn-danger {
@@ -1455,6 +1462,24 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* Shared highlight tint — completed-sequence cards (permanent, added in
+     renderBoard's main loop) and a just-removed cell (temporary, visible
+     only until the next turn is played — see GS.lastRemoved). Deliberately
+     the SAME treatment for both rather than two different colors, per
+     product direction. Sits between the card (.cell-inner) and the chip
+     (.chip-overlay) in DOM order, so it tints the card underneath without
+     ever tinting a chip sitting on top of it. mix-blend-mode:multiply
+     against the card's white background gives a warm light-yellow result
+     while barely touching the darker rank/suit ink, keeping it legible. */
+  .cell-highlight-overlay {
+    position: absolute;
+    inset: 0;
+    background: #F5DC6B;
+    mix-blend-mode: multiply;
+    pointer-events: none;
+    border-radius: 2px;
   }
 
   /* Chip is now an SVG inside a sized div */
@@ -3186,7 +3211,7 @@
         </div>
         <button class="sound-toggle timer-sound-btn" onclick="setSoundEnabled(!soundEnabled)" title="Toggle sound">🔊</button>
       </div>
-      <button class="info-icon-btn" onclick="leaveGame()" title="Quit game"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+      <button class="info-icon-btn" onclick="confirmQuit()" title="Quit game"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
     </div>
 
     <div class="hand-area">
@@ -3202,6 +3227,21 @@
         <button id="chat-trigger-btn" onclick="toggleChatPicker()" title="Send a quick message" style="display:none"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 2.68 1.38 5.08 3.55 6.7-.12.98-.5 2.44-1.4 3.9a.5.5 0 0 0 .55.75c1.98-.5 3.66-1.42 4.68-2.1.83.2 1.7.3 2.62.3 5.52 0 10-3.94 10-8.8S17.52 2 12 2z"/></svg></button>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Quit Confirmation Modal — guards the actual in-game Quit button only
+     (not the pre-game "Leave" or post-game "New Game" buttons, which have
+     nothing to accidentally forfeit). Message is conditional on whether
+     forfeit stakes actually apply right now, via confirmQuit() below. -->
+<div class="modal-backdrop" id="quit-confirm-modal">
+  <div class="modal">
+    <h2 id="quit-confirm-title">Quit Game?</h2>
+    <p id="quit-confirm-msg"></p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+      <button class="btn btn-primary" onclick="closeQuitConfirm()">Keep Playing</button>
+      <button class="btn btn-danger" onclick="closeQuitConfirm();leaveGame()">Yes, Quit</button>
     </div>
   </div>
 </div>
@@ -5431,6 +5471,29 @@ function onRematchUpdate(rematchData) {
   }
 }
 
+// Guards the actual in-game Quit button against accidental taps — the chat
+// trigger and quit button sit close enough on the mobile hand-info-bar that
+// players have reported hitting Quit while trying to open the chat picker.
+// Spectators skip the confirmation entirely (nothing for them to forfeit,
+// no reason to add friction to just stopping watching). The message stays
+// accurate to whether forfeit stakes actually apply right now, rather than
+// always claiming a consequence that might not be real — see
+// hasAnySequenceCompleted() and the aiMode check, matching the exact same
+// gate leaveGame()'s own forfeit trigger uses.
+function confirmQuit() {
+  if (isSpectator || !GS || GS.phase === 'done') { leaveGame(); return; }
+
+  const forfeitApplies = !aiMode && hasAnySequenceCompleted();
+  document.getElementById('quit-confirm-msg').textContent = forfeitApplies
+    ? 'Quitting now will forfeit the game to your opponent(s). Are you sure you want to quit?'
+    : 'Are you sure you want to quit this game?';
+  document.getElementById('quit-confirm-modal').classList.add('open');
+}
+
+function closeQuitConfirm() {
+  document.getElementById('quit-confirm-modal').classList.remove('open');
+}
+
 function leaveGame() {
   // Explicit Quit while a real multiplayer game is genuinely underway (at
   // least one sequence completed) forfeits my WHOLE team — team-scoped,
@@ -7167,6 +7230,20 @@ function renderBoard() {
       else {
         cell.classList.add(cellData.suit);
         cell.append(buildCellCardHTML(cellData.rank, cellData.suit));
+      }
+
+      // Highlight the card underneath — permanently for a completed
+      // sequence, or temporarily (until the next turn is played) right
+      // after a one-eyed jack removal. Wild corners are excluded: they're
+      // free-space graphics, not cards, and never hold a chip to remove.
+      // A cell can never satisfy both conditions at once in practice —
+      // sequence-locked chips are already protected from removal — so
+      // there's no case where these two triggers actually compete.
+      const isRecentlyRemoved = GS.lastRemoved && GS.lastRemoved.row === r && GS.lastRemoved.col === c && GS.moveSeq === GS.lastRemoved.seq;
+      if (!isWild && (isSeqCell || isRecentlyRemoved)) {
+        const highlight = document.createElement('div');
+        highlight.className = 'cell-highlight-overlay';
+        cell.append(highlight);
       }
 
       // Chip (corners are represented by the free-space graphic itself, no chip needed)
