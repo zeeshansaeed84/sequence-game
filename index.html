@@ -3305,7 +3305,7 @@ window.addEventListener('load', () => {
   updateSoundToggleUI();
   initOpponentChipIcons();
   initLobbySidePanel();
-  loadActiveAccount().then(renderLobbyStats); // account must resolve first — it decides which stats key to read
+  const accountLoaded = loadActiveAccount().then(renderLobbyStats); // account must resolve first — it decides which stats key to read
   // Auto-spectate if ?watch=CODE in URL
   const params = new URLSearchParams(window.location.search);
   const watchCode = params.get('watch');
@@ -3313,8 +3313,10 @@ window.addEventListener('load', () => {
     document.getElementById('join-code').value = watchCode.toUpperCase();
     spectateGame();
   } else {
-    // Show tutorial on first ever launch
-    checkFirstLaunch();
+    // Show tutorial on first ever launch — waits for the account load
+    // above so a logged-in returning player's stored tutorial version is
+    // known before checkFirstLaunch() decides whether to show it.
+    accountLoaded.then(checkFirstLaunch);
   }
 });
 
@@ -3857,6 +3859,14 @@ function hideHowToPlay() {
   document.getElementById('htp-modal').style.display = 'none';
 }
 
+// Bump this whenever the tutorial's actual CONTENT changes (new slide,
+// meaningfully rewritten instructions) — never for cosmetic tweaks. Anyone
+// who's seen an earlier version gets shown it exactly once more, then it
+// goes quiet again. Guests track this locally; logged-in accounts track it
+// on their account record so it follows them across devices instead of
+// re-triggering every time they play somewhere new.
+const TUTORIAL_VERSION = 1;
+
 function showTutorial() {
   tutCurrent = 0;
   document.getElementById('tutorial-modal').style.display = 'flex';
@@ -3866,7 +3876,14 @@ function showTutorial() {
 
 function skipTutorial() {
   document.getElementById('tutorial-modal').style.display = 'none';
-  localStorage.setItem('seq_tutorial_done', '1');
+  localStorage.setItem('seq_tutorial_seen_version', String(TUTORIAL_VERSION));
+  if (currentAccount) {
+    currentAccount.tutorialSeenVersion = TUTORIAL_VERSION;
+    if (fbInit() && db) {
+      db.ref('sq_accounts/' + currentAccount.username + '/tutorialSeenVersion')
+        .set(TUTORIAL_VERSION).catch(() => {});
+    }
+  }
 }
 
 function tutNav(dir) {
@@ -4026,9 +4043,16 @@ function initTutGraphics() {
   }
 }
 
-// Check first launch — show tutorial automatically
+// Auto-show the tutorial if this identity hasn't seen the current content
+// version yet — logged-in accounts check their account record (so this
+// follows them across devices), guests check localStorage only. Must run
+// AFTER loadActiveAccount() resolves, since a logged-in check needs
+// currentAccount populated first — see the call site in the load handler.
 function checkFirstLaunch() {
-  if (!localStorage.getItem('seq_tutorial_done')) {
+  const seenVersion = currentAccount
+    ? (currentAccount.tutorialSeenVersion || 0)
+    : parseInt(localStorage.getItem('seq_tutorial_seen_version') || '0', 10);
+  if (seenVersion < TUTORIAL_VERSION) {
     setTimeout(showTutorial, 600);
   }
 }
@@ -5062,6 +5086,10 @@ async function spectateGame() {
   isSpectator = true;
   isHost = false;
   myId = 'spectator_' + generatePlayerId();
+  myIndex = -1; // never a real seat — without this reset, a stale index from
+                // an earlier real game played in this same browser session
+                // could coincidentally resolve to a real team in the game
+                // being spectated, misattributing that team's result as mine
   roomCode = code;
   fbGameStarted = false;
 
@@ -5404,6 +5432,32 @@ function onRematchUpdate(rematchData) {
 }
 
 function leaveGame() {
+  // Explicit Quit while a real multiplayer game is genuinely underway (at
+  // least one sequence completed) forfeits my WHOLE team — team-scoped,
+  // not player-scoped, matching how Sequence itself scores by team. VS AI
+  // is untouched (quitting an AI game has always been free and stays that
+  // way) and an early leave before any sequence exists stays today's
+  // behavior: abandoned, excluded from stats, nothing at stake yet.
+  // isSpectator is an explicit part of this guard, not just relying on
+  // myIndex being reset to -1 on entering spectator mode — a spectator has
+  // no team to forfeit, full stop, regardless of what myIndex resolves to.
+  if (!aiMode && !isSpectator && GS && GS.phase !== 'done' && roomRef && hasAnySequenceCompleted()) {
+    const myTeam = players[myIndex]?.team;
+    if (myTeam !== undefined && !GS.forfeitedTeams?.[myTeam]) {
+      if (isHost) {
+        applyForfeit(myTeam, 'quit'); // host has direct authority — no round-trip needed
+      } else {
+        // Non-host: push through the exact same moves pipeline every other
+        // in-game action already uses. The host's existing 'moves'
+        // listener picks this up and applies the forfeit authoritatively —
+        // see the move.type === 'forfeit' branch at the top of
+        // applyMoveInner(), which deliberately bypasses the normal
+        // whose-turn-is-it check, since quitting can happen on anyone's turn.
+        roomRef.child('moves').push({fromId: myId, move: {type: 'forfeit', team: myTeam}, timestamp: Date.now()});
+      }
+    }
+  }
+
   stopTurnTimer();
   stopCountdownDisplay();
   stopTickSound();
@@ -5526,6 +5580,11 @@ async function createAccount(usernameRaw, pin, displayName) {
   if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
 
   const pinHash = await sha256Hex(usernameLower + ':' + pin); // salted with username so identical PINs don't hash identically across accounts
+  // Carries over whatever tutorial version this device has already seen —
+  // someone creating an account has almost always already played a few
+  // games on this exact device, so starting the account back at "never
+  // seen" would force a redundant re-show right after signup.
+  const deviceTutorialVersion = parseInt(localStorage.getItem('seq_tutorial_seen_version') || '0', 10);
   const accountRef = db.ref('sq_accounts/' + usernameLower);
   let claimed = false;
   try {
@@ -5537,6 +5596,7 @@ async function createAccount(usernameRaw, pin, displayName) {
         displayName: (displayName || usernameRaw).trim().slice(0, 7),
         pinHash,
         createdAt: Date.now(),
+        tutorialSeenVersion: deviceTutorialVersion,
       };
     });
     if (!claimed || !result.committed) return { ok: false, reason: 'That username was just taken — try another.' };
@@ -5552,7 +5612,7 @@ async function createAccount(usernameRaw, pin, displayName) {
     }
   } catch(e) { /* non-fatal — account still works, just without carried-over history */ }
 
-  setActiveAccount(usernameLower, usernameRaw.trim(), (displayName || usernameRaw).trim().slice(0, 7));
+  setActiveAccount(usernameLower, usernameRaw.trim(), (displayName || usernameRaw).trim().slice(0, 7), deviceTutorialVersion);
   return { ok: true };
 }
 
@@ -5567,13 +5627,13 @@ async function loginAccount(usernameRaw, pin) {
     const account = snap.val();
     const pinHash = await sha256Hex(usernameLower + ':' + pin);
     if (pinHash !== account.pinHash) return { ok: false, reason: 'Username or PIN incorrect.' };
-    setActiveAccount(usernameLower, account.username, account.displayName);
+    setActiveAccount(usernameLower, account.username, account.displayName, account.tutorialSeenVersion || 0);
     return { ok: true };
   } catch(e) { return { ok: false, reason: "Couldn't log in — try again." }; }
 }
 
-function setActiveAccount(usernameLower, displayUsername, displayName) {
-  currentAccount = { username: usernameLower, displayUsername, displayName };
+function setActiveAccount(usernameLower, displayUsername, displayName, tutorialSeenVersion) {
+  currentAccount = { username: usernameLower, displayUsername, displayName, tutorialSeenVersion: tutorialSeenVersion || 0 };
   localStorage.setItem('seq_account_username', usernameLower);
   const nameInput = document.getElementById('player-name');
   if (nameInput && !nameInput.value.trim()) nameInput.value = displayName; // convenience prefill, still editable
@@ -5677,7 +5737,7 @@ async function loadActiveAccount() {
     const snap = await db.ref('sq_accounts/' + saved).once('value');
     if (snap.exists()) {
       const account = snap.val();
-      currentAccount = { username: saved, displayUsername: account.username, displayName: account.displayName };
+      currentAccount = { username: saved, displayUsername: account.username, displayName: account.displayName, tutorialSeenVersion: account.tutorialSeenVersion || 0 };
       // Same convenience prefill as setActiveAccount() — this is actually
       // the MORE common path in practice: setActiveAccount() only fires at
       // the moment of creating/logging in, but loadActiveAccount() runs on
@@ -5980,6 +6040,17 @@ function initGameState() {
     discardLockActive: false, // true from the moment the FIRST discard happens
                                // this turn, even before a live card is found —
                                // disables the rest of the hand during the chain
+    consecutiveSkips: [0, 0, 0],       // per-team count of back-to-back auto-skipped
+                                        // turns; reset to 0 the moment that team
+                                        // makes a real move (see applyMoveInner)
+    forfeitedTeams: [false, false, false], // teams removed from rotation via forfeit
+                                            // (explicit quit or 2 consecutive skips) —
+                                            // only ever set once GS.sequences shows at
+                                            // least one completed sequence; see
+                                            // hasAnySequenceCompleted()
+    winReason: null,       // null | 'forfeit' — read by showWinModal() to show
+                            // forfeit-specific messaging instead of the normal
+                            // "completed N sequences" framing
   };
 }
 
@@ -6024,7 +6095,38 @@ function stopTurnTimer() {
 function skipTurn() {
   if (!isHost || !GS || GS.phase === 'done') return;
   const skipped = players[GS.currentTurn];
-  GS.currentTurn = (GS.currentTurn + 1) % players.length;
+  const skippedTeam = skipped?.team;
+
+  // Forfeit tracking only applies to real multiplayer games where the
+  // board actually has stakes on it yet — VS AI is exempt entirely (see
+  // the FORFEIT section comment above), and an early silence before any
+  // sequence exists stays today's quiet, no-consequence skip.
+  if (!aiMode && skippedTeam !== undefined && hasAnySequenceCompleted()) {
+    if (!GS.consecutiveSkips) GS.consecutiveSkips = [0, 0, 0];
+    GS.consecutiveSkips[skippedTeam] = (GS.consecutiveSkips[skippedTeam] || 0) + 1;
+
+    if (GS.consecutiveSkips[skippedTeam] >= 2) {
+      applyForfeit(skippedTeam, 'skip'); // handles its own hostAdvanceAndBroadcast() — don't double it below
+      return;
+    }
+
+    // First skip — auto-resolves the moment the second one happens, so the
+    // remaining player(s) never have to guess or act; they just watch this
+    // count down. Replaces the plain "timed out" banner with the stakes
+    // made explicit, rather than showing both.
+    const teamLabel = teamDisplayName(skippedTeam);
+    GS.currentTurn = nextActiveTurnIndex(GS.currentTurn);
+    GS.forcedCardIdx = null;
+    GS.discardLockActive = false;
+    GS.moveSeq = (GS.moveSeq || 0) + 1;
+    broadcastActionBanner(`${teamLabel} skipped — one more and they forfeit`, '⚠️', 'forfeit-warning');
+    hostAdvanceAndBroadcast();
+    return;
+  }
+
+  // Normal quiet skip — no sequence on the board yet, or VS AI, or a
+  // consecutive-skip count that doesn't apply here at all.
+  GS.currentTurn = nextActiveTurnIndex(GS.currentTurn);
   GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
   GS.discardLockActive = false;
   GS.moveSeq = (GS.moveSeq || 0) + 1;
@@ -6040,6 +6142,111 @@ function skipTurn() {
 function hostAdvanceAndBroadcast() {
   if (GS.phase !== 'done') scheduleTurnTimer(); else stopTurnTimer();
   broadcastGameState();
+}
+
+// ═══════════════════════════════════════════════════
+// FORFEIT — either 2 consecutive auto-skipped turns by the same team, or an
+// explicit Quit press, both gated on hasAnySequenceCompleted() so an early
+// abandon before the game is "really on" stays today's behavior (excluded
+// from stats, no penalty). Team-scoped: either player on a 2-person team
+// triggers the whole team's forfeit, matching how Sequence scores by team.
+// Multiplayer only — VS AI never reaches any of this (see each caller's
+// own aiMode guard); quitting an AI game has always been free and stays
+// that way.
+// ═══════════════════════════════════════════════════
+
+function hasAnySequenceCompleted() {
+  return GS && GS.sequences && GS.sequences.some(s => s > 0);
+}
+
+// Next player index after fromIdx whose team hasn't forfeited — used by
+// both skipTurn() and the normal move-completion turn-advance so a
+// forfeited team's players are silently skipped in rotation. Only matters
+// once a 3+-way game has one team gone but others still playing.
+function nextActiveTurnIndex(fromIdx) {
+  let next = (fromIdx + 1) % players.length;
+  let guard = 0;
+  while (GS.forfeitedTeams?.[players[next].team] && guard < players.length) {
+    next = (next + 1) % players.length;
+    guard++;
+  }
+  return next;
+}
+
+// If the turn is currently sitting on a team that just forfeited, nudge it
+// forward in place to the next active player, rather than waiting for the
+// normal advance path to notice on its own.
+function ensureActiveTurn() {
+  let guard = 0;
+  while (players[GS.currentTurn] && GS.forfeitedTeams?.[players[GS.currentTurn].team] && guard < players.length) {
+    GS.currentTurn = (GS.currentTurn + 1) % players.length;
+    guard++;
+  }
+}
+
+// Core handler, called from both triggers (2x skip in skipTurn(), explicit
+// quit in leaveGame()/the 'forfeit' move type in applyMoveInner).
+//
+// 2-team games: remainingTeams collapses to 1 immediately, so this both
+// credits H2H AND ends the match in the same call.
+// 3+-team games: the forfeiting team loses to EVERY team still standing
+// right now (not just an eventual winner — see recordForfeitH2H below),
+// is removed from rotation, and the match continues among whoever's left.
+// A genuine winner among the survivors still has to emerge from actual
+// play, matching the agreed no-placement-below-1st scope.
+function applyForfeit(team, reason) {
+  if (!GS || GS.phase === 'done') return;
+  if (!GS.forfeitedTeams) GS.forfeitedTeams = [false, false, false];
+  if (GS.forfeitedTeams[team]) return; // already forfeited — no-op, not a double-credit risk
+  if (!hasAnySequenceCompleted()) return; // safety net; callers already gate on this themselves
+
+  GS.forfeitedTeams[team] = true;
+  GS.moveSeq = (GS.moveSeq || 0) + 1;
+
+  const remainingTeams = Array.from({length: numTeams}, (_, t) => t).filter(t => !GS.forfeitedTeams[t]);
+  const teamUsernames = buildTeamUsernames();
+  // Credits every remaining team's players as beating this forfeiting
+  // team's players, right now. Used uniformly for every forfeit event,
+  // including the one that ends a 2-team match — NOT recordH2H, which
+  // would re-walk every team pair and double-credit anyone who forfeited
+  // earlier in the same 3+-way game.
+  if (!aiMode && isHost) recordForfeitH2H(teamUsernames, team);
+
+  const teamLabel = aiMode
+    ? (team === 0 ? myName : (players.find(p=>p.team===team)?.name || 'AI'))
+    : teamDisplayName(team);
+
+  if (remainingTeams.length <= 1) {
+    GS.phase = 'done';
+    GS.winner = remainingTeams[0] ?? null;
+    GS.winReason = 'forfeit';
+    GS.forfeitedTeamIdx = team;
+  } else {
+    ensureActiveTurn();
+    broadcastActionBanner(`${teamLabel} forfeited — game continues`, '🏳️', 'forfeit');
+  }
+
+  hostAdvanceAndBroadcast();
+}
+
+// Variant of recordH2H specifically for a forfeit event — every player on
+// every team still standing gets credited as having beaten every player on
+// the forfeiting team, immediately. This is what lets a 3+-way forfeit be
+// a real, immediate loss against everyone still in the game at that
+// moment, rather than waiting for whoever eventually wins overall.
+async function recordForfeitH2H(teams, forfeitedTeamIdx) {
+  if (!fbInit() || !db) return;
+  const pairs = [];
+  for (let t = 0; t < teams.length; t++) {
+    if (t === forfeitedTeamIdx) continue;
+    for (const winner of teams[t]) {
+      for (const loser of teams[forfeitedTeamIdx]) {
+        if (!winner || !loser) continue; // guest exclusion, same rule as recordH2H
+        pairs.push([winner, loser, winner]);
+      }
+    }
+  }
+  await Promise.all(pairs.map(([a, b, winner]) => creditH2HPair(a, b, winner)));
 }
 
 function applyMove(move, fromId) {
@@ -6059,10 +6266,36 @@ function applyMove(move, fromId) {
 }
 
 function applyMoveInner(move, fromId) {
+  // Forfeit signal from an explicit Quit press — deliberately bypasses the
+  // turn-check below, since a player can quit regardless of whose turn it
+  // currently is. See leaveGame() for how this gets pushed for non-host
+  // quitters (the host applies its own forfeit directly, no round-trip
+  // needed). applyForfeit() itself is idempotent (no-op if that team's
+  // already forfeited) and gated on hasAnySequenceCompleted(), so a stale
+  // or duplicate signal can't do anything harmful — but the host still
+  // verifies fromId actually has a seat on the claimed team before acting,
+  // rather than trusting move.team on its own. Without this, a spectator
+  // (who has no team at all) or any other bogus signal could otherwise
+  // trigger a real team's forfeit just by supplying a team number.
+  if (move.type === 'forfeit') {
+    const senderHasSeatOnTeam = players.some(p => p.id === fromId && p.team === move.team);
+    if (typeof move.team === 'number' && move.team >= 0 && move.team < numTeams && senderHasSeatOnTeam) {
+      applyForfeit(move.team, 'quit');
+    }
+    return;
+  }
+
   const pIdx = players.findIndex(p => p.id === fromId);
   if (pIdx !== GS.currentTurn) return; // not their turn
 
   const p = players[pIdx];
+  // A real move from the correct player — this team is actively engaged,
+  // so any forfeit-warning countdown against them resets. Covers every
+  // move type below uniformly (including the dead-card discard chain,
+  // which is still active play, not silence) rather than resetting
+  // separately in each branch.
+  if (GS.consecutiveSkips && GS.consecutiveSkips[p.team]) GS.consecutiveSkips[p.team] = 0;
+
   const hand = GS.hands[fromId];
   const cardIdx = move.cardIdx;
   if (cardIdx < 0 || cardIdx >= hand.length) return;
@@ -6186,7 +6419,7 @@ function applyMoveInner(move, fromId) {
 
   // Advance turn
   if (GS.phase !== 'done') {
-    GS.currentTurn = (GS.currentTurn + 1) % players.length;
+    GS.currentTurn = nextActiveTurnIndex(GS.currentTurn);
     GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
     GS.discardLockActive = false;
   }
@@ -7372,6 +7605,12 @@ function sendMove(move) {
 async function logPersonalResult(outcome, isDraw) {
   if (!fbInit() || !db) return { newBestStreak: false };
   const statsKey = getStatsKey();
+  // Captured synchronously, before any await — GS can be nulled out from
+  // under this function while it's suspended (e.g. leaveGame()'s forfeit
+  // path calls this indirectly via showWinModal(), then its own teardown
+  // sets GS = null moments later, in the same synchronous continuation,
+  // well before this function's next line would otherwise run).
+  const mySequencesCompleted = GS?.sequences?.[players[myIndex]?.team] ?? 0;
 
   // Capture the best-ever win streak BEFORE this game is added, so the
   // caller can tell whether this game just set a new personal best.
@@ -7384,7 +7623,7 @@ async function logPersonalResult(outcome, isDraw) {
     mode:         aiMode ? 'vs_ai' : 'multiplayer',
     aiDifficulty: aiMode ? aiDifficulty : null,
     outcome:      isDraw ? 'draw' : (outcome ? 'win' : 'loss'),
-    sequencesCompleted: GS.sequences?.[players[myIndex]?.team] ?? 0,
+    sequencesCompleted: mySequencesCompleted,
   };
   try {
     await db.ref('sq_player_stats/' + statsKey + '/games').push(entry);
@@ -7546,7 +7785,7 @@ async function renderMyStats() {
 async function renderH2HBox() {
   const box = document.getElementById('h2h-box');
   if (!box) return;
-  if (!fbInit() || !db) { box.style.display = 'none'; return; }
+  if (isSpectator || !fbInit() || !db) { box.style.display = 'none'; return; }
 
   if (aiMode) {
     const games = await fetchMyStatsHistory();
@@ -7724,14 +7963,18 @@ function showWinModal() {
     msg = 'The board is full — no team completed enough sequences.';
     document.getElementById('win-title').textContent = title;
     document.getElementById('win-msg').textContent = msg;
-    logPersonalResult(null, true).then(renderMyStats);
-    // Host-only write (every client renders this same modal independently,
-    // so crediting from all of them would multiply every count by the
-    // number of players in the room). renderH2HBox() is NOT host-gated —
-    // every viewer wants to see their own record, and it's timed inside
-    // the existing 800ms modal-open delay below to give the write above a
-    // head start.
-    if (!aiMode && isHost) recordH2H(buildTeamUsernames(), null);
+    // Spectators are just watching — a draw (or win, below) in a game they
+    // have no seat in must never write to their own personal stats or H2H.
+    if (!isSpectator) {
+      logPersonalResult(null, true).then(renderMyStats);
+      // Host-only write (every client renders this same modal independently,
+      // so crediting from all of them would multiply every count by the
+      // number of players in the room). renderH2HBox() is NOT host-gated —
+      // every viewer wants to see their own record, and it's timed inside
+      // the existing 800ms modal-open delay below to give the write above a
+      // head start.
+      if (!aiMode && isHost) recordH2H(buildTeamUsernames(), null);
+    }
     renderSeriesBox();
     const inActiveSeries0 = matchFormat > 1 && seriesWinnerTeam === null;
     const rematchBtn0 = document.getElementById('rematch-btn');
@@ -7749,19 +7992,42 @@ function showWinModal() {
   }
 
   const iWon = aiMode ? w === 0 : w === players[myIndex]?.team;
-  logPersonalResult(iWon, false).then(result => {
-    renderMyStats();
-    if (result?.newBestStreak) showStreakCongrats(result.streakLength);
-  });
-  // Host-only write — see the draw branch above for why (every client
-  // renders this same modal independently; only one of them may credit).
-  if (!aiMode && isHost) recordH2H(buildTeamUsernames(), w);
+  // Spectators are just watching — never write to their own personal stats
+  // or H2H for a game they have no seat in (myIndex is also reset to -1 on
+  // entering spectator mode as defense-in-depth, but this explicit check is
+  // the real fix — it doesn't depend on index math happening to work out).
+  // iWon itself stays computed above regardless — it's also used later for
+  // win/lose audio, which a spectator should still hear correctly.
+  if (!isSpectator) {
+    logPersonalResult(iWon, false).then(result => {
+      renderMyStats();
+      if (result?.newBestStreak) showStreakCongrats(result.streakLength);
+    });
+    // Host-only write — see the draw branch above for why (every client
+    // renders this same modal independently; only one of them may credit).
+    // Skipped entirely for a forfeit-ended match: applyForfeit() already
+    // credited H2H at the moment of forfeit via recordForfeitH2H(), which
+    // (unlike recordH2H here) correctly avoids re-crediting a team that
+    // forfeited earlier in the same 3+-way game. Calling recordH2H too would
+    // double-count every pair it touches.
+    if (!aiMode && isHost && GS.winReason !== 'forfeit') recordH2H(buildTeamUsernames(), w);
+  }
+  // Series score is shared/broadcast state (already host-gated inside
+  // updateSeriesScore itself) and something a spectator legitimately wants
+  // to see — unlike personal stats/H2H above, this stays outside the guard.
   updateSeriesScore(w);
   renderSeriesBox();
 
   const seriesJustDecided = matchFormat > 1 && seriesWinnerTeam !== null;
 
-  if (aiMode) {
+  if (GS.winReason === 'forfeit') {
+    // Forfeit is multiplayer-only (see the FORFEIT section's aiMode guards),
+    // so this never needs an aiMode branch the way the normal case below does.
+    const winnerNames = teamDisplayName(w);
+    const forfeitedNames = teamDisplayName(GS.forfeitedTeamIdx);
+    title = `🏳️ Win by Forfeit`;
+    msg = `${forfeitedNames} forfeited the match — ${winnerNames} wins.`;
+  } else if (aiMode) {
     if (w === 0) {
       title = '🏆 You Win!';
       msg = `You completed ${GS.sequences[w]} sequence${GS.sequences[w]>1?'s':''}. Well played!`;
