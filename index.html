@@ -1464,22 +1464,23 @@
     justify-content: center;
   }
 
-  /* Shared highlight tint — completed-sequence cards (permanent, added in
-     renderBoard's main loop) and a just-removed cell (temporary, visible
-     only until the next turn is played — see GS.lastRemoved). Deliberately
-     the SAME treatment for both rather than two different colors, per
-     product direction. Sits between the card (.cell-inner) and the chip
-     (.chip-overlay) in DOM order, so it tints the card underneath without
-     ever tinting a chip sitting on top of it. mix-blend-mode:multiply
-     against the card's white background gives a warm light-yellow result
-     while barely touching the darker rank/suit ink, keeping it legible. */
-  .cell-highlight-overlay {
-    position: absolute;
-    inset: 0;
-    background: #F5DC6B;
-    mix-blend-mode: multiply;
-    pointer-events: none;
-    border-radius: 2px;
+  /* Card-frame highlights — completed-sequence cards (permanent) and a
+     just-removed cell (temporary, visible only until the next turn is
+     played — see GS.lastRemoved). Matches the EXACT visual language
+     already established for dead cards (.hand-card.dead-card: 2px dashed
+     border) rather than inventing a new pattern. A full-card color tint
+     was tried first and rejected after real-device testing — it made the
+     rank/suit ink harder to read and, worse, fought with reading OTHER
+     still-open sequence lines on the board, which is exactly the opposite
+     of what a "look here" indicator should do. A frame around the card,
+     leaving its actual color untouched, avoids both problems. */
+  .cell.in-sequence {
+    border: 2px dashed var(--seq-border-color, #1a2080);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
+  }
+  .cell.recently-removed {
+    border: 2px dashed #C0392B;
+    box-shadow: 0 3px 8px rgba(192,57,43,0.35);
   }
 
   /* Chip is now an SVG inside a sized div */
@@ -7232,18 +7233,20 @@ function renderBoard() {
         cell.append(buildCellCardHTML(cellData.rank, cellData.suit));
       }
 
-      // Highlight the card underneath — permanently for a completed
-      // sequence, or temporarily (until the next turn is played) right
-      // after a one-eyed jack removal. Wild corners are excluded: they're
+      // Frame highlight — permanently for a completed sequence (team-
+      // colored, so which team's line it is stays visually obvious even
+      // among several running sequences), or temporarily (until the next
+      // turn is played) right after a one-eyed jack removal, matching the
+      // existing dead-card red frame. Wild corners are excluded — they're
       // free-space graphics, not cards, and never hold a chip to remove.
       // A cell can never satisfy both conditions at once in practice —
-      // sequence-locked chips are already protected from removal — so
-      // there's no case where these two triggers actually compete.
+      // sequence-locked chips are already protected from removal.
       const isRecentlyRemoved = GS.lastRemoved && GS.lastRemoved.row === r && GS.lastRemoved.col === c && GS.moveSeq === GS.lastRemoved.seq;
-      if (!isWild && (isSeqCell || isRecentlyRemoved)) {
-        const highlight = document.createElement('div');
-        highlight.className = 'cell-highlight-overlay';
-        cell.append(highlight);
+      if (!isWild && isSeqCell) {
+        cell.classList.add('in-sequence');
+        cell.style.setProperty('--seq-border-color', CHIP_HEX[TEAM_COLORS[chipTeam]] || '#1a2080');
+      } else if (!isWild && isRecentlyRemoved) {
+        cell.classList.add('recently-removed');
       }
 
       // Chip (corners are represented by the free-space graphic itself, no chip needed)
