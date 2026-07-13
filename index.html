@@ -3418,6 +3418,19 @@ window.addEventListener('load', () => {
 // the browser fires this the moment it detects a real connection again.
 window.addEventListener('online', flushPendingStats);
 
+// Registers sw.js (see that file for the full caching strategy) so that
+// opening the app fresh with zero connectivity — e.g. the home-screen icon
+// in airplane mode — can be served from a cached copy instead of the
+// browser's own "no internet" error page taking over before any of this
+// app's own code ever gets a chance to run. Registration failure isn't
+// fatal — the app still works completely normally online either way, it
+// just won't have the offline-launch fallback available.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+
 // ═══════════════════════════════════════════════════
 // SOUND SYSTEM
 // ═══════════════════════════════════════════════════
