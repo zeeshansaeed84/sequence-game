@@ -2955,7 +2955,36 @@
 
       <div class="htp-section">
         <div class="htp-section-title">♻️ DEAD CARDS</div>
-        <p class="htp-text">If both board cells matching your card are already occupied, your card is <strong>dead</strong>. Tap it to select it — a <strong>Discard</strong> button will appear. Discard it to draw a new card.</p>
+        <p class="htp-text">If both board cells matching your card are already occupied, your card is <strong>dead</strong>. Tap it to select it — a <strong>Discard</strong> button will appear. Once you discard, you're committed: if the replacement card you draw is playable, you must play that exact card immediately — no choosing a different one from your hand instead. Use discards wisely!</p>
+
+        <!-- Same 5 "unchanged" cards appear in both hands below, in the same
+             slots, so the only thing that visibly changes between them is
+             the ONE card being discarded — deliberately different values
+             from the dead-card slot itself, so the discarded card can never
+             be mistaken for still sitting in the "after" hand. -->
+        <p class="htp-text" style="font-size:0.68rem;opacity:0.6;text-align:center;margin-top:10px;margin-bottom:0">BEFORE — dead card marked</p>
+        <div class="htp-demo" style="gap:5px;flex-wrap:wrap;margin-top:6px">
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card clubs" id="htp-b1"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card spades" id="htp-b2"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62">
+            <div class="hand-card diamonds dead-card" id="htp-b-dead"></div>
+            <button class="dead-card-x" style="pointer-events:none">✕</button>
+          </div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card clubs" id="htp-b4"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card hearts" id="htp-b5"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card spades" id="htp-b6"></div></div>
+        </div>
+
+        <p class="htp-text" style="font-size:0.68rem;opacity:0.6;text-align:center;margin-top:14px;margin-bottom:0">AFTER DISCARDING — new card must be played</p>
+        <div class="htp-demo" style="gap:5px;flex-wrap:wrap;margin-top:6px">
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card clubs locked-card" id="htp-a1"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card spades locked-card" id="htp-a2"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card hearts forced-card" id="htp-a-forced"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card clubs locked-card" id="htp-a4"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card hearts locked-card" id="htp-a5"></div></div>
+          <div class="hand-card-wrap" style="zoom:0.62"><div class="hand-card spades locked-card" id="htp-a6"></div></div>
+        </div>
+        <p class="htp-text" style="font-size:0.72rem;opacity:0.7;margin-top:8px">The discarded card is replaced by a new one — if it's playable, it glows gold and must be played; everything else dims until then</p>
       </div>
 
       <div class="htp-section">
@@ -2976,6 +3005,7 @@
       <div class="htp-section">
         <div class="htp-section-title">🔴 SERIES SCORE</div>
         <p class="htp-text">Playing a Best of 3, 5, or 7 series? The small number on each player's score badge is their current series win count, updating after every game.</p>
+        <div class="team-scores" style="justify-content:center;margin-top:10px;flex-wrap:wrap" id="htp-series-demo"></div>
       </div>
 
       <button class="lobby-btn-outline" style="margin-top:8px" onclick="hideHowToPlay();showTutorial()">▶ REPLAY TUTORIAL</button>
@@ -3368,6 +3398,7 @@ window.addEventListener('load', () => {
   initOpponentChipIcons();
   initLobbySidePanel();
   const accountLoaded = loadActiveAccount().then(renderLobbyStats); // account must resolve first — it decides which stats key to read
+  accountLoaded.then(flushPendingStats); // covers a fresh page load that has entries queued from an earlier offline session
   // Auto-spectate if ?watch=CODE in URL
   const params = new URLSearchParams(window.location.search);
   const watchCode = params.get('watch');
@@ -3381,6 +3412,11 @@ window.addEventListener('load', () => {
     accountLoaded.then(checkFirstLaunch);
   }
 });
+
+// Covers the OTHER offline scenario: a tab that was already open while
+// offline (e.g. mid-flight) regaining connectivity without a page reload —
+// the browser fires this the moment it detects a real connection again.
+window.addEventListener('online', flushPendingStats);
 
 // ═══════════════════════════════════════════════════
 // SOUND SYSTEM
@@ -4026,6 +4062,56 @@ function initHtpGraphics() {
     removeDemoEl.style.width = removeDemoEl.style.height = '36px';
     removeDemoEl.innerHTML = buildChipSVG('t1', 'M', 36, false, false);
     removeDemoEl.dataset.init = '1';
+  }
+  // Before/after dead-card pair — the SAME 5 cards appear in both hands at
+  // the same slots, so the only visible change is the one being discarded.
+  // Deliberately different values from anything else in this demo, so the
+  // discarded card (3 of diamonds) can never be confused with still
+  // sitting in the "after" hand — it's fully replaced by a different card
+  // (ace of hearts) in that same slot, not just re-styled.
+  [
+    { id: 'htp-b1', card: {rank:'4',  suit:'clubs'}    },
+    { id: 'htp-b2', card: {rank:'6',  suit:'spades'}   },
+    { id: 'htp-b-dead', card: {rank:'3', suit:'diamonds'} },
+    { id: 'htp-b4', card: {rank:'10', suit:'clubs'}    },
+    { id: 'htp-b5', card: {rank:'Q',  suit:'hearts'}   },
+    { id: 'htp-b6', card: {rank:'8',  suit:'spades'}   },
+    { id: 'htp-a1', card: {rank:'4',  suit:'clubs'}    },
+    { id: 'htp-a2', card: {rank:'6',  suit:'spades'}   },
+    { id: 'htp-a-forced', card: {rank:'A', suit:'hearts'} },
+    { id: 'htp-a4', card: {rank:'10', suit:'clubs'}    },
+    { id: 'htp-a5', card: {rank:'Q',  suit:'hearts'}   },
+    { id: 'htp-a6', card: {rank:'8',  suit:'spades'}   },
+  ].forEach(({id, card}) => {
+    const el = document.getElementById(id);
+    if (el && !el.dataset.init) {
+      el.innerHTML = makeHandCardHTML(card);
+      el.dataset.init = '1';
+    }
+  });
+
+  // Series score demo — 3 sample players, reusing the exact real
+  // score-badge markup (score-initial + score-name-wrap + the
+  // series-win-badge sibling anchored bottom-right of the pill) so this is
+  // an authentic reproduction, not a redrawn illustration.
+  const seriesDemoEl = document.getElementById('htp-series-demo');
+  if (seriesDemoEl && !seriesDemoEl.dataset.init) {
+    const demoPlayers = [
+      { initial: 'Z', label: 'Zeeshan', colour: '#1E90FF', seq: 1, seriesWins: 2 },
+      { initial: 'M', label: 'Magnus',  colour: '#61AF41', seq: 0, seriesWins: 1 },
+      { initial: 'K', label: 'Kaspar',  colour: '#AE42D0', seq: 0, seriesWins: 0 },
+    ];
+    seriesDemoEl.innerHTML = demoPlayers.map(p => `
+      <div class="score-badge">
+        <div class="score-initial" style="background:${p.colour}">${p.initial}</div>
+        <div class="score-name-wrap">
+          <span class="score-name">${p.label}</span>
+          <span class="score-val">${p.seq}/2</span>
+        </div>
+        <span class="series-win-badge">${p.seriesWins}</span>
+      </div>
+    `).join('');
+    seriesDemoEl.dataset.init = '1';
   }
 }
 
@@ -7703,8 +7789,64 @@ function sendMove(move) {
 // device ID otherwise), independent of the shared sq_analytics game record
 // (which only the host writes). This is what powers the "My Stats" summary
 // shown on the results screen after each game.
+// ═══════════════════════════════════════════════════
+// OFFLINE STATS QUEUE — logPersonalResult() normally writes straight to
+// Firebase; if that's unreachable (no connection at page load, so the
+// Firebase SDK itself never downloaded — see fbInit()'s early return), the
+// result is held here instead of being silently discarded. flushPendingStats()
+// drains this the moment a connection is confirmed, either via the
+// 'online' event (already-open tab regains connectivity) or at normal
+// startup (a fresh page load that happens to have entries queued from an
+// earlier offline session). Each entry carries its own statsKey, captured
+// at the moment the game finished — so it's correctly attributed to
+// whoever was actually logged in at the time, not whoever's logged in
+// whenever the flush eventually happens.
+//
+// Scope, deliberately: this only ever needs to matter for VS AI, since
+// multiplayer requires a live connection to sync between devices in the
+// first place — there's no "played a multiplayer game while offline"
+// case to cover. It's written mode-agnostic anyway (queues on ANY failed
+// write, not just aiMode ones) since that costs nothing extra and adds a
+// little general resilience against a write that fails for some other
+// transient reason.
+//
+// One accepted trade-off: a queued-then-later-synced game can't trigger
+// the "new personal best streak" celebration in the moment, since that
+// needs prior history that isn't available while offline. The stats
+// themselves end up fully correct once synced — this only affects whether
+// the celebratory popup fires right away for those specific games.
+function queuePendingStat(statsKey, entry) {
+  let queue = [];
+  try { queue = JSON.parse(localStorage.getItem('seq_pending_stats') || '[]'); } catch(e) { queue = []; }
+  queue.push({ statsKey, entry });
+  if (queue.length > 200) queue = queue.slice(queue.length - 200); // sane cap, not expected to ever be hit
+  localStorage.setItem('seq_pending_stats', JSON.stringify(queue));
+}
+
+async function flushPendingStats() {
+  if (!fbInit() || !db) return; // still offline — nothing to do yet
+  let queue = [];
+  try { queue = JSON.parse(localStorage.getItem('seq_pending_stats') || '[]'); } catch(e) { queue = []; }
+  if (!queue.length) return;
+
+  const stillPending = [];
+  let synced = 0;
+  for (const item of queue) {
+    try {
+      await db.ref('sq_player_stats/' + item.statsKey + '/games').push(item.entry);
+      synced++;
+    } catch(e) {
+      stillPending.push(item); // write failed again — keep it queued, try next time
+    }
+  }
+  localStorage.setItem('seq_pending_stats', JSON.stringify(stillPending));
+  if (synced > 0) {
+    toast(`✓ ${synced} offline game${synced > 1 ? 's' : ''} synced`);
+    renderLobbyStats();
+  }
+}
+
 async function logPersonalResult(outcome, isDraw) {
-  if (!fbInit() || !db) return { newBestStreak: false };
   const statsKey = getStatsKey();
   // Captured synchronously, before any await — GS can be nulled out from
   // under this function while it's suspended (e.g. leaveGame()'s forfeit
@@ -7712,11 +7854,6 @@ async function logPersonalResult(outcome, isDraw) {
   // sets GS = null moments later, in the same synchronous continuation,
   // well before this function's next line would otherwise run).
   const mySequencesCompleted = GS?.sequences?.[players[myIndex]?.team] ?? 0;
-
-  // Capture the best-ever win streak BEFORE this game is added, so the
-  // caller can tell whether this game just set a new personal best.
-  const priorGames = await fetchMyStatsHistory();
-  const priorBest = computeMyStats(priorGames).maxWinStreak;
 
   const entry = {
     gameId:       analyticsGameId || ('local_' + Date.now()),
@@ -7726,9 +7863,23 @@ async function logPersonalResult(outcome, isDraw) {
     outcome:      isDraw ? 'draw' : (outcome ? 'win' : 'loss'),
     sequencesCompleted: mySequencesCompleted,
   };
+
+  if (!fbInit() || !db) {
+    queuePendingStat(statsKey, entry);
+    return { newBestStreak: false };
+  }
+
+  // Capture the best-ever win streak BEFORE this game is added, so the
+  // caller can tell whether this game just set a new personal best.
+  const priorGames = await fetchMyStatsHistory();
+  const priorBest = computeMyStats(priorGames).maxWinStreak;
+
   try {
     await db.ref('sq_player_stats/' + statsKey + '/games').push(entry);
-  } catch(e) { return { newBestStreak: false }; }
+  } catch(e) {
+    queuePendingStat(statsKey, entry); // write itself failed even though fbInit() succeeded (e.g. connection dropped mid-write) — still don't lose it
+    return { newBestStreak: false };
+  }
 
   // Only a genuine WIN can extend a win streak, and only if the new streak
   // is strictly longer than whatever the best-ever was before this game —
