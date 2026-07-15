@@ -4846,6 +4846,42 @@ function evalPlacement(r, c, team, gs, diff) {
 //   opponent's blocking chip can accidentally open up a winning cell for a
 //   completely different team, which is a real own-goal the AI should avoid
 //   walking into blindly.
+// For HARD one-eyed jack removal only: counts how many DISTINCT near-
+// complete windows (at most 1 gap remaining) a specific real chip
+// participates in. This is the piece countRun's multi-line bonus misses —
+// countRun stops dead at the first empty cell, so it never detects that a
+// chip sitting one gap away from a wild corner is actually propping up TWO
+// separate threatening windows at once (one ending at the corner, one
+// not), not just one. A chip at that overlap is a strictly better removal
+// target: taking it breaks both threats in a single move, rather than
+// leaving a corner-assisted alternate line fully intact.
+function threateningWindowCount(r, c, t, gs) {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  let count = 0;
+  for (const [dr,dc] of dirs) {
+    for (let off = -4; off <= 0; off++) {
+      let gapCount = 0, blocked = false, friendlyCount = 0;
+      for (let k = 0; k < 5; k++) {
+        const nr = r + (off+k)*dr, nc = c + (off+k)*dc;
+        if (nr < 0 || nr >= 10 || nc < 0 || nc >= 10) { blocked = true; break; }
+        const isPivot = nr === r && nc === c;
+        const ch = gs.chips[nr][nc];
+        const isWild = gs.board[nr][nc].type === 'wild';
+        if (isPivot || ch === t || isWild) {
+          friendlyCount++;
+        } else if (ch !== null) {
+          blocked = true; break;
+        } else {
+          gapCount++;
+        }
+      }
+      if (blocked || gapCount === 0) continue; // gapCount===0: no room left, not removal-relevant (mirrors genuineThreatAt)
+      if (gapCount <= 1) count++; // near-complete: at most 1 more cell needed
+    }
+  }
+  return count;
+}
+
 function evalRemoval(r, c, oppTeam, threat, diff, gs, aiTeam, hand) {
   // Core rule across ALL levels: one-eyed jack only makes sense when the
   // opponent has a genuinely live near-complete line through this cell.
@@ -4896,6 +4932,16 @@ function evalRemoval(r, c, oppTeam, threat, diff, gs, aiTeam, hand) {
     if (fwd + bwd >= 3) dangerousLines++;
   }
   if (dangerousLines > 1) score += (dangerousLines - 1) * 1500;
+
+  // Corner/overlap bonus: does this chip prop up more than one near-
+  // complete window at once (e.g. sitting one gap away from a wild
+  // corner, which quietly extends a SECOND threat that countRun above
+  // can't see, since it stops dead at the first empty cell)? Removing a
+  // chip at that overlap breaks both threats in one move — strictly
+  // better than removing a chip that's only part of a single line, even
+  // when their raw run-length looks identical.
+  const windowCount = threateningWindowCount(r, c, oppTeam, gs);
+  if (windowCount > 1) score += (windowCount - 1) * 2000;
 
   // Dual-purpose bonus: is the freed cell ALSO good for the AI's own
   // offense/defense? A removal that both blocks them and sets up the AI is
