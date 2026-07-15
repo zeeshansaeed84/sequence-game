@@ -3739,7 +3739,7 @@ const CHIP_COLORS = {
   'purple':  { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // Ibravo  (Medium son)
   'orange':  { ring: '#F0663C', ringDark: '#a83d1f', center: '#feeae2' }, // Hashon  (Medium nephew)
   'magenta': { ring: '#D6249F', ringDark: '#8a1566', center: '#fbe0f2' }, // Zaytro  (Hard son)
-  'gold':    { ring: '#E6B800', ringDark: '#9c7a00', center: '#fdf6d8' }, // Waltan  (Hard nephew)
+  'gold':    { ring: '#E6B800', ringDark: '#9c7a00', center: '#fdf6d8' }, // Walius  (Hard nephew)
   // Legacy aliases so any older reference to t1/t2 still resolves rather than
   // falling back to blue — kept pointing at green/purple, their original colors.
   't1':      { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' },
@@ -3756,7 +3756,7 @@ const AI_TIER = {
   medium: { son: { name: 'Ibravo', initial: 'I', color: 'orange'   },
             nephew: { name: 'Hashon', initial: 'H', color: 'purple' } },
   hard:   { son: { name: 'Zaytro', initial: 'Z', color: 'gold'     },
-            nephew: { name: 'Waltan', initial: 'W', color: 'magenta' } },
+            nephew: { name: 'Walius', initial: 'W', color: 'magenta' } },
 };
 
 let _chipId = 0;
@@ -4144,7 +4144,7 @@ function initHtpGraphics() {
     const demoPlayers = [
       { initial: 'Y', label: 'You',    colour: '#1E90FF', seq: 1, seriesWins: 2 },
       { initial: 'Z', label: 'Zaytro', colour: '#E6B800', seq: 0, seriesWins: 1 },
-      { initial: 'W', label: 'Waltan', colour: '#D6249F', seq: 0, seriesWins: 0 },
+      { initial: 'W', label: 'Walius', colour: '#D6249F', seq: 0, seriesWins: 0 },
     ];
     seriesDemoEl.innerHTML = demoPlayers.map(p => `
       <div class="score-badge">

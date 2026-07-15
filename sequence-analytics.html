@@ -400,7 +400,7 @@ async function loadData() {
       const statusClass = g.status === 'completed' ? 'badge-done' : g.status === 'abandoned' ? 'badge-abandoned' : 'badge-started';
       const loc = [g.location?.city, g.location?.country].filter(Boolean).join(', ') || '—';
 
-      // Setup summary: e.g. "vs Zaytro & Waltan · First to 2 · Hard" or "3 Teams · First to 1"
+      // Setup summary: e.g. "vs Zaytro & Walius · First to 2 · Hard" or "3 Teams · First to 1"
       // Bot names come straight from THIS game's own recorded players (not
       // derived from a difficulty→name lookup), so it's always exactly
       // right for that game regardless of any future bot renaming.
