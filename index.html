@@ -3962,7 +3962,7 @@ function renderDifficultyOptions() {
     const chipRow = bots.map(b =>
       `<span class="seg-chip" data-chip="${b.color}" data-initial="${b.initial}"></span>`
     ).join('');
-    const names = bots.map(b => b.name).join(' & ');
+    const names = 'vs ' + bots.map(b => b.name).join(' & ');
     return `<button type="button" class="seg-btn${diff === selected ? ' active' : ''}" data-val="${diff}" onclick="selectSeg('difficulty',this,'${diff}')">
       <span class="seg-check">✓</span>
       <span class="seg-chip-row">${chipRow}</span>
