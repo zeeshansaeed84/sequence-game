@@ -3748,7 +3748,7 @@ const TEAM_COLORS = new Proxy({}, { get: (_t, prop) => teamColor(Number(prop)) }
 
 const CHIP_COLORS = {
   't0':      { ring: '#1E90FF', ringDark: '#0a5fa8', center: '#e8f4ff' }, // blue    — always the human player
-  'green':   { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // Alitra  (Easy son)
+  'green':   { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // Alison  (Easy son)
   'pink':    { ring: '#E84C88', ringDark: '#a82359', center: '#fde8f0' }, // Kabior  (Easy nephew)
   'purple':  { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // Ibravo  (Medium son)
   'orange':  { ring: '#F0663C', ringDark: '#a83d1f', center: '#feeae2' }, // Hashon  (Medium nephew)
@@ -3765,7 +3765,7 @@ const CHIP_COLORS = {
 // 2-opponent (1v1v1) game. This is what makes chip color track difficulty
 // (the new scheme) rather than being a fixed team→color mapping.
 const AI_TIER = {
-  easy:   { son: { name: 'Alitra', initial: 'A', color: 'green'    },
+  easy:   { son: { name: 'Alison', initial: 'A', color: 'green'    },
             nephew: { name: 'Kabior', initial: 'K', color: 'pink'   } },
   medium: { son: { name: 'Ibravo', initial: 'I', color: 'orange'   },
             nephew: { name: 'Hashon', initial: 'H', color: 'purple' } },
@@ -3989,7 +3989,7 @@ function initLobbySidePanel() {
   const chips = document.getElementById('lobby-side-chips');
   if (chips && !chips.dataset.init) {
     // Decorative spread: the human (blue) plus the three tier leads
-    // (Alitra/Ibravo/Zaytro) in their signature colors.
+    // (Alison/Ibravo/Zaytro) in their signature colors.
     [['t0','Y'], ['green','A'], ['orange','I'], ['gold','Z']].forEach(([color, initial]) => {
       const d = document.createElement('div');
       d.innerHTML = buildChipSVG(color, initial, 40, false, false);
@@ -8108,7 +8108,7 @@ async function renderH2HBox() {
     const wins   = relevant.filter(g => g.outcome === 'win').length;
     const losses = relevant.filter(g => g.outcome === 'loss').length;
     const draws  = relevant.filter(g => g.outcome === 'draw').length;
-    // Label by the tier's son bot (Alitra/Ibravo/Zaytro) rather than the raw
+    // Label by the tier's son bot (Alison/Ibravo/Zaytro) rather than the raw
     // difficulty word — under the personality scheme the name IS the
     // difficulty, and "vs Zaytro" reads better than "vs AI · Hard". The son
     // is the constant across both 1v1 and 1v1v1 at that tier, so it's the

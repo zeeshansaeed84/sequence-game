@@ -145,7 +145,7 @@
 
   <div class="section-title">AI Win Rate by Difficulty</div>
   <div class="stats-grid" id="ai-stats-grid">
-    <div class="stat-card"><div class="stat-value" id="s-easy-rate">—</div><div class="stat-label">Easy (Alitra) · AI Win %</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-easy-rate">—</div><div class="stat-label">Easy (Alison) · AI Win %</div></div>
     <div class="stat-card"><div class="stat-value" id="s-medium-rate">—</div><div class="stat-label">Medium (Ibravo) · AI Win %</div></div>
     <div class="stat-card"><div class="stat-value" id="s-hard-rate">—</div><div class="stat-label">Hard (Zaytro) · AI Win %</div></div>
   </div>
@@ -365,12 +365,12 @@ async function loadData() {
     el.title = `${aiWins} of ${levelGames.length} games`;
   });
   // Show sample size under each percentage for context. Bot names here are
-  // the tier's "son" bot (Alitra/Ibravo/Zaytro) — the same stable per-tier
+  // the tier's "son" bot (Alison/Ibravo/Zaytro) — the same stable per-tier
   // identity the main game's H2H box uses, regardless of whether any given
   // game was 1v1 or 1v1v1. NOTE: these names are a manual duplicate of
   // AI_TIER in sequence-game.html — if the bots are renamed again, update
   // both this map and that one.
-  const TIER_SON_NAME = { easy: 'Alitra', medium: 'Ibravo', hard: 'Zaytro' };
+  const TIER_SON_NAME = { easy: 'Alison', medium: 'Ibravo', hard: 'Zaytro' };
   ['easy','medium','hard'].forEach(level => {
     const levelGames = aiGames.filter(g => g.aiDifficulty === level);
     const label = document.getElementById(`s-${level}-rate`)?.nextElementSibling;
