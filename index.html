@@ -2735,19 +2735,17 @@
         </div>
         <div class="error-msg" id="lobby-error"></div>
 
-        <div class="lbl" style="margin-top:4px">CHOOSE OPPONENT(S)</div>
+        <div class="lbl" style="margin-top:4px">HOW MANY OPPONENTS?</div>
         <div class="seg-group" id="seg-opponents">
           <button type="button" class="seg-btn active" data-val="2" onclick="selectSeg('opponents',this,2)">
             <span class="seg-check">✓</span>
-            <span class="seg-chip-row"><span class="seg-chip" id="chip-magnus-1"></span></span>
-            <span class="seg-text">vs Magnus</span>
-            <span class="seg-sub-flanked"><span class="seg-sub">1 Player</span></span>
+            <span class="seg-text">One Opponent</span>
+            <span class="seg-sub-flanked"><span class="seg-sub">1v1</span></span>
           </button>
           <button type="button" class="seg-btn" data-val="3" onclick="selectSeg('opponents',this,3)">
             <span class="seg-check">✓</span>
-            <span class="seg-chip-row"><span class="seg-chip" id="chip-magnus-2"></span><span class="seg-chip" id="chip-kaspar-2"></span></span>
-            <span class="seg-text">vs Magnus &amp; Kaspar</span>
-            <span class="seg-sub-flanked"><span class="seg-sub">2 Players</span></span>
+            <span class="seg-text">Two Opponents</span>
+            <span class="seg-sub-flanked"><span class="seg-sub">1v1v1</span></span>
           </button>
         </div>
       </div>
@@ -2784,26 +2782,10 @@
       <!-- SECTION: Difficulty + Play button + Sound -->
       <div class="lobby-section">
         <div class="lobby-section-title">Difficulty</div>
-        <div class="seg-group" id="seg-difficulty" style="margin-bottom:16px">
-          <button type="button" class="seg-btn" data-val="easy" onclick="selectSeg('difficulty',this,'easy')">
-            <span class="seg-check">✓</span>
-            <span class="seg-dot-row"><span class="seg-dot" style="background:#3CB043"></span></span>
-            <span class="seg-text">Easy</span>
-            <span class="seg-sub">Relaxed AI</span>
-          </button>
-          <button type="button" class="seg-btn active" data-val="medium" onclick="selectSeg('difficulty',this,'medium')">
-            <span class="seg-check">✓</span>
-            <span class="seg-dot-row"><span class="seg-dot" style="background:#F0B429"></span></span>
-            <span class="seg-text">Medium</span>
-            <span class="seg-sub">Balanced AI</span>
-          </button>
-          <button type="button" class="seg-btn" data-val="hard" onclick="selectSeg('difficulty',this,'hard')">
-            <span class="seg-check">✓</span>
-            <span class="seg-dot-row"><span class="seg-dot" style="background:#D9483D"></span></span>
-            <span class="seg-text">Hard</span>
-            <span class="seg-sub">Strategic AI</span>
-          </button>
-        </div>
+        <!-- Populated by renderDifficultyOptions() — each tier button shows the
+             bot(s) you'd actually face at that difficulty given the current
+             opponent-count selection (one chip+name, or two for 1v1v1). -->
+        <div class="seg-group" id="seg-difficulty" style="margin-bottom:16px"></div>
 
         <input type="hidden" id="ai-num-teams" value="2">
         <input type="hidden" id="ai-seq-to-win" value="2">
@@ -3395,7 +3377,7 @@ window.addEventListener('resize', setVh);
 window.addEventListener('load', () => setTimeout(setVh, 200));
 window.addEventListener('load', () => {
   updateSoundToggleUI();
-  initOpponentChipIcons();
+  renderDifficultyOptions();
   initLobbySidePanel();
   const accountLoaded = loadActiveAccount().then(renderLobbyStats); // account must resolve first — it decides which stats key to read
   accountLoaded.then(flushPendingStats); // covers a fresh page load that has entries queued from an earlier offline session
@@ -3744,12 +3726,51 @@ let seriesWinnerTeam = null; // set once a team reaches the majority
 // Full game state (authoritative on host, synced to clients)
 let GS = null;
 
-const TEAM_COLORS = ['t0','t1','t2'];
+// Team → chip-color mapping. Team 0 is ALWAYS the human (blue). For VS AI
+// games, teams 1+ take their color from the current difficulty tier — the
+// son (team 1) then the nephew (team 2) — so chip color now tracks
+// difficulty rather than being a fixed per-team color. Human multiplayer
+// (no aiMode) keeps the original green/purple for teams 1/2.
+//
+// Exposed as teamColor(i) plus a TEAM_COLORS proxy so the many existing
+// call sites that index TEAM_COLORS[t] keep working unchanged.
+function teamColor(teamIdx) {
+  if (teamIdx === 0) return 't0'; // human, always blue
+  if (aiMode) {
+    const tier = AI_TIER[aiDifficulty] || AI_TIER['medium'];
+    if (teamIdx === 1) return tier.son.color;
+    if (teamIdx === 2) return tier.nephew.color;
+  }
+  // Human-vs-human multiplayer fallback: original green / purple
+  return teamIdx === 1 ? 'green' : 'purple';
+}
+const TEAM_COLORS = new Proxy({}, { get: (_t, prop) => teamColor(Number(prop)) });
 
 const CHIP_COLORS = {
-  't0': { ring: '#1E90FF', ringDark: '#0a5fa8', center: '#e8f4ff' }, // blue  — team 0
-  't1': { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // green — team 1
-  't2': { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // purple — team 2 (3-player only)
+  't0':      { ring: '#1E90FF', ringDark: '#0a5fa8', center: '#e8f4ff' }, // blue    — always the human player
+  'green':   { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // Alitra  (Easy son)
+  'pink':    { ring: '#E84C88', ringDark: '#a82359', center: '#fde8f0' }, // Kabior  (Easy nephew)
+  'purple':  { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // Ibravo  (Medium son)
+  'orange':  { ring: '#F0663C', ringDark: '#a83d1f', center: '#feeae2' }, // Hashon  (Medium nephew)
+  'magenta': { ring: '#D6249F', ringDark: '#8a1566', center: '#fbe0f2' }, // Zaytro  (Hard son)
+  'gold':    { ring: '#E6B800', ringDark: '#9c7a00', center: '#fdf6d8' }, // Waltan  (Hard nephew)
+  // Legacy aliases so any older reference to t1/t2 still resolves rather than
+  // falling back to blue — kept pointing at green/purple, their original colors.
+  't1':      { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' },
+  't2':      { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' },
+};
+
+// Which chip color each difficulty's bots use. [son, nephew] per tier — the
+// son plays in a 1-opponent game, the nephew joins as the second bot in a
+// 2-opponent (1v1v1) game. This is what makes chip color track difficulty
+// (the new scheme) rather than being a fixed team→color mapping.
+const AI_TIER = {
+  easy:   { son: { name: 'Alitra', initial: 'A', color: 'green'    },
+            nephew: { name: 'Kabior', initial: 'K', color: 'pink'   } },
+  medium: { son: { name: 'Ibravo', initial: 'I', color: 'orange'   },
+            nephew: { name: 'Hashon', initial: 'H', color: 'purple' } },
+  hard:   { son: { name: 'Zaytro', initial: 'Z', color: 'gold'     },
+            nephew: { name: 'Waltan', initial: 'W', color: 'magenta' } },
 };
 
 let _chipId = 0;
@@ -3873,8 +3894,13 @@ function selectSeg(group, btn, val) {
   if (hidden) hidden.value = val;
   // Changing opponent count flips whether the current match format selection
   // reads as "Best of N" (2 teams) or "Race to N" (3 teams) — refresh the
-  // stepper's label live so it never shows a stale/wrong format name.
-  if (group === 'opponents') refreshMatchFormatLabel('ai');
+  // stepper's label live so it never shows a stale/wrong format name. It also
+  // changes whether each difficulty button shows one bot or two, so re-render
+  // those as well.
+  if (group === 'opponents') {
+    refreshMatchFormatLabel('ai');
+    renderDifficultyOptions();
+  }
 }
 
 // Compact +/- stepper for Match Format — cycles through Single Game, Best of
@@ -3918,19 +3944,37 @@ function refreshMatchFormatLabel(scope) {
   valEl.textContent = matchFormatLabel(parseInt(hidden.value) || 1, currentTeamCountFor(scope));
 }
 
-// Render Magnus (green/t1) and Kaspar (purple/t2) chip icons in the opponent pills
-function initOpponentChipIcons() {
-  const specs = [
-    ['chip-magnus-1', 't1', 'M'],
-    ['chip-magnus-2', 't1', 'M'],
-    ['chip-kaspar-2', 't2', 'K'],
-  ];
-  specs.forEach(([id, team, initial]) => {
-    const el = document.getElementById(id);
-    if (el && !el.dataset.init) {
-      el.innerHTML = buildChipSVG(team, initial, 36, false, false);
-      el.dataset.init = '1';
-    }
+// Renders the three difficulty buttons dynamically. Each shows the bot(s)
+// you'd face at that tier given the current opponent-count selection: one
+// chip + the son's name for a 1-opponent game, or two chips + both names
+// (son & nephew) for a 1v1v1. Called on load and whenever the opponent
+// count changes, preserving whichever difficulty was already selected.
+function renderDifficultyOptions() {
+  const container = document.getElementById('seg-difficulty');
+  if (!container) return;
+  const twoOpponents = (document.getElementById('ai-num-teams')?.value === '3');
+  const selected = document.getElementById('ai-difficulty')?.value || 'medium';
+  const descriptor = { easy: 'Relaxed', medium: 'Balanced', hard: 'Strategic' };
+
+  container.innerHTML = ['easy', 'medium', 'hard'].map(diff => {
+    const tier = AI_TIER[diff];
+    const bots = twoOpponents ? [tier.son, tier.nephew] : [tier.son];
+    const chipRow = bots.map(b =>
+      `<span class="seg-chip" data-chip="${b.color}" data-initial="${b.initial}"></span>`
+    ).join('');
+    const names = bots.map(b => b.name).join(' & ');
+    return `<button type="button" class="seg-btn${diff === selected ? ' active' : ''}" data-val="${diff}" onclick="selectSeg('difficulty',this,'${diff}')">
+      <span class="seg-check">✓</span>
+      <span class="seg-chip-row">${chipRow}</span>
+      <span class="seg-text">${names}</span>
+      <span class="seg-sub">${descriptor[diff]}</span>
+    </button>`;
+  }).join('');
+
+  // Fill each placeholder with its actual chip SVG (can't inline SVG in the
+  // template string cleanly, so a second pass populates them).
+  container.querySelectorAll('.seg-chip').forEach(el => {
+    el.innerHTML = buildChipSVG(el.dataset.chip, el.dataset.initial, 32, false, false);
   });
 }
 
@@ -3944,9 +3988,11 @@ function initLobbySidePanel() {
   }
   const chips = document.getElementById('lobby-side-chips');
   if (chips && !chips.dataset.init) {
-    ['t0','t1','t2'].forEach((t, i) => {
+    // Decorative spread: the human (blue) plus the three tier leads
+    // (Alitra/Ibravo/Zaytro) in their signature colors.
+    [['t0','Y'], ['green','A'], ['orange','I'], ['gold','Z']].forEach(([color, initial]) => {
       const d = document.createElement('div');
-      d.innerHTML = buildChipSVG(t, ['Z','M','K'][i], 40, false, false);
+      d.innerHTML = buildChipSVG(color, initial, 40, false, false);
       chips.append(d);
     });
     chips.dataset.init = '1';
@@ -4073,7 +4119,7 @@ function initHtpGraphics() {
   const removeDemoEl = document.getElementById('htp-remove-demo');
   if (removeDemoEl && !removeDemoEl.dataset.init) {
     removeDemoEl.style.width = removeDemoEl.style.height = '36px';
-    removeDemoEl.innerHTML = buildChipSVG('t1', 'M', 36, false, false);
+    removeDemoEl.innerHTML = buildChipSVG('orange', 'I', 36, false, false);
     removeDemoEl.dataset.init = '1';
   }
   // Before/after dead-card pair — the SAME 5 cards appear in both hands at
@@ -4110,9 +4156,9 @@ function initHtpGraphics() {
   const seriesDemoEl = document.getElementById('htp-series-demo');
   if (seriesDemoEl && !seriesDemoEl.dataset.init) {
     const demoPlayers = [
-      { initial: 'Z', label: 'Zeeshan', colour: '#1E90FF', seq: 1, seriesWins: 2 },
-      { initial: 'M', label: 'Magnus',  colour: '#61AF41', seq: 0, seriesWins: 1 },
-      { initial: 'K', label: 'Kaspar',  colour: '#AE42D0', seq: 0, seriesWins: 0 },
+      { initial: 'Y', label: 'You',    colour: '#1E90FF', seq: 1, seriesWins: 2 },
+      { initial: 'Z', label: 'Zaytro', colour: '#E6B800', seq: 0, seriesWins: 1 },
+      { initial: 'W', label: 'Waltan', colour: '#D6249F', seq: 0, seriesWins: 0 },
     ];
     seriesDemoEl.innerHTML = demoPlayers.map(p => `
       <div class="score-badge">
@@ -4132,10 +4178,10 @@ function initTutGraphics() {
   // Slide 1 — chip previews for all 3 colours
   const preview = document.getElementById('tut-chips-preview');
   if (preview && !preview.dataset.init) {
-    ['t0','t1','t2'].forEach((t, i) => {
+    [['t0','Y'], ['green','A'], ['magenta','Z']].forEach(([color, initial]) => {
       const d = document.createElement('div');
       d.style.width = d.style.height = '40px';
-      d.innerHTML = buildChipSVG(t, ['Z','M','K'][i], 40, false, false);
+      d.innerHTML = buildChipSVG(color, initial, 40, false, false);
       preview.append(d);
     });
     preview.dataset.init = '1';
@@ -4302,16 +4348,17 @@ function startVsAI() {
   seriesGameNum = 1;
   seriesWinnerTeam = null;
 
+  const tier = AI_TIER[aiDifficulty] || AI_TIER['medium'];
   if (numTeams === 3) {
     players = [
-      {id: myId,        name: myName,   team: 0},
-      {id: AI_ID,       name: 'Magnus', team: 1},
-      {id: AI_ID + '2', name: 'Kaspar', team: 2},
+      {id: myId,        name: myName,          team: 0},
+      {id: AI_ID,       name: tier.son.name,    team: 1},
+      {id: AI_ID + '2', name: tier.nephew.name, team: 2},
     ];
   } else {
     players = [
-      {id: myId,  name: myName,  team: 0},
-      {id: AI_ID, name: 'Magnus', team: 1},
+      {id: myId,  name: myName,        team: 0},
+      {id: AI_ID, name: tier.son.name, team: 1},
     ];
   }
   myIndex = 0;
@@ -6960,7 +7007,7 @@ function buildBoardCardSVG(rank, suit, W, H) {
   const isRed = suit === 'hearts' || suit === 'diamonds';
   const col = isRed ? '#c0392b' : '#0d0d0d';
   const sym = SUIT_SYM[suit];
-  const bg  = `<rect width="${W}" height="${H}" fill="#fffdf8" rx="${W*0.06}"/>`;
+  const bg  = `<rect width="${W}" height="${H}" fill="#ffffff" rx="${W*0.06}"/>`;
   const bdr = `<rect x=".5" y=".5" width="${W-1}" height="${H-1}" fill="none" stroke="${col}" stroke-width=".7" rx="${W*0.05}" opacity=".25"/>`;
 
   if (rank === 'K' || rank === 'Q' || rank === 'J') {
@@ -7025,7 +7072,7 @@ function buildCellCardHTML(rank, suit) {
 // blue/green/red so it never reads as belonging to a team's chip color.
 function buildFreeSpaceSVG(W, H) {
   const cx = W/2, cy = H/2;
-  const gold = '#c9a84c', goldDk = '#9c7a2e', cream = '#fffdf8';
+  const gold = '#c9a84c', goldDk = '#9c7a2e', cream = '#ffffff';
   const points = 10;
   const rOuter = Math.min(W,H)*0.46, rInner = Math.min(W,H)*0.24;
   let path = '';
@@ -7211,7 +7258,9 @@ function renderGame() {
 
 // Chip color per team-color-key — shared by score badges, board chips, and
 // chat bubble initials so a player's color reads consistently everywhere.
-const CHIP_HEX = { t0: '#1E90FF', t1: '#61AF41', t2: '#AE42D0' };
+// Derived from CHIP_COLORS so it automatically covers every color (the six
+// bots + human) rather than needing a separate hardcoded list to keep in sync.
+const CHIP_HEX = Object.fromEntries(Object.entries(CHIP_COLORS).map(([k, v]) => [k, v.ring]));
 
 function renderTopBar() {
   function teamLabel(t) {
@@ -8030,7 +8079,7 @@ async function renderMyStats() {
 // matchup. Two distinct paths depending on mode:
 //
 // VS AI: "vs AI · <Difficulty>" — grouped by difficulty, not by the AI's
-// flavor name (Magnus/Kaspar), since two AIs at the same difficulty play
+// bot name, since two AIs at the same difficulty play
 // identically; splitting by name would just fragment one meaningful number
 // into several indistinguishable ones. No new tracking needed — every game
 // already logs its difficulty and outcome (the same data already powering
@@ -8059,8 +8108,13 @@ async function renderH2HBox() {
     const wins   = relevant.filter(g => g.outcome === 'win').length;
     const losses = relevant.filter(g => g.outcome === 'loss').length;
     const draws  = relevant.filter(g => g.outcome === 'draw').length;
-    const diffLabel = aiDifficulty.charAt(0).toUpperCase() + aiDifficulty.slice(1);
-    document.getElementById('h2h-rows').innerHTML = renderH2HRow(`AI · ${diffLabel}`, wins, losses, draws);
+    // Label by the tier's son bot (Alitra/Ibravo/Zaytro) rather than the raw
+    // difficulty word — under the personality scheme the name IS the
+    // difficulty, and "vs Zaytro" reads better than "vs AI · Hard". The son
+    // is the constant across both 1v1 and 1v1v1 at that tier, so it's the
+    // natural identity for the whole difficulty's record.
+    const botName = (AI_TIER[aiDifficulty] || AI_TIER['medium']).son.name;
+    document.getElementById('h2h-rows').innerHTML = renderH2HRow(botName, wins, losses, draws);
     box.style.display = 'block';
     return;
   }
