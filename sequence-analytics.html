@@ -145,9 +145,9 @@
 
   <div class="section-title">AI Win Rate by Difficulty</div>
   <div class="stats-grid" id="ai-stats-grid">
-    <div class="stat-card"><div class="stat-value" id="s-easy-rate">—</div><div class="stat-label">Easy · AI Win %</div></div>
-    <div class="stat-card"><div class="stat-value" id="s-medium-rate">—</div><div class="stat-label">Medium · AI Win %</div></div>
-    <div class="stat-card"><div class="stat-value" id="s-hard-rate">—</div><div class="stat-label">Hard · AI Win %</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-easy-rate">—</div><div class="stat-label">Easy (Alitra) · AI Win %</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-medium-rate">—</div><div class="stat-label">Medium (Ibravo) · AI Win %</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-hard-rate">—</div><div class="stat-label">Hard (Zaytro) · AI Win %</div></div>
   </div>
 
   <div class="section-title">Recent Accounts</div>
@@ -364,12 +364,18 @@ async function loadData() {
     el.textContent = `${pct}%`;
     el.title = `${aiWins} of ${levelGames.length} games`;
   });
-  // Show sample size under each percentage for context
+  // Show sample size under each percentage for context. Bot names here are
+  // the tier's "son" bot (Alitra/Ibravo/Zaytro) — the same stable per-tier
+  // identity the main game's H2H box uses, regardless of whether any given
+  // game was 1v1 or 1v1v1. NOTE: these names are a manual duplicate of
+  // AI_TIER in sequence-game.html — if the bots are renamed again, update
+  // both this map and that one.
+  const TIER_SON_NAME = { easy: 'Alitra', medium: 'Ibravo', hard: 'Zaytro' };
   ['easy','medium','hard'].forEach(level => {
     const levelGames = aiGames.filter(g => g.aiDifficulty === level);
     const label = document.getElementById(`s-${level}-rate`)?.nextElementSibling;
     if (label && levelGames.length) {
-      label.textContent = `${level.charAt(0).toUpperCase()+level.slice(1)} · AI Win % (n=${levelGames.length})`;
+      label.textContent = `${level.charAt(0).toUpperCase()+level.slice(1)} (${TIER_SON_NAME[level]}) · AI Win % (n=${levelGames.length})`;
     }
   });
 
@@ -394,8 +400,12 @@ async function loadData() {
       const statusClass = g.status === 'completed' ? 'badge-done' : g.status === 'abandoned' ? 'badge-abandoned' : 'badge-started';
       const loc = [g.location?.city, g.location?.country].filter(Boolean).join(', ') || '—';
 
-      // Setup summary: e.g. "vs 2 AI · First to 2 · Hard" or "3 Teams · First to 1"
-      const opponents = g.mode === 'vs_ai' ? `vs ${(g.numPlayers||2)-1} AI` : `${g.numTeams||2} Teams`;
+      // Setup summary: e.g. "vs Zaytro & Waltan · First to 2 · Hard" or "3 Teams · First to 1"
+      // Bot names come straight from THIS game's own recorded players (not
+      // derived from a difficulty→name lookup), so it's always exactly
+      // right for that game regardless of any future bot renaming.
+      const aiNames = (g.players||[]).filter(p=>p.isAI).map(p=>p.name).join(' & ');
+      const opponents = g.mode === 'vs_ai' ? `vs ${aiNames || (g.numPlayers||2)-1+' AI'}` : `${g.numTeams||2} Teams`;
       const seqLabel = `First to ${g.seqToWin||2}`;
       const diffLabel = g.aiDifficulty ? g.aiDifficulty.charAt(0).toUpperCase()+g.aiDifficulty.slice(1) : null;
       const setup = [opponents, seqLabel, diffLabel].filter(Boolean).join(' · ');
