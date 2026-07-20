@@ -2324,6 +2324,24 @@
   }
   #chat-trigger-btn:active { background: rgba(255,255,255,0.2); transform: scale(0.94); }
 
+  #ai-chat-toggle-btn {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    border: 1.5px solid rgba(201,168,76,0.5);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.9rem;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #ai-chat-toggle-btn:active { background: rgba(255,255,255,0.2); transform: scale(0.94); }
+
   #chat-picker-backdrop {
     position: fixed;
     inset: 0;
@@ -3237,7 +3255,7 @@
     <div class="hand-area">
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
       <div id="forced-card-banner" class="forced-card-banner" style="display:none">🔒 You must play the card you just drew</div>
-      <!-- Hand label with gold lines + chat trigger (multiplayer only) -->
+      <!-- Hand label with gold lines + chat trigger (hidden for spectators only) -->
       <div class="hand-label-row">
         <div class="hand-label-line">
           <span class="hand-label-bar"></span>
@@ -3245,6 +3263,7 @@
           <span class="hand-label-bar"></span>
         </div>
         <button id="chat-trigger-btn" onclick="toggleChatPicker()" title="Send a quick message" style="display:none"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor"><path d="M12 2C6.48 2 2 5.94 2 10.8c0 2.68 1.38 5.08 3.55 6.7-.12.98-.5 2.44-1.4 3.9a.5.5 0 0 0 .55.75c1.98-.5 3.66-1.42 4.68-2.1.83.2 1.7.3 2.62.3 5.52 0 10-3.94 10-8.8S17.52 2 12 2z"/></svg></button>
+        <button id="ai-chat-toggle-btn" onclick="setAIChatEnabled(!aiChatEnabled)" title="Toggle AI chatter" style="display:none">💬</button>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
     </div>
@@ -3438,6 +3457,20 @@ function updateSoundToggleUI() {
   if (cb) cb.checked = soundEnabled;
 }
 
+function setAIChatEnabled(val) {
+  aiChatEnabled = val;
+  localStorage.setItem('aiChatEnabled', val);
+  updateAIChatToggleUI();
+}
+
+function updateAIChatToggleUI() {
+  const btn = document.getElementById('ai-chat-toggle-btn');
+  if (!btn) return;
+  btn.style.display = aiMode ? 'flex' : 'none'; // meaningless outside VS AI, so hidden there
+  btn.textContent = aiChatEnabled ? '💬' : '🔕';
+  btn.title = aiChatEnabled ? 'Mute AI chatter' : 'Unmute AI chatter';
+}
+
 // Build one <audio> element per sound and append to DOM (hidden)
 // iOS requires elements to be in the DOM to play reliably
 (function buildAudioElements() {
@@ -3535,11 +3568,13 @@ const SUITS = ['spades','hearts','clubs','diamonds'];
 const SUIT_SYM = {spades:'♠',hearts:'♥',clubs:'♣',diamonds:'♦'};
 const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 
+let cardUidCounter = 0; // monotonic, session-wide - only needs to be unique, never needs resetting between games
+
 function makeDeck() {
   const deck = [];
   for (const suit of SUITS) {
     for (const rank of RANKS) {
-      deck.push({suit, rank});
+      deck.push({suit, rank, uid: cardUidCounter++});
     }
   }
   return deck;
@@ -3671,8 +3706,28 @@ document.addEventListener('visibilitychange', () => {
     // name] to reconnect" with no way to clear it, since nothing else
     // re-marks them as present again.
     registerPresence();
+    // Coming back from background is exactly when the browser is most
+    // likely to have suspended this tab's ability to play audio outside a
+    // fresh gesture — re-priming here, not just on the player's own cell
+    // taps, closes the biggest gap: sounds triggered by an OPPONENT's move
+    // (arriving via Firebase, with no gesture of this player's own
+    // attached at all) would otherwise have no way to recover once the
+    // permission lapses during a long wait for their turn.
+    if (typeof primeTimerSounds === 'function') primeTimerSounds();
   }
 });
+
+// Any tap/click anywhere on the page counts as a fresh gesture and re-primes
+// audio — previously only placing a card did this (onCellClick), leaving
+// every other interaction (the sound toggle itself, chat picker, quit
+// button, just waiting) unable to keep the browser's audio permission
+// alive. That permission can lapse over time without a qualifying gesture,
+// silently breaking sound with no error and no visible way to recover —
+// this is what was actually behind sound going quiet mid-game, especially
+// in human vs human games where waits between turns run longer.
+document.addEventListener('pointerdown', () => {
+  if (typeof primeTimerSounds === 'function') primeTimerSounds();
+}, { passive: true });
 
 // Fires whenever Firebase's own connection state flips — most relevant right
 // after a reconnect following a throttled/dropped socket (common under a
@@ -4318,6 +4373,76 @@ let aiIsMoving = false;
 const AI_ID = '__AI__';
 const AI_NAME = 'Dealer AI';
 
+// ── AI CHATTER state ──────────────────────────────────────
+// All of this is VS-AI-only, local-only (never synced) — it just drives
+// which situational line the AI comments with and how often.
+let aiChatEnabled = localStorage.getItem('aiChatEnabled') !== 'false'; // separate mute toggle from the general sound switch
+let lastAIChatTime = 0;               // Date.now() of the last AI chat bubble shown, from ANY bot —
+                                       // a single GLOBAL cooldown so two bots in a 1v1v1 can't both
+                                       // fire within moments of each other and flood the screen.
+const AI_CHAT_COOLDOWN_MS = 5000;     // minimum gap between ANY two AI chat messages
+
+// Firing probability, tiered by how often each situation naturally occurs —
+// NOT a flat rate. The cooldown above already prevents flooding; a low
+// probability on TOP of that mainly matters for situations frequent enough
+// to have several chances per game. For rare, high-stakes moments (foiling
+// a win, catching up, reclaiming a removed cell) the cooldown alone
+// provides plenty of natural spacing, so there's little reason to also
+// throttle them the same as something that can happen a dozen times a
+// game — doing so left big moments feeling like they went unacknowledged.
+// Volume-tested distribution (~1,300 situation checks across 96 games):
+// deadCard and blockNormal alone accounted for over 900 of them — by far
+// the most common events — which is why they sit in the lowest tier
+// despite that tier's rate looking unassuming next to the other two.
+const AI_CHAT_PROBABILITY = {
+  // Critical — rare and high-stakes; should almost always land.
+  foilWin: 0.85, foilWinBot: 0.85,
+  catchUp: 0.85,
+  backToBackRemoval: 0.85, backToBackRemovalBot: 0.85,
+  retake: 0.85,
+  goodHand: 0.85,
+  seriesPressure: 0.85,
+  // Reactions to the OPPONENT's move (new) — same logic as the rest of
+  // this tier: none of these can happen more than a handful of times in a
+  // game, so there's no real risk of them dominating airtime.
+  oppSequenceComplete: 0.85, oppSequenceCompleteBot: 0.85,
+  gotRemoved: 0.85, gotRemovedBot: 0.85,
+  gotBlocked: 0.85, gotBlockedBot: 0.85,
+  oppCatchUp: 0.85, oppCatchUpBot: 0.85,
+  oppTwoEyedJack: 0.85, oppTwoEyedJackBot: 0.85,
+  // Notable — meaningful, but happen a fair amount over a full game.
+  sequenceComplete: 0.55,
+  twoEyedJack: 0.55,
+  removal: 0.55, removalBot: 0.55,
+  jacksObserved: 0.55, jacksObservedBot: 0.55,
+  // Ambient — genuinely frequent; still needs its own restraint even with
+  // the cooldown's help, or it'd dominate all the airtime.
+  blockNormal: 0.40, blockNormalBot: 0.40,
+  dismissive: 0.40,
+  deadCard: 0.40,
+};
+const AI_CHAT_PROBABILITY_DEFAULT = 0.45; // fallback if a situation is ever added here without being categorized above
+
+let jacksPlayedByTeam = [0, 0, 0];    // running count of jacks played per team this game (tracks
+                                       // EVERY player's plays, human included, so bots can react to
+                                       // a human's visible jack usage, never their hidden hand)
+let jackMilestoneFired = [new Set(), new Set(), new Set()]; // which jack-count milestones (2, 3)
+                                       // already got an "observed jack usage" reaction, per team —
+                                       // without this, every jack after the 2nd would re-trigger it
+let aiLastMoveType = {};              // keyed by team index: 'removal' | 'other' — powers the
+                                       // back-to-back-removal reaction
+let aiGoodHandCommented = false;      // "great hand" reaction fires at most once per game
+let aiGoodHandBluffRolled = false;    // the bluff itself only gets ONE roll per game, not one per eligible turn
+let usedLinesByTeamSituation = {};    // `${team}|${situationKey}` -> indices already said this game, so a bot doesn't repeat itself word-for-word
+// Debug log for real, manually-played VS AI games — console-only, no UI
+// element, exported via window.exportChatLog(). Two separate lists because
+// a guaranteed message can be DETECTED at one move and not actually FIRE
+// until later (queued behind another bubble) — exportChatLog() reconciles
+// them the same way the standalone chatter simulation tool does.
+let chatDetectionLog = [];
+let chatFireLog = [];
+let aiSeriesPressureCommented = false; // series-pressure reaction fires at most once per game
+
 function startVsAI() {
   unlockSpeaker();
   myName = document.getElementById('player-name').value.trim();
@@ -4333,6 +4458,19 @@ function startVsAI() {
   seriesWins = Array(numTeams).fill(0);
   seriesGameNum = 1;
   seriesWinnerTeam = null;
+
+  // Fresh AI chatter state for this game
+  lastAIChatTime = 0;
+  jacksPlayedByTeam = [0, 0, 0];
+  jackMilestoneFired = [new Set(), new Set(), new Set()];
+  aiLastMoveType = {};
+  aiGoodHandCommented = false;
+  aiGoodHandBluffRolled = false;
+  aiSeriesPressureCommented = false;
+  usedLinesByTeamSituation = {};
+  pendingGuaranteedChats = [];
+  chatDetectionLog = [];
+  chatFireLog = [];
 
   const tier = AI_TIER[aiDifficulty] || AI_TIER['medium'];
   if (numTeams === 3) {
@@ -4374,6 +4512,55 @@ function aiTakeTurn() {
   const diff = aiDifficulty || 'medium';
   const jitter = diff==='easy' ? 60 : diff==='medium' ? 8 : 1;
   const earlyGame = (GS.moveSeq || 1) <= 6; // first 6 moves — jacks never worth it
+
+  // ── AI CHATTER: ambient checks (not tied to this turn's move) ──
+  // These are evaluated once per AI turn, in priority order, ahead of the
+  // move-based reactions in applyMoveAndMaybeAIChat(). All three share the
+  // SAME cooldown gate as everything else, so at most one of these (or one
+  // move-based reaction) ends up actually showing per turn regardless of
+  // how many conditions happen to be true at once.
+  if (aiMode) {
+    if (!aiSeriesPressureCommented && isSeriesPressureMoment()) {
+      aiSeriesPressureCommented = true;
+      maybeAIChat('seriesPressure', aiTeam);
+    }
+    // jacksObserved and goodHand wait until the game has had a chance to
+    // develop (same threshold as the AI's own jack evaluation) — reacting
+    // to "a great hand" or "lots of jacks" on turn 1-2, before anything's
+    // actually happened, felt premature in testing.
+    if (!earlyGame) {
+      for (const opp of [...new Set(players.map(p=>p.team))].filter(t=>t!==aiTeam)) {
+        const count = jacksPlayedByTeam[opp] || 0;
+        if ((count === 2 || count === 3) && !jackMilestoneFired[opp].has(count)) {
+          jackMilestoneFired[opp].add(count);
+          const oppIsBot = players.find(p=>p.team===opp)?.id.startsWith(AI_ID);
+          maybeAIChat('jacksObserved' + (oppIsBot ? 'Bot' : ''), aiTeam, opp);
+        }
+      }
+      if (!aiGoodHandCommented) {
+        const { jackScore, liveCount } = evaluateHandQuality(hand, aiTeam, GS);
+        const jackHeavy = jackScore >= 4; // effectively 2+ jacks — meaningful from turn one, since a hand either has them or doesn't
+        const impressivelyClean = (GS.moveSeq||1) > GOOD_HAND_CLEAN_MOVE_THRESHOLD && liveCount === hand.length;
+        const genuinelyGood = jackHeavy || impressivelyClean;
+        if (genuinelyGood) {
+          aiGoodHandCommented = true;
+          maybeAIChat('goodHand', aiTeam);
+        } else if (!aiGoodHandBluffRolled) {
+          // The bluff gets exactly ONE roll per game, at the first eligible
+          // check where the hand ISN'T genuinely good — not re-rolled every
+          // subsequent turn. Re-rolling every turn was the actual bug behind
+          // "goodHand keeps firing early": a 15% per-turn chance compounds
+          // fast (55%+ within 5 checks), making early firing the norm
+          // instead of the rare, unpredictable exception it was meant to be.
+          aiGoodHandBluffRolled = true;
+          if (Math.random() < GOOD_HAND_BLUFF_RATE) {
+            aiGoodHandCommented = true;
+            maybeAIChat('goodHand', aiTeam);
+          }
+        }
+      }
+    }
+  }
 
   // House rule override: if the AI is locked into a forced card (it drew a
   // live replacement after discarding a dead card), it MUST play that exact
@@ -4545,14 +4732,14 @@ function aiExecuteMove(bestMove, hand, aiId, aiTeam) {
   setTimeout(() => {
     if (bestMove.dead) {
       aiIsMoving = false;
-      applyMove(bestMove, aiId);
+      applyMoveAndMaybeAIChat(bestMove, aiId);
     } else if (isRemoval || isWildJack) {
       const boardEl = document.getElementById('board');
       const dstEl = boardEl?.children[bestMove.row * 10 + bestMove.col];
       const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
       let fromX = window.innerWidth * 0.5, fromY = 80;
       if (aiBadge) { const rect = aiBadge.getBoundingClientRect(); fromX = rect.left + rect.width/2; fromY = rect.top + rect.height/2; }
-      if (!dstEl) { aiIsMoving = false; applyMove(bestMove, aiId); return; }
+      if (!dstEl) { aiIsMoving = false; applyMoveAndMaybeAIChat(bestMove, aiId); return; }
       const dst = dstEl.getBoundingClientRect();
       const cardW = 40, cardH = 56;
       const fly = document.createElement('div');
@@ -4566,14 +4753,14 @@ function aiExecuteMove(bestMove, hand, aiId, aiTeam) {
         setTimeout(() => {
           fly.style.opacity = '0';
           if (isRemoval) playSound('Chip_removal_jack'); else playSound('Chip_placement');
-          setTimeout(() => { fly.remove(); aiIsMoving = false; applyMove(bestMove, aiId); }, 200);
+          setTimeout(() => { fly.remove(); aiIsMoving = false; applyMoveAndMaybeAIChat(bestMove, aiId); }, 200);
         }, 720);
       });
     } else {
       const aiBadge = document.querySelector(`.score-badge[data-team="${aiTeam}"]`);
       let fromX = window.innerWidth * 0.18, fromY = 70;
       if (aiBadge) { const rect = aiBadge.getBoundingClientRect(); fromX = rect.left+rect.width/2; fromY = rect.top+rect.height/2; }
-      flyChipBetween(fromX, fromY, bestMove.row, bestMove.col, aiTeam, () => { aiIsMoving = false; applyMove(bestMove, aiId); });
+      flyChipBetween(fromX, fromY, bestMove.row, bestMove.col, aiTeam, () => { aiIsMoving = false; applyMoveAndMaybeAIChat(bestMove, aiId); });
     }
   }, delay);
 }
@@ -4723,7 +4910,16 @@ function genuineThreatAt(r, c, t, gs) {
         const isWild = gs.board[nr][nc].type === 'wild';
         if (isPivot || ch === t || isWild) {
           friendlyCount++;
-          if (!isPivot && ch === t && !isWild && !isSequenceCellInState(nr, nc, gs)) realLiveChips++;
+          // A wild corner counts exactly like a real chip here — it's
+          // permanently, universally available and never "used up" by
+          // being placed, so a line with 3 real chips + a corner is
+          // genuinely just as complete as 4 real chips would be. This
+          // used to require ch===t specifically (excluding !isWild),
+          // which meant a corner-assisted 4/5 line only ever counted as
+          // 3, never reaching the >=4 threshold this measure feeds into
+          // for both AI defensive scoring and the chatter system's
+          // "decisive" block/removal checks.
+          if (!isPivot && (ch === t || isWild) && !isSequenceCellInState(nr, nc, gs)) realLiveChips++;
         } else if (ch !== null) {
           blocked = true; break;
         } else {
@@ -5558,6 +5754,20 @@ function requestRematch() {
     document.getElementById('win-modal').classList.remove('open');
     GS = initGameState();
     fbGameStarted = true; // no-op in AI mode but keeps state consistent
+    // Fresh AI chatter state — this path bypasses startVsAI(), so without
+    // this a rematch would carry over the previous game's jack counts,
+    // milestone flags, and cooldown timing.
+    lastAIChatTime = 0;
+    jacksPlayedByTeam = [0, 0, 0];
+    jackMilestoneFired = [new Set(), new Set(), new Set()];
+    aiLastMoveType = {};
+    aiGoodHandCommented = false;
+    aiGoodHandBluffRolled = false;
+    aiSeriesPressureCommented = false;
+    usedLinesByTeamSituation = {};
+    pendingGuaranteedChats = [];
+    chatDetectionLog = [];
+    chatFireLog = [];
     showGameScreen();
     logGameStart();
     return;
@@ -6512,6 +6722,282 @@ async function recordForfeitH2H(teams, forfeitedTeamIdx) {
   await Promise.all(pairs.map(([a, b, winner]) => creditH2HPair(a, b, winner)));
 }
 
+// Determines which (if any) of the situational reactions applies to a move
+// that's ABOUT to be applied, using state captured BEFORE it runs (threat
+// levels, sequence counts, chip ownership) since several of these checks
+// are only meaningful relative to the board as it was before this move
+// changed it. Checked in priority order — most specific/rare/exciting
+// first — so only the single most notable thing that happened gets
+// reacted to, not the first thing that happens to match.
+function detectAISituation(move, fromTeam, pre) {
+  const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==fromTeam);
+  const teamIsBot = (t) => { const p = players.find(pl => pl.team === t); return !!(p && p.id.startsWith(AI_ID)); };
+  const suffixFor = (t) => teamIsBot(t) ? 'Bot' : '';
+
+  // Removal or a normal-card block: check what this move neutralized.
+  if (pre.isRemoval) {
+    const targetTeam = pre.chipAtTarget;
+    if (targetTeam !== null && targetTeam !== fromTeam) {
+      const oppWasOneFromWinning = pre.sequencesBefore[targetTeam] === (seqToWin - 1);
+      // A removal is "decisive" when the line it broke was genuinely one
+      // chip from completing (the removal-side ceiling for this formula is
+      // 3, not 4 — see the block-branch below for why the two differ).
+      // Decisive removals guarantee a reaction — but ONLY the remover's
+      // own reaction here, and ONLY when the victim is the human, since
+      // that's the one case with no other way to acknowledge it (the
+      // human has no automated reaction of its own). When the victim is
+      // another bot, ITS OWN gotRemoved reaction is what gets guaranteed
+      // instead (see detectOpponentReactionSituation) — never both sides.
+      const isDecisive = pre.threatAtTarget >= 3;
+      const victimIsHuman = !teamIsBot(targetTeam);
+      const guaranteed = isDecisive && victimIsHuman;
+      // foilWin requires the line that just got broken to have genuinely
+      // been THE most dangerous thing on the board (>= the board-wide max
+      // measured before this move), not merely A decent threat that
+      // happened to coincide with the opponent already having one
+      // sequence — which, in a 2-sequence game, is true for roughly half
+      // the game on its own and was making "so close, so so close" fire
+      // on lines that weren't really the decisive one.
+      if (oppWasOneFromWinning && isDecisive && pre.threatAtTarget >= pre.boardMaxThreatBefore) {
+        return { situation: 'foilWin' + suffixFor(targetTeam), targetTeam, guaranteed };
+      }
+      if (aiLastMoveType[fromTeam] === 'removal') return { situation: 'backToBackRemoval' + suffixFor(targetTeam), targetTeam, guaranteed };
+      return { situation: 'removal' + suffixFor(targetTeam), targetTeam, guaranteed };
+    }
+  } else if (!move.dead) {
+    for (const opp of oppTeams) {
+      const threatHere = pre.oppThreatsAtTarget[opp] || 0;
+      // >=4, not >=3: genuineThreatAt's empty-pivot branch returns 4 ONLY
+      // when this exact cell was the single missing piece of a real 4/5
+      // line. It also returns 3 for a genuine 3/5 line (still needing a
+      // SECOND cell beyond this one) — a different, earlier-stage board
+      // state that was being incorrectly treated as equally "close" here.
+      if (threatHere >= 4) {
+        const oppWasOneFromWinning = pre.sequencesBefore[opp] === (seqToWin - 1);
+        const isDecisiveBlock = oppWasOneFromWinning && threatHere >= pre.boardMaxThreatBefore;
+        // Reaching this point at all already means the block was decisive
+        // (denied a genuine 4/5 line, normal card or two-eyed jack alike)
+        // — same guarantee rule as removal: guaranteed only when the
+        // victim is human, the one case with no other way to acknowledge
+        // it. When the victim is another bot, ITS OWN gotBlocked reaction
+        // is what gets guaranteed instead (see
+        // detectOpponentReactionSituation) — never both sides.
+        const victimIsHuman = !teamIsBot(opp);
+        return { situation: (isDecisiveBlock ? 'foilWin' : 'blockNormal') + suffixFor(opp), targetTeam: opp, guaranteed: victimIsHuman };
+      }
+    }
+  }
+
+  // Re-takes a cell this bot's own chip was just removed from.
+  if (!move.dead && pre.lastRemovedBefore &&
+      pre.lastRemovedBefore.team === fromTeam &&
+      pre.lastRemovedBefore.row === move.row &&
+      pre.lastRemovedBefore.col === move.col) {
+    return { situation: 'retake', targetTeam: null, guaranteed: false };
+  }
+
+  const aiSeqBefore = pre.sequencesBefore[fromTeam];
+  const aiSeqAfter = GS.sequences[fromTeam];
+  const completedThisMove = aiSeqAfter > aiSeqBefore;
+
+  // Sequence completion is ALWAYS guaranteed for the mover's own reaction
+  // when the mover is a bot — including the winning move itself, unlike
+  // before (this branch used to explicitly exclude gameEnded entirely).
+  // On a winning move, applyMoveAndMaybeAIChat delays the win modal until
+  // this bubble finishes rather than skipping the reaction.
+  if (completedThisMove) {
+    const maxOtherBefore = Math.max(0, ...oppTeams.map(t => pre.sequencesBefore[t]));
+    if (aiSeqBefore < maxOtherBefore && aiSeqAfter >= maxOtherBefore) return { situation: 'catchUp', targetTeam: null, guaranteed: true };
+    return { situation: 'sequenceComplete', targetTeam: null, guaranteed: true };
+  }
+
+  if (pre.isWildJack && !completedThisMove) return { situation: 'twoEyedJack', targetTeam: null, guaranteed: false };
+  if (move.dead) return { situation: 'deadCard', targetTeam: null, guaranteed: false };
+
+  // Dismissive: a genuinely ordinary move with nothing threatening on the
+  // board anywhere right now — the low-priority fallback, only reached if
+  // nothing more specific matched above. Threshold matches the same >=3
+  // bar used everywhere else in this file for "genuinely threatening"
+  // (see the block-detection above) — boardMaxThreat==0 exactly turned out
+  // to be unrealistically strict once actually tested: even a few ordinary
+  // early-game chips push it to 3, so requiring literal zero meant this
+  // essentially never fired during real play. Also gated to skip the
+  // opening moves entirely (same threshold as jack evaluation) — an
+  // almost-empty board is ALWAYS "no threat", so without this it fired as
+  // early as turn 2, before there was anything to actually be dismissive about.
+  if (!move.dead && !pre.isRemoval && !pre.isWildJack && (GS.moveSeq||1) > 6 && boardMaxThreat(fromTeam, GS) < 3) {
+    return { situation: 'dismissive', targetTeam: null, guaranteed: false };
+  }
+
+  return null;
+}
+
+// Companion to detectAISituation above, but checked from the OTHER
+// direction: given a move that just happened, does a SPECIFIC AI team
+// (aiTeam, guaranteed by the caller to not be the mover) want to react to
+// it? detectAISituation only ever looks at the mover's own move from the
+// mover's own perspective — this is what's needed for an AI to comment on
+// what YOU did, not just what it did. Called once per other AI team in
+// the game, so in a 1v1v1 either bot can react to either the human's move
+// or the other bot's move.
+function detectOpponentReactionSituation(move, moverTeam, pre, aiTeam) {
+  const moverIsBot = players.find(p => p.team === moverTeam)?.id.startsWith(AI_ID);
+  const suffix = moverIsBot ? 'Bot' : '';
+
+  // This AI's own chip just got removed. Guaranteed whenever the removal
+  // was decisive (the line was genuinely one chip from completing) —
+  // regardless of who did the removing, since the victim can always react
+  // to its own loss. This is the mirror of detectAISituation's own
+  // guarantee logic: exactly one side's reaction gets guaranteed for any
+  // given decisive removal, never both.
+  if (pre.isRemoval && pre.chipAtTarget === aiTeam) {
+    const isDecisive = pre.threatAtTarget >= 3;
+    return { situation: 'gotRemoved' + suffix, targetTeam: moverTeam, guaranteed: isDecisive };
+  }
+
+  // This AI's own building line just got blocked - by a normal-card
+  // placement OR a two-eyed jack occupying the cell it needed. >=4, not
+  // >=3 — see the matching comment in detectAISituation's block branch for
+  // why: 3 can also mean a genuine 3/5 line, not just 4/5.
+  if (!move.dead && !pre.isRemoval) {
+    const threatToMe = pre.oppThreatsAtTarget[aiTeam] || 0;
+    if (threatToMe >= 4) {
+      // Reaching this point means the block was decisive — guaranteed
+      // whenever the victim (this AI) can react, regardless of who did the
+      // blocking. Mirrors gotRemoved's guarantee logic exactly.
+      return { situation: 'gotBlocked' + suffix, targetTeam: moverTeam, guaranteed: true };
+    }
+  }
+
+  // Mover completed a sequence — and did they specifically catch up to or
+  // overtake THIS ai team (not just anyone)? Guaranteed only when the
+  // mover is human: a bot mover already gets its OWN guaranteed
+  // self-reaction in detectAISituation, so guaranteeing a bystander bot's
+  // reaction to the SAME completion too would mean both sides firing,
+  // which is exactly what "just one reaction, not both" rules out.
+  const moverSeqBefore = pre.sequencesBefore[moverTeam];
+  const moverSeqAfter = GS.sequences[moverTeam];
+  if (moverSeqAfter > moverSeqBefore && GS.phase !== 'done') {
+    const aiSeq = GS.sequences[aiTeam];
+    const guaranteed = !moverIsBot;
+    if (moverSeqBefore < aiSeq && moverSeqAfter >= aiSeq) {
+      return { situation: 'oppCatchUp' + suffix, targetTeam: moverTeam, guaranteed };
+    }
+    return { situation: 'oppSequenceComplete' + suffix, targetTeam: moverTeam, guaranteed };
+  }
+
+  // Mover played a two-eyed jack that built a threat rather than completing one.
+  if (pre.isWildJack && moverSeqAfter === moverSeqBefore) {
+    return { situation: 'oppTwoEyedJack' + suffix, targetTeam: moverTeam, guaranteed: false };
+  }
+
+  return null;
+}
+
+// Wraps every call to applyMove with the AI-chatter machinery, WITHOUT
+// touching applyMove's own logic at all: snapshots the specific bits of
+// state needed for situational detection BEFORE the move changes the
+// board, calls the real applyMove exactly as before, then (a) tracks jack
+// usage for whoever just moved — human or AI, since bots should only ever
+// react to jacks a human has actually PLAYED, never to what's sitting
+// unseen in their hand — and (b) if the mover was an AI, detects and fires
+// the appropriate reaction.
+function applyMoveAndMaybeAIChat(move, fromId) {
+  const mover = players.find(p => p.id === fromId);
+  const fromTeam = mover ? mover.team : null;
+  const isAIMover = fromId.startsWith(AI_ID);
+
+  let pre = null;
+  if (aiMode && fromTeam !== null && GS) {
+    const card = (!move.dead && GS.hands[fromId]) ? GS.hands[fromId][move.cardIdx] : null;
+    const isRemoval = !!(card && isOneEyedJack(card));
+    const isWildJack = !!(card && isTwoEyedJack(card));
+    const chipAtTarget = (!move.dead) ? GS.chips[move.row][move.col] : null;
+    let threatAtTarget = 0;
+    if (!move.dead && isRemoval && chipAtTarget !== null) {
+      threatAtTarget = genuineThreatAt(move.row, move.col, chipAtTarget, GS);
+    }
+    // Block-threat must be measured BEFORE applyMove changes the board —
+    // GS is mutated in place, so this can't be deferred to after the move
+    // like the rest of detectAISituation's checks are. Computed for BOTH
+    // normal placements and two-eyed jacks — a wild jack occupying a cell
+    // denies whoever needed it exactly the same as a normal card would;
+    // excluding wildjacks here meant a genuine defensive jack placement
+    // could never be recognized as a block at all, falling through to the
+    // generic "played a jack" reaction instead — even when it was the
+    // single most consequential move of the game.
+    const oppThreatsAtTarget = {};
+    if (!move.dead && !isRemoval) {
+      const oppTeams = [...new Set(players.map(p=>p.team))].filter(t=>t!==fromTeam);
+      for (const opp of oppTeams) oppThreatsAtTarget[opp] = genuineThreatAt(move.row, move.col, opp, GS);
+    }
+    // Only computed when a foilWin claim is even possible (a removal or
+    // block against a real threat) — boardMaxThreat scans the whole board,
+    // no need to pay for it on every ordinary move. This is what lets
+    // foilWin require the disrupted line to have been THE single biggest
+    // threat anywhere, not just a decent one among several that happened
+    // to also satisfy "opponent already has one sequence" — which, in a
+    // 2-sequence game, is true for roughly half the game's duration on
+    // its own, and was making the "so close" framing fire on lines that
+    // weren't really the decisive one.
+    let boardMaxThreatBefore = 0;
+    if (!move.dead && (isRemoval || chipAtTarget === null)) {
+      boardMaxThreatBefore = boardMaxThreat(fromTeam, GS);
+    }
+    pre = {
+      isRemoval, isWildJack, chipAtTarget, threatAtTarget, oppThreatsAtTarget, boardMaxThreatBefore,
+      sequencesBefore: [...GS.sequences],
+      lastRemovedBefore: GS.lastRemoved,
+    };
+  }
+
+  applyMove(move, fromId);
+
+  if (aiMode && pre && fromTeam !== null) {
+    if (pre.isRemoval || pre.isWildJack) {
+      jacksPlayedByTeam[fromTeam] = (jacksPlayedByTeam[fromTeam] || 0) + 1;
+    }
+    if (isAIMover) {
+      const result = detectAISituation(move, fromTeam, pre);
+      if (result) maybeAIChat(result.situation, fromTeam, result.targetTeam, result.guaranteed);
+      aiLastMoveType[fromTeam] = pre.isRemoval ? 'removal' : 'other';
+    }
+    // Any OTHER AI team reacting to what the mover just did — runs
+    // regardless of whether the mover was human or another bot, so in a
+    // 1v1v1 either bot can comment on either the human's move or its
+    // tier-mate's move. Collects every team's candidate reaction FIRST,
+    // then only attempts the highest-priority one: a GUARANTEED reaction
+    // (sequence completion, a decisive removal) always wins the slot;
+    // failing that, something that happened directly to that bot (its own
+    // chip removed, its own line blocked, it specifically got caught up
+    // to) beats a bystander's generic commentary on the same move (just
+    // noting a jack got played, or that a sequence completed somewhere).
+    // Without this, a bot with nothing at stake in the move could win the
+    // shared cooldown race ahead of the bot that was actually, specifically
+    // affected — e.g. one bot's generic "a jack, let's see" beating the
+    // other bot's "you just denied my near-complete line" reaction, even
+    // though the second one is obviously the more relevant thing to say.
+    const allTeams = [...new Set(players.map(p => p.team))];
+    const candidateReactions = [];
+    for (const reactorTeam of allTeams) {
+      if (reactorTeam === fromTeam) continue;
+      const reactorIsBot = players.find(p => p.team === reactorTeam)?.id.startsWith(AI_ID);
+      if (!reactorIsBot) continue;
+      const oppResult = detectOpponentReactionSituation(move, fromTeam, pre, reactorTeam);
+      if (oppResult) candidateReactions.push({ ...oppResult, reactorTeam });
+    }
+    if (candidateReactions.length > 0) {
+      const SPECIFIC_REACTIONS = new Set(['gotRemoved', 'gotRemovedBot', 'gotBlocked', 'gotBlockedBot', 'oppCatchUp', 'oppCatchUpBot']);
+      candidateReactions.sort((a, b) => {
+        if (a.guaranteed !== b.guaranteed) return a.guaranteed ? -1 : 1;
+        return (SPECIFIC_REACTIONS.has(b.situation) ? 1 : 0) - (SPECIFIC_REACTIONS.has(a.situation) ? 1 : 0);
+      });
+      const top = candidateReactions[0];
+      maybeAIChat(top.situation, top.reactorTeam, top.targetTeam, top.guaranteed);
+    }
+  }
+}
+
 function applyMove(move, fromId) {
   if (applyMoveInProgress) {
     // Safety: if stuck for some reason, reset the guard
@@ -6584,6 +7070,20 @@ function applyMoveInner(move, fromId) {
     }
     // else: still dead — forcedCardIdx stays null, player can discard again
     hostAdvanceAndBroadcast();
+    return;
+  }
+
+  // House rule, earlier phase of the same lock: mid-chain (discardLockActive
+  // true, forcedCardIdx still null — a live replacement hasn't been drawn
+  // yet), the ONLY valid move is another dead-card discard, which already
+  // returned above. Anything reaching here with the lock still active but
+  // no forced card means the discard chain hasn't resolved yet — reject it.
+  // Without this, only the client-side hand UI (which greys out non-dead
+  // cards during this phase) was preventing a normal card placement here —
+  // not an authoritative guard against a stale pre-lock selection or
+  // anything else that bypasses that specific click handler.
+  if (GS.discardLockActive && GS.forcedCardIdx === null) {
+    if (fromId === myId) toast('Keep discarding until you draw a playable card');
     return;
   }
 
@@ -6746,6 +7246,107 @@ function broadcastActionBanner(msg, icon, kind, dur = 4500) {
 // Every message is anchored to the SENDER's own score badge (not a shared
 // chat log), so who-said-what is automatic and unambiguous in every
 // player-count scenario — 1v1, 1v1v1, 2v2, 3v3, etc.
+// AI-only chat lines — never selectable by a human, shown via the exact same
+// showChatBubble() mechanism as the human presets below. One tier per
+// difficulty (Easy/Medium/Hard), since chip color and bot identity already
+// track difficulty — the bots IN a tier share that tier's voice. "Bot"-
+// suffixed keys are used when the reaction targets the OTHER AI bot in a
+// 1v1v1 game rather than the human, and hardcode that specific tier-mate's
+// name directly (each tier only ever has one fixed pairing, so no need for
+// a {name} placeholder).
+const AI_CHAT_LINES = {
+  easy: {
+    sequenceComplete: ["I panicked and it just... worked?? 😂", "Even I'm surprised right now. 🫢", "Mom, I did the thing! 🎉"],
+    twoEyedJack: ["A Jack?! Adopt me, I'm feral now. 🐱", "Chaos mode: activated. 🌪️", "I found the cheat code! 😜"],
+    removal: ["Bye bye little chip! 👋😅", "This is me pretending to feel bad. 😇", "Oops, my hand slipped... into your chip. 😅"],
+    removalBot: ["{name}, we can still be friends, right? 🥹", "Family discount doesn't apply here, {name}. 😅"],
+    blockNormal: ["First come, first served! 🏃‍♀️", "Ninja move! 🥷", "That spot had my name on it! Not literally, but still! 😄"],
+    blockNormalBot: ["{name}, you snooze, you lose! 😜", "Beat you fair and square, {name}! 🏆"],
+    foilWin: ["My heart is racing right now! 💓", "I definitely just aged 5 years. 😅", "Close call! I need a snack after that. 🍿"],
+    foilWinBot: ["{name}, that was TOO close! 😱", "Nice try, {name} — my heart can't take that again! 😅"],
+    dismissive: ["Cool cool cool, no notes. 😌", "That's a move! A totally valid move! 🙃", "Building suspense, I see! 🍿"],
+    catchUp: ["WAIT. WAIT. AM I BACK IN THIS?! 😱", "Comeback arc loading... ⏳✨", "Plot twist! 📖"],
+    backToBackRemoval: ["Okay this is officially a hobby now. 😂", "Twice in a row — who am I becoming?! 😳", "I regret nothing (a little). 😇"],
+    backToBackRemovalBot: ["{name}, this is starting to feel personal. 😅", "Twice, {name}! I'm on FIRE (sorry). 🔥😅"],
+    retake: ["Round two: MINE again! 🙌", "You can't get rid of me that easily! 😜", "Ctrl+Z on that removal! 🔄"],
+    seriesPressure: ["My palms are sweaty already! 🖐️😅", "This is basically the Olympics now. 🏅", "Series finale energy! 🎬"],
+    deadCard: ["This card is as useful as a screen door on a submarine. 😅", "RIP this card. Gone but not forgotten. ⚰️", "Discarding this like my New Year's resolutions. 🗑️😅"],
+    jacksObserved: ["How many jacks do you HAVE?! 😳", "Are you hiding a magic hat somewhere? 🎩", "Jack party over there! 🎉"],
+    jacksObservedBot: ["{name}, save some jacks for the rest of us! 😂", "Jackpot for {name} today! 🎰"],
+    goodHand: ["Is this what winning feels like?? 🥹", "I might actually know what I'm doing! 😲", "This hand deserves its own theme song. 🎵"],
+    oppSequenceComplete: ["Okay show-off! 😄👏", "There they go! 🎊", "Look at you go! 🌟"],
+    oppSequenceCompleteBot: ["Go {name} go! 🎊", "{name}'s having a moment! ✨"],
+    gotRemoved: ["Noooo, not my chip! 😭", "RIP little buddy. 🪦", "Betrayal! I felt that. 💔😅"],
+    gotRemovedBot: ["{name}?! I trusted you! 😭", "Wow {name}, cold. Very cold. 🥶"],
+    gotBlocked: ["Okay detective, I see you. 🕵️", "Well that's just rude (impressive). 😅", "You've been paying attention! Annoying. 😤😄"],
+    gotBlockedBot: ["Look at {name} being all strategic! 🧐", "{name}, since when are you good at this?! 😆"],
+    oppCatchUp: ["Wait wait wait, we're tied?! 😳", "Plot twist! 📖✨", "This just got interesting! 👀"],
+    oppCatchUpBot: ["{name}?! Since when?! 😱", "Rude, {name}. RUDE. 😆"],
+    oppTwoEyedJack: ["Uh oh, jack alert! 🚨", "Here comes trouble! 😳", "Someone's feeling brave! 😬"],
+    oppTwoEyedJackBot: ["{name} found a jack! Buckle up! 🎢", "Uh oh, {name}'s got a jack! 😳"],
+  },
+  medium: {
+    sequenceComplete: ["That's how it's done. 😏", "Right on schedule. ⏱️", "One more in the bank. 💪"],
+    twoEyedJack: ["Watch this move. 😏", "Wildcards make me dangerous. 🃏", "Let's shake things up. ⚡"],
+    removal: ["That chip had to go. 😏", "Cleaning house! 🧹", "Poof. Gone. 💨"],
+    removalBot: ["Move over, {name}. 😏", "Even you're not safe, {name}. 😤"],
+    blockNormal: ["Nice try. Not today. 😏", "Read that one coming. 👀", "Nope. Try again. 🚧"],
+    blockNormalBot: ["Not this time, {name}. 😏", "Blocked you too, {name} — fair's fair. 🤝"],
+    foilWin: ["Not on my watch. 😤", "So close, yet so far. 😬", "That was the one move I couldn't let through. 🎯"],
+    foilWinBot: ["Nice try, {name}. Really. 😏", "Not today, {name}, not even for you. 🙅"],
+    dismissive: ["That's... a move, I guess. 🤷", "Bold strategy. We'll see. 🧐", "Interesting choice. 👀"],
+    catchUp: ["And we're even. ⚖️", "Told you I wasn't done. 💪", "Back in it. Let's go. ⚡"],
+    backToBackRemoval: ["Twice now — noticing a pattern? 👀", "Back at it again. 🔁", "Consistency is key. 🎯"],
+    backToBackRemovalBot: ["Two in a row, {name}. Tough day. 😅", "You're my favorite target today, {name}. 🎯"],
+    retake: ["Right back where it belongs. 😌", "Try harder than that. 💪", "Mine again. 🔁"],
+    seriesPressure: ["Now it actually matters. ⚡", "This is where it gets good. 🔥", "Feeling the pressure yet? 😏"],
+    deadCard: ["Dead card. Moving on. 🤷", "Not every card's a winner. 🔄", "Discard and reload. 🎲"],
+    jacksObserved: ["Jack-heavy game for you today. 🃏", "Leaning on those jacks, huh? 👀", "Noted — you've got options. 🧐"],
+    jacksObservedBot: ["Loading up on jacks, {name}? 🃏", "I see what you're doing, {name}. 👀"],
+    goodHand: ["This hand's looking good. 😌", "I like where this is going. 📈", "Loaded up and ready. 🃏"],
+    oppSequenceComplete: ["Nice, you got one. 👏", "Clean move. 😌", "Not bad at all. 🎯"],
+    oppSequenceCompleteBot: ["Nice one, {name}. 👏", "Solid, {name}. 🎯"],
+    gotRemoved: ["Ouch. Didn't see that coming. 😅", "Fine, take it — I'll get it back. 😤", "Rude. But fair. 🤝"],
+    gotRemovedBot: ["{name}, seriously?! 😤", "Et tu, {name}? 😅"],
+    gotBlocked: ["Oh, you saw that. 👀", "Lucky read. 🎯", "Okay, didn't expect that. 😳"],
+    gotBlockedBot: ["{name}, nice read! 👀", "Didn't expect that from you, {name}. 😳"],
+    oppCatchUp: ["Not for long. 😤", "Enjoy it while it lasts. 😏", "We'll see about that. 👊"],
+    oppCatchUpBot: ["{name}, not for long. 😤", "Enjoy it, {name}. 😏"],
+    oppTwoEyedJack: ["A jack, huh? Let's see. 👀", "That could get interesting. 🧐", "Bring it on. 💪"],
+    oppTwoEyedJackBot: ["{name}, a jack? Let's see. 👀", "Interesting move, {name}. 🧐"],
+  },
+  hard: {
+    sequenceComplete: ["Too easy. Next. 😈", "Did you blink? You missed it. 👀", "One down. Statistically, you've already lost. 📉"],
+    twoEyedJack: ["Things are about to get ugly for you. 😈", "Wildcard. Wild advantage. 🃏", "You don't have an answer for this. 🔥"],
+    removal: ["Gone. Just like that. 😈", "That was in my way. Not anymore. 🗑️", "Should've seen that coming. Rookie mistake. 🧊"],
+    removalBot: ["Family means nothing on this board. 😈", "{name}, you should've seen that coming. 🔥"],
+    blockNormal: ["Did you really think that'd work? 😈", "Closed. Find another way. 🔒", "I saw that coming from across the board. 🧠"],
+    blockNormalBot: ["{name}, even you don't get a pass. 😈", "Closed. Yes, even for you. 🔒"],
+    foilWin: ["You really thought I'd let that happen? 😈", "So close. Almost cute, really. 😏", "Game point denied. You're welcome. 🔥"],
+    foilWinBot: ["{name}, you know better than that. 😈", "Did you think I'd let YOU win? 🔥"],
+    dismissive: ["That did absolutely nothing. 😴", "Was that supposed to scare me? 😴", "I'll wait while you figure out a real plan. ⏳"],
+    catchUp: ["Did you think that lead was permanent? 😈", "Comeback complete. Your move. 🔥", "Tied? Cute. Watch this. 😈"],
+    backToBackRemoval: ["Again. Are you even trying to stop me? 😈", "Two removals, zero mercy. 🔥", "Removing chips is basically my hobby. 🗑️"],
+    backToBackRemovalBot: ["{name}, again. Learn a lesson. 😈", "Twice. Consider it a pattern. 🔥"],
+    retake: ["Removed and reclaimed. Try again. 😈", "That cell was never really yours to take. 🔥", "Back where it belongs. Try harder. 😈"],
+    seriesPressure: ["This is exactly where I perform best. 😈", "Pressure? I don't know her. 😏", "Match point. This is already over. 🔥"],
+    deadCard: ["A minor inconvenience. 😏", "Even I get a bad card sometimes. 😈", "Discarded. Doesn't change a thing. 🔥"],
+    jacksObserved: ["Jacks won't save you forever. 😈", "Stack up all the jacks you want. 🔥", "Jacks are a start. Not an answer. 🧊"],
+    jacksObservedBot: ["Jacks won't save you either, {name}. 😈", "Impressive stack. Still not enough. 🔥"],
+    goodHand: ["This hand? Unfair, honestly. 😈", "You should be worried right about now. 🔥", "I almost feel bad for you. Almost. 😈"],
+    oppSequenceComplete: ["Noted. Won't change the outcome. 🧠", "One for you. I'll even the score. 😈", "Cute. My turn now. 🔥"],
+    oppSequenceCompleteBot: ["Fine, {name}. One for the family. 😈", "Cute, {name}. Won't last. 🔥"],
+    gotRemoved: ["Barely felt that. 💪", "You'll regret that. 😈", "Cute move. Meaningless. 😈"],
+    gotRemovedBot: ["{name}, you'll pay for that. 😈", "Bold move, {name}. Foolish, but bold. 🔥"],
+    gotBlocked: ["Careful — that won't happen again. 😤", "Didn't see that coming. Won't happen twice. 😈", "Lucky. That's all that was. 🔥"],
+    gotBlockedBot: ["{name}, didn't know you had it in you. 😏", "Noted, {name}. Won't happen twice. 🔥"],
+    oppCatchUp: ["Cute. Temporary. 😈", "You'll regret catching up. 🔥", "Tied means nothing. Watch closely. 😈"],
+    oppCatchUpBot: ["{name}, tied means nothing. 😈", "Enjoy it, {name}. Won't last. 🔥"],
+    oppTwoEyedJack: ["A jack won't save you. 😈", "Interesting. Still not enough. 🔥", "Go ahead. It won't matter. 😈"],
+    oppTwoEyedJackBot: ["{name}, a jack won't save you either. 😈", "Try it, {name}. Still not enough. 🔥"],
+  },
+};
+
 const CHAT_PRESETS = [
   { text: "Game on", emoji: "😎", cat: "Social" },
   { text: "All part of the plan", emoji: "🧠", cat: "Light Taunts" },
@@ -6806,23 +7407,23 @@ function sendChatPreset(idx) {
 let chatBubbleTimers = {};
 function showChatBubble(fromId, text) {
   const sender = players.find(p => p.id === fromId);
-  if (!sender) return;
+  if (!sender) return false;
+
+  // Only one bubble on screen at a time, globally, regardless of source —
+  // avoids clutter/overlap when a human sends a message right as an AI
+  // bubble is showing (or vice versa), or when two different teams' bots
+  // both have something to say close together. A new message simply
+  // doesn't show rather than interrupting one already being read.
+  if (document.querySelector('.chat-bubble')) return false;
+
   const badge = document.querySelector(`.score-badge[data-team="${sender.team}"]`);
-  if (!badge) return; // sender's team badge isn't on screen (shouldn't normally happen)
+  if (!badge) return false; // sender's team badge isn't on screen (shouldn't normally happen)
   if (getComputedStyle(badge).position === 'static') badge.style.position = 'relative';
 
   const teammateCount = players.filter(p => p.team === sender.team).length;
   const displayText = teammateCount > 1 ? `${sender.name}: ${text}` : text;
 
-  // Keyed by TEAM (the actual shared DOM anchor), not by individual sender —
-  // if two teammates message in quick succession, the second correctly
-  // replaces the first on the shared badge rather than leaving a dangling
-  // timer that tries to remove an element that's already been swapped out.
   const timerKey = sender.team;
-  const existing = badge.querySelector('.chat-bubble');
-  if (existing) existing.remove();
-  if (chatBubbleTimers[timerKey]) clearTimeout(chatBubbleTimers[timerKey]);
-
   const bubble = document.createElement('div');
   bubble.className = 'chat-bubble';
   bubble.textContent = displayText;
@@ -6831,8 +7432,246 @@ function showChatBubble(fromId, text) {
   chatBubbleTimers[timerKey] = setTimeout(() => {
     bubble.remove();
     delete chatBubbleTimers[timerKey];
-  }, 4000);
+    if (pendingGuaranteedChats.length > 0) {
+      const next = pendingGuaranteedChats.shift();
+      fireChatLine(next.situationKey, next.fromTeam, next.targetTeam);
+    }
+  }, 5500);
+  return true;
 }
+
+// Fires an AI chat line for the given situation, IF: chatter is enabled,
+// the global cooldown has elapsed since the last AI message (from ANY bot —
+// this is what prevents two bots in a 1v1v1 flooding the screen seconds
+// apart), and a probability roll passes (so even a qualifying moment only
+// comments some of the time, not every time — keeps it feeling occasional
+// rather than scripted). Silently does nothing if any gate fails; callers
+// don't need to check anything themselves first.
+//
+// targetTeam is only needed for "Bot"-suffixed situations, whose lines
+// contain a {name} placeholder — substituted with whichever bot is
+// actually being addressed. This can't be hardcoded per tier: either bot
+// in a pair can end up being the one who acts on the other (nephew on
+// son, not just son on nephew), so the addressed name has to be resolved
+// at fire-time, not baked into the line itself.
+// Picks a line from a pool WITHOUT repeating one already said by this same
+// speaker for this same situation, until every other line in the pool has
+// come up first — a plain independent random draw each time meant a 2-line
+// pool (most Bot-variant pools) was MATHEMATICALLY GUARANTEED to repeat by
+// the 3rd firing, and even a 3-line pool had a 78% chance of at least one
+// repeat by then. Once the whole pool has been used, it resets — but
+// specifically avoids picking the same line that was JUST used, so the
+// reset doesn't produce an immediate back-to-back repeat either.
+function pickLineNoRepeat(lines, fromTeam, situationKey) {
+  if (lines.length <= 1) return lines[0];
+  const key = `${fromTeam}|${situationKey}`;
+  let used = usedLinesByTeamSituation[key] || [];
+  let available = lines.map((_, i) => i).filter(i => !used.includes(i));
+  if (available.length === 0) {
+    const lastUsed = used[used.length - 1];
+    used = [];
+    available = lines.map((_, i) => i).filter(i => i !== lastUsed);
+  }
+  const chosenIdx = available[Math.floor(Math.random() * available.length)];
+  used.push(chosenIdx);
+  usedLinesByTeamSituation[key] = used;
+  return lines[chosenIdx];
+}
+
+let pendingGuaranteedChats = []; // FIFO — guaranteed messages that arrived while a bubble was already showing, fired one at a time as each prior bubble clears
+
+// Actually resolves a line and shows it — shared by both the normal
+// (gated) path and the guaranteed path below, so line-selection and
+// {name} substitution stay in exactly one place.
+function fireChatLine(situationKey, fromTeam, targetTeam) {
+  const lines = AI_CHAT_LINES[aiDifficulty]?.[situationKey];
+  if (!lines || !lines.length) return;
+
+  const speaker = players.find(p => p.team === fromTeam);
+  if (!speaker) return;
+
+  let text = pickLineNoRepeat(lines, fromTeam, situationKey);
+  if (text.includes('{name}')) {
+    const target = players.find(p => p.team === targetTeam);
+    if (!target) return; // a Bot-suffixed line with no resolvable target — skip rather than show a literal "{name}"
+    text = text.replace('{name}', target.name);
+  }
+
+  const succeeded = showChatBubble(speaker.id, text);
+  if (succeeded) {
+    lastAIChatTime = Date.now();
+    if (aiMode) chatFireLog.push({ moveSeq: GS?.moveSeq ?? null, fromTeam, speakerName: speaker.name, text, t: Date.now() });
+  }
+}
+
+// Fires an AI chat line for the given situation. Two modes:
+//
+// Normal (guaranteed=false, the default): gated by the shared cooldown AND
+// a per-situation probability roll — a qualifying moment only comments
+// SOME of the time, keeping it feeling occasional rather than scripted.
+//
+// Guaranteed (guaranteed=true): reserved for moments the game design
+// treats as always-worth-acknowledging — sequence completions and
+// decisive chip removals. Skips BOTH the cooldown and the probability
+// roll entirely, but still resets the cooldown clock afterward, same as
+// any other fire. If a bubble is already showing, it doesn't get dropped
+// or forced to overlap — it queues and fires the moment the current one
+// clears, so guaranteed truly means guaranteed, just not always instant.
+function maybeAIChat(situationKey, fromTeam, targetTeam, guaranteed) {
+  if (!aiMode || !aiChatEnabled) return;
+
+  const fromP = players.find(p => p.team === fromTeam);
+  const targetP = targetTeam !== undefined && targetTeam !== null ? players.find(p => p.team === targetTeam) : null;
+  chatDetectionLog.push({
+    moveSeq: GS?.moveSeq ?? null, situationKey, fromTeam,
+    fromName: fromP?.name ?? null, targetTeam: targetTeam ?? null, targetName: targetP?.name ?? null,
+    guaranteed: !!guaranteed, t: Date.now(),
+  });
+
+  if (guaranteed) {
+    const bubbleShowing = !!document.querySelector('.chat-bubble');
+    if (bubbleShowing || pendingGuaranteedChats.length > 0) {
+      pendingGuaranteedChats.push({ situationKey, fromTeam, targetTeam });
+      return;
+    }
+    fireChatLine(situationKey, fromTeam, targetTeam);
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastAIChatTime < AI_CHAT_COOLDOWN_MS) return;
+  const probability = AI_CHAT_PROBABILITY[situationKey] ?? AI_CHAT_PROBABILITY_DEFAULT;
+  if (Math.random() > probability) return;
+  fireChatLine(situationKey, fromTeam, targetTeam);
+}
+
+// Console-only debug export for a real, manually-played VS AI game — no UI
+// element, call window.exportChatLog() from devtools after playing.
+// Downloads a plain-text table of every chatter trigger point: which
+// situation, who, whether it was guaranteed, whether it actually fired,
+// and the exact message. Matching logic (exact moveSeq+team first, then a
+// team-only fallback for guaranteed messages that fired later after being
+// queued behind another bubble) is the same algorithm already proven
+// correct in the standalone chatter simulation tool.
+function exportChatLog() {
+  if (!chatDetectionLog.length) {
+    console.log('No chat activity recorded yet this game.');
+    return;
+  }
+  const consumed = new Array(chatFireLog.length).fill(false);
+  const annotated = chatDetectionLog.map(d => {
+    const exactIdx = chatFireLog.findIndex((f, i) => !consumed[i] && f.moveSeq === d.moveSeq && f.fromTeam === d.fromTeam);
+    if (exactIdx !== -1) {
+      consumed[exactIdx] = true;
+      return { ...d, fired: true, message: chatFireLog[exactIdx].text, firedAtMoveSeq: chatFireLog[exactIdx].moveSeq, firedAtT: chatFireLog[exactIdx].t };
+    }
+    if (d.guaranteed) {
+      const delayedIdx = chatFireLog.findIndex((f, i) => !consumed[i] && f.fromTeam === d.fromTeam);
+      if (delayedIdx !== -1) {
+        consumed[delayedIdx] = true;
+        return { ...d, fired: true, message: chatFireLog[delayedIdx].text, firedAtMoveSeq: chatFireLog[delayedIdx].moveSeq, firedAtT: chatFireLog[delayedIdx].t };
+      }
+    }
+    return { ...d, fired: false, message: '', firedAtMoveSeq: null, firedAtT: null };
+  });
+
+  // Real elapsed-time gap since the PREVIOUS fire, in true chronological
+  // firing order — not detection order, since a guaranteed message can be
+  // detected early but not actually fire until later, once it drains from
+  // the queue. The cooldown is a single global clock shared by every bot,
+  // so "time since whoever fired last, regardless of who" is exactly the
+  // number that verifies it — two entries can share the same move number
+  // in the table above and still be several real seconds apart here.
+  const firedByTime = annotated.filter(d => d.fired).slice().sort((a, b) => a.firedAtT - b.firedAtT);
+  const gapByT = {};
+  let minGapMs = Infinity;
+  firedByTime.forEach((d, i) => {
+    if (i === 0) { gapByT[d.firedAtT] = 'first'; return; }
+    const gapMs = d.firedAtT - firedByTime[i - 1].firedAtT;
+    gapByT[d.firedAtT] = '+' + (gapMs / 1000).toFixed(1) + 's';
+    if (gapMs < minGapMs) minGapMs = gapMs;
+  });
+
+  const lines = [];
+  lines.push('AI CHATTER DEBUG LOG — exported ' + new Date().toISOString());
+  lines.push('Game: ' + numTeams + '-team, difficulty=' + aiDifficulty + ', seqToWin=' + seqToWin);
+  lines.push('');
+  lines.push('Move | Situation                | From    | Target  | Guar? | Fired? | Gap    | Message');
+  lines.push('-----|--------------------------|---------|---------|-------|--------|--------|' + '-'.repeat(50));
+  annotated.forEach(d => {
+    const delayNote = (d.fired && d.firedAtMoveSeq !== d.moveSeq) ? '  (fired later, at move ' + d.firedAtMoveSeq + ')' : '';
+    const gapStr = d.fired ? (gapByT[d.firedAtT] || '') : '';
+    lines.push(
+      String(d.moveSeq).padEnd(5) + '| ' +
+      d.situationKey.padEnd(25) + '| ' +
+      String(d.fromName).padEnd(8) + '| ' +
+      String(d.targetName || '-').padEnd(8) + '| ' +
+      (d.guaranteed ? 'Y'.padEnd(6) : 'N'.padEnd(6)) + '| ' +
+      (d.fired ? 'Y'.padEnd(7) : 'N'.padEnd(7)) + '| ' +
+      gapStr.padEnd(7) + '| ' +
+      d.message + delayNote
+    );
+  });
+  lines.push('');
+  lines.push('Total trigger points: ' + annotated.length + '  |  Actually fired: ' + chatFireLog.length);
+  if (firedByTime.length >= 2) {
+    const cooldownHeld = minGapMs >= 4950; // small tolerance for timer imprecision
+    lines.push('Smallest real gap between two consecutive fires: ' + (minGapMs / 1000).toFixed(1) + 's  (cooldown requires >=5s)  ' + (cooldownHeld ? '— HELD' : '— VIOLATION, please flag this'));
+  }
+
+  const text = lines.join('\n');
+  console.log(text);
+
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'chatter_debug_log_' + Date.now() + '.txt';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  console.log('Downloaded. Paste the contents of that file into chat with Claude.');
+}
+window.exportChatLog = exportChatLog;
+
+// True only on the AI's very first turn of a game that's already a
+// meaningful series moment (tied series, or someone one win from taking
+// the whole series) — checked once per game rather than every turn, since
+// the series score itself doesn't change mid-game, so re-checking later
+// would just repeat the same true/false answer.
+function isSeriesPressureMoment() {
+  if (!seriesWins || matchFormat <= 1) return false; // not a multi-game series
+  const gamesToWinSeries = Math.ceil((matchFormat + 1) / 2);
+  const maxWins = Math.max(...seriesWins);
+  const tied = seriesWins.every(w => w === maxWins) && maxWins > 0;
+  const matchPoint = maxWins === gamesToWinSeries - 1;
+  return tied || matchPoint;
+}
+
+// Broadened "good hand" measure for the goodHand chatter line — deliberately
+// NOT a pure jack count, so goodHand can't be reverse-engineered into "AI
+// has jacks" after a few games. Returns jack and live-card contributions
+// SEPARATELY (not combined into one number) because they behave completely
+// differently over time: a jack either is or isn't in hand, right from the
+// deal, so "2+ jacks" is meaningful from turn one. But EVERY card starts
+// live — dead cards only exist once both their board cells fill up, which
+// takes real time — so "all cards live" is trivially true for nearly every
+// hand early on and only becomes a genuine signal once the game has
+// actually had a chance to create dead cards for someone. Conflating the
+// two into one score meant a hand's "quality" was almost guaranteed to
+// clear the bar the instant the early-game gate lifted, regardless of
+// whether the hand had anything to do with the reason.
+function evaluateHandQuality(hand, team, gs) {
+  let jackScore = 0, liveCount = 0;
+  for (const card of hand) {
+    if (isOneEyedJack(card) || isTwoEyedJack(card)) jackScore += 2;
+    else if (!isDeadCardForState(card, gs, team)) liveCount++;
+  }
+  return { jackScore, liveCount };
+}
+const GOOD_HAND_BLUFF_RATE = 0.15; // even a hand that DOESN'T clear the bar above still has a real chance to "claim" a good hand — an outright bluff, not just noisy detection. Keeps a correct-looking read from ever being fully trustworthy.
+const GOOD_HAND_CLEAN_MOVE_THRESHOLD = 20; // how late "still 100% live" needs to wait before it's actually differentiating rather than universally true
 
 function isOneEyedJack(card) {
   if (card.rank !== 'J') return false;
@@ -7159,7 +7998,18 @@ let lastBlinkSeq = -1;    // tracks which GS.moveSeq has already triggered a seq
 // correctly treated as unrevealed, rather than inheriting the old card's
 // revealed status just because it landed in the same position.
 let revealedDeadCardKeys = new Set();
-function deadCardRevealKey(idx, card) { return `${idx}:${card.rank}:${card.suit}`; }
+function deadCardRevealKey(idx, card) {
+  // Prefer the card's own unique id — guarantees no collision between two
+  // different draws of the same rank+suit (a 2-deck game has duplicates of
+  // every card), which the old idx:rank:suit key was vulnerable to: if a
+  // second copy of the same card happened to land on the same hand index
+  // later in the game, it would silently inherit the first one's revealed
+  // status, showing the dead-card frame before the player had tapped it.
+  // Falls back to the old scheme only for a card with no uid (shouldn't
+  // normally happen since every card now gets one in makeDeck(), but keeps
+  // this safe rather than throwing if one somehow doesn't).
+  return card.uid !== undefined ? `uid:${card.uid}` : `${idx}:${card.rank}:${card.suit}`;
+}
 
 function showGameScreen() {
   showScreen('game-screen');
@@ -7169,6 +8019,7 @@ function showGameScreen() {
   selectedCardIdx = -1;
   jackMode = null;
   revealedDeadCardKeys.clear();
+  updateAIChatToggleUI(); // shows the mute button only for VS AI games
 
   // Show/hide spectator banner and hand area
   const spectatorBanner = document.getElementById('spectator-banner');
@@ -7184,11 +8035,11 @@ function showGameScreen() {
     if (handCards) handCards.style.display = '';
   }
 
-  // Chat preset trigger — only for active players in real multiplayer games;
-  // hidden for VS AI (no one else to message) and for spectators (not
-  // active participants).
+  // Chat preset trigger — active players in multiplayer, AND VS AI now that
+  // bots have their own chatter and can react to what's happening; still
+  // hidden for spectators (not active participants).
   const chatBtn = document.getElementById('chat-trigger-btn');
-  if (chatBtn) chatBtn.style.display = (!aiMode && !isSpectator) ? 'flex' : 'none';
+  if (chatBtn) chatBtn.style.display = !isSpectator ? 'flex' : 'none';
 
   if (aiTurnHandle) { clearTimeout(aiTurnHandle); aiTurnHandle = null; }
   renderGame();
@@ -7314,6 +8165,55 @@ function renderTopBar() {
   // "whose turn" is conveyed visually/spatially rather than through text
   // that can get clipped with 3 team badges + timer all sharing the bar.
   const scoresEl = document.getElementById('team-scores');
+  // Preserve any currently-showing chat bubble(s) across the rebuild below.
+  // scoresEl.innerHTML='' a few lines down would otherwise destroy them
+  // mid-display — they live as children of the score badges being wiped
+  // here, and this function runs on essentially every game update (each
+  // move, each render cycle), so a bubble could easily get wiped well
+  // before its own 4-second timer expires, sometimes within a second of
+  // appearing. Detaching first and re-appending after rebuild keeps the
+  // SAME bubble element (and its already-running removal timer) intact.
+  const preservedBubbles = [...scoresEl.querySelectorAll('.chat-bubble')].map(b => {
+    const team = b.closest('.score-badge')?.dataset.team;
+    // Removing an element from the DOM and re-inserting it retriggers any
+    // CSS animation on it — .chat-bubble has a "pop in" entrance animation,
+    // so without this, every render this function runs while a bubble is
+    // showing would replay that animation, making one unchanged message
+    // look like it fired again. It only needs to play once, on genuine
+    // first appearance (set fresh in showChatBubble), not on every
+    // preservation-driven reattachment.
+    // Removing an element from the DOM and re-inserting it retriggers any
+    // CSS animation on it — .chat-bubble has a "pop in" entrance animation,
+    // so without this, every render this function runs while a bubble is
+    // showing would replay that animation, making one unchanged message
+    // look like it fired again. It only needs to play once, on genuine
+    // first appearance (set fresh in showChatBubble), not on every
+    // preservation-driven reattachment. Explicitly setting opacity/transform
+    // to match the animation's end state (rather than just disabling the
+    // animation) guards against the edge case where this runs before the
+    // browser has painted even the animation's first frame — animation:none
+    // alone could otherwise leave it stuck at the 0% keyframe (invisible)
+    // instead of reverting to its intended fully-visible appearance.
+    // Removing an element from the DOM and re-inserting it retriggers any
+    // CSS animation on it — .chat-bubble has a "pop in" entrance animation,
+    // so without this, every render this function runs while a bubble is
+    // showing would replay that animation, making one unchanged message
+    // look like it fired again. It only needs to play once, on genuine
+    // first appearance (set fresh in showChatBubble), not on every
+    // preservation-driven reattachment. Uses !important specifically —
+    // CSS animations sit ABOVE plain inline styles in the cascade, so a
+    // normal style.opacity assignment can be silently overridden by a
+    // still-active animation if this runs before the browser has painted
+    // even the first frame, leaving the bubble stuck invisible at the
+    // animation's starting keyframe. !important normal declarations sit
+    // above animations, so this guarantees the override actually applies
+    // regardless of exactly when in the animation's lifecycle it runs.
+    b.style.setProperty('animation', 'none', 'important');
+    b.style.setProperty('opacity', '1', 'important');
+    b.style.setProperty('transform', 'scale(1) translateY(0)', 'important');
+    b.remove();
+    return { el: b, team };
+  });
   scoresEl.innerHTML = '';
   // 3-team mode gets a class enabling graceful shrink-with-ellipsis instead
   // of the default flex-shrink:0 — see .team-scores.scores-compact below for
@@ -7366,6 +8266,11 @@ function renderTopBar() {
       ${seriesWinHtml}`;
     scoresEl.append(div);
   }
+  // Re-attach preserved bubbles to their (newly rebuilt) matching badge.
+  preservedBubbles.forEach(({el, team}) => {
+    const newBadge = scoresEl.querySelector(`.score-badge[data-team="${team}"]`);
+    if (newBadge) newBadge.appendChild(el);
+  });
 
   // Turn info text — hidden on mobile via CSS (the score badge highlight
   // above already conveys whose turn it is, and even the fixed "YOUR TURN"
@@ -7870,7 +8775,7 @@ function playDeadCard() {
 
 function sendMove(move) {
   if (isHost) {
-    applyMove(move, myId);
+    applyMoveAndMaybeAIChat(move, myId);
   } else if (roomRef) {
     roomRef.child('moves').push({fromId: myId, move, timestamp: Date.now()});
   } else {
@@ -8429,7 +9334,14 @@ function showWinModal() {
     shuffleRow.style.display = 'none';
   }
 
-  const showModal = () => { document.getElementById('win-modal').classList.add('open'); renderH2HBox(); };
+  const rawShowModal = () => { document.getElementById('win-modal').classList.add('open'); renderH2HBox(); };
+  // When a bot wins, its own guaranteed sequence-completion reaction gets
+  // triggered synchronously as part of applying that winning move (see
+  // applyMoveAndMaybeAIChat) — by the time this function runs, it's
+  // already showing or queued. Polling rather than computing an exact
+  // delay because it has to account for both cases: a bubble already on
+  // screen, and anything still waiting behind it in the guaranteed queue.
+  const showModal = (aiMode && !iWon) ? () => waitForChatIdleThenShowModal(rawShowModal) : rawShowModal;
 
   if (iWon) {
     playWinMusic(showModal);
@@ -8438,6 +9350,12 @@ function showWinModal() {
     const loseDuration = (audioEls['Lose']?.duration || 2) * 1000;
     setTimeout(showModal, loseDuration + 200);
   }
+}
+
+function waitForChatIdleThenShowModal(showModalFn) {
+  const chatActive = !!document.querySelector('.chat-bubble') || pendingGuaranteedChats.length > 0;
+  if (!chatActive) { showModalFn(); return; }
+  setTimeout(() => waitForChatIdleThenShowModal(showModalFn), 200);
 }
 
 // Generic cell-blink helper: blinks a given list of board cells `times` times.
