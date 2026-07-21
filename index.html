@@ -6510,6 +6510,14 @@ function initGameState() {
     forcedCardIdx: null, // house rule: once a live replacement is drawn after a
                           // discard, the player is locked into playing this
                           // exact hand index — null means no lock is active
+    chainCardIdx: null, // during the soft-lock (discardLockActive true,
+                         // forcedCardIdx still null), the ONE hand index the
+                         // player is locked into discarding next — not just
+                         // "any dead card in hand", specifically the one they
+                         // just drew. Without this, a player could cherry-pick
+                         // between multiple dead cards, effectively upgrading
+                         // their whole hand's dead cards one at a time rather
+                         // than being committed to the single chain they started.
     discardLockActive: false, // true from the moment the FIRST discard happens
                                // this turn, even before a live card is found —
                                // disables the rest of the hand during the chain
@@ -6590,6 +6598,7 @@ function skipTurn() {
     const teamLabel = teamDisplayName(skippedTeam);
     GS.currentTurn = nextActiveTurnIndex(GS.currentTurn);
     GS.forcedCardIdx = null;
+    GS.chainCardIdx = null;
     GS.discardLockActive = false;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     broadcastActionBanner(`${teamLabel} skipped — one more and they forfeit`, '⚠️', 'forfeit-warning');
@@ -6601,6 +6610,7 @@ function skipTurn() {
   // consecutive-skip count that doesn't apply here at all.
   GS.currentTurn = nextActiveTurnIndex(GS.currentTurn);
   GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
+  GS.chainCardIdx = null;
   GS.discardLockActive = false;
   GS.moveSeq = (GS.moveSeq || 0) + 1;
   broadcastActionBanner(`${skipped ? skipped.name : 'A player'}'s turn timed out and was skipped`, '⏱', 'turn-skip');
@@ -7059,6 +7069,19 @@ function applyMoveInner(move, fromId) {
     // drawing dead replacements) so the rest of the hand is disabled for the
     // whole chain, not just once a live card is finally found.
     if (GS.forcedCardIdx !== null) { if (fromId === myId) toast('You must play your drawn card'); return; }
+    // Once the chain is underway, the player is locked into discarding the
+    // EXACT card they most recently drew — not free to cherry-pick a
+    // different dead card sitting elsewhere in hand instead, even though
+    // it's also dead. Without this, a player could effectively upgrade
+    // their whole hand's dead cards one at a time by hopping between
+    // whichever dead card looked more promising, rather than being
+    // committed to the single chain they started. The very first discard
+    // of a turn is still free (chainCardIdx is null until the chain
+    // actually begins).
+    if (GS.discardLockActive && GS.chainCardIdx !== null && cardIdx !== GS.chainCardIdx) {
+      if (fromId === myId) toast('You must discard the card you just drew');
+      return;
+    }
     GS.discardLockActive = true;
     GS.discard.push(hand.splice(cardIdx, 1)[0]);
     drawCard(fromId);
@@ -7067,8 +7090,10 @@ function applyMoveInner(move, fromId) {
     const newCard = hand[newCardIdx];
     if (newCard && !isDeadCardForState(newCard, GS, p.team)) {
       GS.forcedCardIdx = newCardIdx; // live card — lock the player into it
+      GS.chainCardIdx = null; // hard lock takes over; chain-slot tracking no longer needed
+    } else {
+      GS.chainCardIdx = newCardIdx; // still dead — this exact slot is the only one discardable next
     }
-    // else: still dead — forcedCardIdx stays null, player can discard again
     hostAdvanceAndBroadcast();
     return;
   }
@@ -7184,6 +7209,7 @@ function applyMoveInner(move, fromId) {
   if (GS.phase !== 'done') {
     GS.currentTurn = nextActiveTurnIndex(GS.currentTurn);
     GS.forcedCardIdx = null; // fresh turn for the next player, no lock carries over
+    GS.chainCardIdx = null;
     GS.discardLockActive = false;
   }
 
@@ -8485,8 +8511,13 @@ function renderHand() {
     if (hardLocked) {
       if (i === GS.forcedCardIdx) el.classList.add('forced-card');
       else el.classList.add('locked-card');
-    } else if (softLocked && !isDead) {
-      el.classList.add('locked-card'); // live cards can't be cherry-picked mid-chain
+    } else if (softLocked) {
+      // During the soft-lock (mid-chain, no live replacement drawn yet),
+      // ONLY the exact slot the player is chained into (chainCardIdx)
+      // remains interactable — not "any dead card in hand", since that
+      // would let a player cherry-pick between multiple dead cards rather
+      // than being committed to the single chain they started.
+      if (i !== GS.chainCardIdx) el.classList.add('locked-card');
     }
 
     el.innerHTML = makeHandCardHTML(card);
@@ -8499,7 +8530,7 @@ function renderHand() {
     // would otherwise cut off a badge positioned just outside its corner.
     // Only shown once the player has revealed this card by selecting it —
     // same reasoning as the frame above.
-    const canDiscardThis = isDead && isRevealed && myTurn && GS.forcedCardIdx === null;
+    const canDiscardThis = isDead && isRevealed && myTurn && GS.forcedCardIdx === null && (GS.chainCardIdx === null || i === GS.chainCardIdx);
     if (canDiscardThis) {
       const badge = document.createElement('button');
       badge.className = 'dead-card-x';
@@ -8519,8 +8550,8 @@ function renderHand() {
         if (i !== GS.forcedCardIdx) { toast('You must play your drawn card'); return; }
         return; // already locked in — clicking again shouldn't deselect it
       }
-      if (softLocked && !isDead) {
-        toast('Keep discarding until you draw a playable card');
+      if (softLocked && i !== GS.chainCardIdx) {
+        toast('You must discard the card you just drew');
         return;
       }
       selectCard(i);
