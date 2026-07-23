@@ -1587,6 +1587,14 @@
 
   /* playable-hint removed — player finds spots themselves */
 
+  /* Wide-screen-only elements stay completely out of portrait's layout.
+     wide-right-stack uses display:contents specifically so its children
+     (hand-info-bar, hand-area — both pre-existing, intentionally visible
+     in portrait) behave exactly as they did before this wrapper existed;
+     only the two genuinely new blocks need an explicit hide. */
+  .wide-left-col, #wide-stats-block, #wide-lastmove-block { display: none; }
+  .wide-right-stack { display: contents; }
+
   /* Bottom hand area — shrinks to its content, never grows into board space */
   .hand-area {
     flex: 0 0 auto;
@@ -2564,121 +2572,181 @@
      handled entirely by the breakpoint above. */
 
   @media (min-width: 1024px) {
-    /* ── GAME SCREEN ──
-       CSS Grid lets us relocate elements visually without touching the HTML
-       (mobile keeps its own simple flex-column source order). Board gets a
-       dedicated cell that can grow to fill all available height; the
-       scores/timer/quit sidebar moves to a slim right-hand column so it
-       never eats into the hand-cards strip's height; hand cards get their
-       own short strip spanning the full width at the bottom. */
+    /* ── GAME SCREEN, WIDE-SCREEN LAYOUT ──
+       Board gets true full height. Left column: player list + persistent
+       chat log. Right column: head-to-head/stats, turn+timer+quit,
+       last-move-by-team, hand (fan-overlapped, single row). Portrait's own
+       flex-column layout below this breakpoint is completely untouched —
+       every rule here is scoped inside this media query. */
     .game-main {
       display: grid;
-      grid-template-columns: 1fr 180px;
-      grid-template-rows: 1fr auto;
-      grid-template-areas:
-        "board  sidebar"
-        "hand   hand";
-      gap: 0;
-      overflow: visible;
-    }
-
-    .board-container {
-      grid-area: board;
-      min-height: 0;
-      padding: 20px;
-      /* Subtle decorative pattern fills the empty space either side of the
-         portrait-shaped board on very wide screens */
-      background-image:
-        radial-gradient(circle at 15% 20%, rgba(201,168,76,0.05) 0%, transparent 8%),
-        radial-gradient(circle at 85% 15%, rgba(201,168,76,0.05) 0%, transparent 8%),
-        radial-gradient(circle at 20% 80%, rgba(201,168,76,0.05) 0%, transparent 8%),
-        radial-gradient(circle at 88% 75%, rgba(201,168,76,0.05) 0%, transparent 8%),
-        radial-gradient(circle at 50% 92%, rgba(201,168,76,0.04) 0%, transparent 10%);
-    }
-
-    /* Sidebar — vertical strip to the right of the board holding scores,
-       turn text, timer, and quit. Nothing here competes with the hand
-       strip's height, so the hand strip can stay as short as possible. */
-    .hand-info-bar {
-      grid-area: sidebar;
-      flex-direction: column;
-      align-items: stretch;
-      justify-content: flex-start;
+      grid-template-columns: 210px 1fr 240px;
+      grid-template-rows: 1fr;
       gap: 14px;
-      padding: 18px 14px;
-      border-radius: 0;
-      border-left: 1px solid rgba(201,168,76,0.25);
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .wide-left-col { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+    .board-container { grid-column: 2; grid-row: 1; min-height: 0; padding: 0; display: flex; align-items: center; justify-content: center; background-image: none; }
+    .wide-right-stack { grid-column: 3; grid-row: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+    #wide-stats-block, #wide-lastmove-block { display: block; }
+
+    /* .board's own sizing formula (aspect-ratio 5/7, container-query-based
+       width) already handles this correctly on its own — no override
+       needed here. An earlier version of this rule incorrectly forced
+       aspect-ratio:1/1, silently distorting every cell into the wrong
+       shape by overriding the board's real, correct proportions. */
+
+    /* Shared white-card look for every new panel, matching the existing
+       score-badge/hand-info-bar visual language (white surfaces, navy
+       #1a2080 accents) rather than introducing a new palette. */
+    .wide-block {
       background: rgba(255,255,255,0.98);
-      overflow-y: auto;
+      border-radius: 10px;
+      padding: 12px;
+      font-family: 'Poppins', sans-serif;
     }
-    .hand-info-bar .info-icon-btn {
-      position: static;
-      align-self: flex-end;
-      margin-top: auto;
-      width: 44px;
-      height: 44px;
+    .wide-block-title {
+      font-size: 0.68rem;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #6b7099;
+      font-weight: 600;
+      margin-bottom: 8px;
     }
-    .team-scores { flex-direction: column; gap: 8px; }
-    .score-badge { font-size: 0.85rem; padding: 5px 10px 5px 4px; width: 100%; box-sizing: border-box; }
-    .score-initial { width: 28px; height: 28px; font-size: 0.75rem; }
-    .turn-info { display: block; font-size: 0.9rem; text-align: center; padding: 8px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
 
+    /* Left column: player list (reuses the same score-badge visual
+       treatment as portrait, just stacked and given room to breathe) */
+    .wide-left-col .wide-block:first-child { flex: 0 0 auto; }
+    #wide-players-list .score-badge { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+    #wide-players-list .score-badge:last-child { margin-bottom: 0; }
 
-    /* Timer sits in the sidebar too, below the turn text */
-    .timer-wrap {
-      gap: 8px;
+    /* Chat log — the one persistent, internally-scrollable region; the
+       overall page/screen itself never scrolls in this layout. */
+    .wide-chat-block { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
+    .wide-chat-feed { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    .wide-chat-msg { font-size: 0.72rem; line-height: 1.4; }
+    .wide-chat-msg .who { font-weight: 600; margin-right: 4px; }
+    .wide-chat-msg .txt { color: #444; }
+    .wide-chat-input-row { margin-top: 8px; position: relative; }
+    .wide-chat-input {
+      background: #f4f5fa; border: 1px solid #E0E4F0; border-radius: 8px;
+      font-size: 0.72rem; color: #888; padding: 7px 10px; cursor: pointer;
     }
-    .turn-timer { width: 44px; height: 44px; }
-    #timer-num { font-size: 1rem; }
-    .timer-sound-btn { width: 44px; height: 44px; font-size: 0.95rem; }
+    .wide-preset-grid {
+      display: none; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px;
+      max-height: 160px; overflow-y: auto;
+    }
+    .wide-preset-grid.open { display: grid; }
+    .wide-preset-btn {
+      background: #f4f5fa; border: 1px solid #E0E4F0; border-radius: 6px;
+      font-size: 0.66rem; color: #444; padding: 6px 4px; text-align: center; cursor: pointer;
+    }
+    .wide-preset-btn:hover { border-color: #1a2080; color: #1a2080; }
 
-    /* Hand strip — full width, bottom, only the cards (label hidden to save
-       every last pixel of height; the sidebar's "YOUR TURN" already orients
-       the player, so the label is redundant here) */
+    /* Right column: hand-info-bar keeps team-scores hidden here (the left
+       column's player list replaces that role) and shows only
+       turn/timer/quit, restyled to sit as one compact card in the stack
+       between the stats block above and last-move block below. */
+    .hand-info-bar {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.98);
+    }
+    .hand-info-bar .team-scores { display: none; }
+    .hand-info-bar .turn-info { display: block; font-size: 0.78rem; font-weight: 600; color: #1a2080; }
+    .hand-info-bar .timer-wrap { gap: 6px; }
+    .hand-info-bar .turn-timer { width: 38px; height: 38px; }
+    .hand-info-bar #timer-num { font-size: 0.85rem; }
+    .hand-info-bar .timer-sound-btn { width: 32px; height: 32px; font-size: 0.85rem; }
+    .hand-info-bar .info-icon-btn { position: static; width: 32px; height: 32px; }
+
+    /* Head-to-head / stats block */
+    .wide-wld-row { display: flex; gap: 6px; margin: 8px 0; }
+    .wide-wld-item { flex: 1; background: #f4f5fa; border-radius: 6px; padding: 6px 2px; text-align: center; }
+    .wide-wld-num { font-size: 0.95rem; font-weight: 700; display: block; }
+    .wide-wld-item.w .wide-wld-num { color: #1a7a3c; }
+    .wide-wld-item.l .wide-wld-num { color: #a02020; }
+    .wide-wld-item.d .wide-wld-num { color: #777; }
+    .wide-wld-label { font-size: 0.55rem; color: #999; letter-spacing: 0.4px; text-transform: uppercase; }
+    .wide-h2h-row { display: flex; justify-content: space-between; font-size: 0.7rem; padding: 3px 0; }
+    .wide-stat-line { display: flex; justify-content: space-between; font-size: 0.68rem; padding: 3px 0; color: #777; }
+    .wide-stat-line b { color: #333; font-weight: 600; }
+
+    /* Last-move-by-team */
+    .wide-lastmove-row { display: flex; align-items: flex-start; gap: 6px; padding: 3px 0; font-size: 0.68rem; line-height: 1.4; }
+    .wide-lastmove-row .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; }
+    .wide-lastmove-row .txt { color: #555; }
+    .wide-lastmove-row .txt b { color: #222; font-weight: 600; }
+
+    /* Hand — pinned to the bottom of the right column, fan-overlapped into
+       a single row. Real card art/size untouched; only the layout
+       overlaps. */
     .hand-area {
-      grid-area: hand;
+      margin-top: auto;
       width: 100%;
-      height: auto;
-      flex: 0 0 auto;
       display: block;
-      border-top: 1px solid rgba(201,168,76,0.25);
-      padding: 10px 20px;
+      padding: 0;
       overflow: visible;
     }
-    /* Hide the "YOUR HAND" text + gold divider lines on wide screens (the
-       sidebar's turn indicator already makes this redundant) — but NOT the
-       whole .hand-label-row, since the chat trigger button also lives in
-       that row and was being hidden along with it as unintended collateral,
-       making chat impossible to open on laptop/desktop widths. */
     .hand-label-line { display: none; }
-    .hand-label-row { justify-content: flex-end; }
+    .hand-label-row { justify-content: flex-end; margin-bottom: 6px; }
 
     .hand-cards {
+      display: flex;
       flex-wrap: nowrap;
-      overflow-x: visible;
-      gap: 12px;
-      padding: 0;
+      overflow: visible;
+      gap: 0;
+      padding: 10px 6px 6px;
       justify-content: center;
     }
-    .hand-card { width: 66px; height: 92px; flex-shrink: 0; }
-    @media (hover: hover) {
-      .hand-card:hover { transform: translateY(-8px); }
+    .hand-card {
+      width: 58px; height: 82px; flex-shrink: 0;
+      margin-left: -22px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+      box-shadow: -3px 0 6px rgba(0,0,0,0.25);
     }
-    .hand-card.selected { transform: translateY(-12px); }
+    .hand-card:first-child { margin-left: 0; }
+    .hand-card.selected, .hand-card.forced-card {
+      transform: translateY(-14px);
+      z-index: 5;
+      box-shadow: 0 6px 14px rgba(0,0,0,0.3);
+    }
+    .hand-card.locked-card { filter: brightness(0.55) saturate(0.7); }
+    @media (hover: hover) {
+      /* Hover only lifts a card when nothing is already selected - once a
+         card is tapped/selected, moving the mouse over other cards
+         shouldn't ALSO lift them, since that would put two cards up at
+         once, each blocking part of the other. The has-selection class is
+         toggled in renderHand() based on selectedCardIdx.
 
-    .board { padding: 8px; }
+         Two rules needed here, not one: there's an older, unscoped
+         .hand-card:hover rule (portrait-focused, applies at every width)
+         that unconditionally lifts on hover with no awareness of
+         selection state at all. Simply not re-adding the lift in a
+         conditional rule isn't enough on its own — that older rule keeps
+         applying regardless, since nothing was overriding it. The second
+         rule below explicitly resets the transform back to none whenever
+         has-selection is active, specifically to counteract that. */
+      .hand-cards:not(.has-selection) .hand-card:hover { transform: translateY(-14px); z-index: 5; box-shadow: 0 6px 14px rgba(0,0,0,0.3); }
+      .hand-cards.has-selection .hand-card:not(.selected):not(.forced-card):hover { transform: none; box-shadow: -3px 0 6px rgba(0,0,0,0.25); }
+    }
   }
 
-  /* Ultra-wide screens (laptops/desktops) — give the board even more room */
+  /* Ultra-wide screens (laptops/desktops) — give every panel a little more
+     room now that there's width to spare beyond what the height-constrained
+     square board actually needs. */
   @media (min-width: 1440px) {
-    .game-main { grid-template-columns: 1fr 200px; }
-    .hand-card { width: 74px; height: 104px; }
-    .turn-timer { width: 50px; height: 50px; }
-    #timer-num { font-size: 1.05rem; }
-    .timer-sound-btn { width: 50px; height: 50px; font-size: 1.05rem; }
-    .hand-info-bar .info-icon-btn { width: 50px; height: 50px; }
+    .game-main { grid-template-columns: 250px 1fr 280px; }
+    .hand-card { width: 66px; height: 92px; margin-left: -25px; }
   }
 </style>
+
 </head>
 <body>
 
@@ -3228,13 +3296,57 @@
   </div>
 
   <div class="game-main">
+    <!-- Wide-screen only (see @media 1024px) — left column: full player
+         list + a persistent chat log. Hidden entirely below the breakpoint;
+         portrait keeps using hand-info-bar/team-scores below exactly as
+         before. -->
+    <div class="wide-left-col">
+      <div class="wide-block">
+        <div class="wide-block-title">Players</div>
+        <div id="wide-players-list"></div>
+      </div>
+      <div class="wide-block wide-chat-block">
+        <div class="wide-block-title">Chat</div>
+        <div class="wide-chat-feed" id="wide-chat-feed"></div>
+        <div class="wide-chat-input-row">
+          <div class="wide-chat-input" id="wide-chat-trigger" onclick="toggleWideChatPresets()">Send a message…</div>
+          <div class="wide-preset-grid" id="wide-preset-grid"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="board-container">
       <div class="board" id="board"></div>
     </div>
 
-    <!-- Info bar — white pill above hand on mobile; becomes a right-hand
-         sidebar on wide screens (see @media 1024px). Kept as a sibling of
-         board-container/hand-area so CSS Grid can place it independently. -->
+    <!-- Wide-screen only — stats block sits BEFORE hand-info-bar in source
+         order specifically so grid auto-flow stacks it first in the right
+         column, ahead of turn/timer/quit. -->
+    <!-- display:contents below the 1024px breakpoint means this wrapper is
+         invisible to portrait's layout entirely — its children behave
+         exactly as if they were direct children of game-main, unchanged
+         from before. On wide screens it becomes a real flex column,
+         occupying exactly one grid cell — without this, four separate
+         items all targeting grid-column:3 with no explicit row would each
+         get pushed into their own auto-sized implicit row, and since every
+         column shares the same row track, that shrinks the row (and so the
+         board, and the left column) down to whatever's left after all four
+         stacked pieces claim their own space, rather than the board
+         actually getting the full available height. -->
+    <div class="wide-right-stack">
+    <div class="wide-block" id="wide-stats-block">
+      <div class="wide-block-title">Head to head</div>
+      <div id="wide-h2h-rows"></div>
+      <div class="wide-wld-row" id="wide-wld-row"></div>
+      <div id="wide-stat-lines"></div>
+    </div>
+
+    <!-- Info bar — white pill above hand on mobile; on wide screens it stays
+         one grid item (scores hidden inside it there — the new left-column
+         player list replaces that role), holding just turn/timer/quit
+         between the stats block above and last-move block below (see
+         @media 1024px). Kept as a sibling of board-container/hand-area so
+         CSS Grid can place it independently either way. -->
     <div class="hand-info-bar">
       <div class="team-scores" id="team-scores"></div>
       <div class="turn-info" id="turn-info">—</div>
@@ -3252,6 +3364,13 @@
       <button class="info-icon-btn" onclick="confirmQuit()" title="Quit game"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
     </div>
 
+    <!-- Wide-screen only — last-move-by-team, positioned AFTER hand-info-bar
+         in source order so it stacks below turn/timer/quit, above the hand. -->
+    <div class="wide-block" id="wide-lastmove-block">
+      <div class="wide-block-title">Last move by team</div>
+      <div id="wide-lastmove-rows"></div>
+    </div>
+
     <div class="hand-area">
       <div id="spectator-banner" class="spectator-banner" style="display:none">👁 SPECTATING — Watch only</div>
       <div id="forced-card-banner" class="forced-card-banner" style="display:none">🔒 You must play the card you just drew</div>
@@ -3266,6 +3385,7 @@
         <button id="ai-chat-toggle-btn" onclick="setAIChatEnabled(!aiChatEnabled)" title="Toggle AI chatter" style="display:none">💬</button>
       </div>
       <div class="hand-cards" id="hand-cards"></div>
+    </div>
     </div>
   </div>
 </div>
@@ -3817,13 +3937,22 @@ const AI_TIER = {
 let _chipId = 0;
 function buildChipSVG(colorClass, initial, size, showDot = false, inverted = false) {
   const c = CHIP_COLORS[colorClass] || CHIP_COLORS['blue'];
-  const gid = 'cg' + (_chipId++);
+  // Every call needs a globally-unique id here, not just colorClass+size —
+  // otherwise every same-color, same-size chip on the board (the normal
+  // case: many chips of one team, all sized identically) generates
+  // <radialGradient> elements with duplicate ids, which is invalid SVG and
+  // makes browsers resolve url(#id) references inconsistently across
+  // chips — only one copy renders its real gradient, the rest fall back to
+  // a broken dark/gray fill instead of the intended white-to-pastel
+  // center. _chipId was already being incremented for exactly this but
+  // was never actually wired into the id string below — that's the bug.
+  const uniq = _chipId++;
+  const id = colorClass.replace('-','') + size + '_' + uniq;
   const r = size / 2;
   const cx = r, cy = r;
   const outerR  = r * 0.97;
   const ringR   = r * 0.80;
   const centerR = r * 0.56;
-  const id = colorClass.replace('-','') + size;
 
   // Inverted colours for sequence chips
   const rimColour    = inverted ? '#bbbbbb' : c.ringDark;
@@ -7413,11 +7542,36 @@ function closeChatPicker() {
   if (backdrop) backdrop.style.display = 'none';
 }
 
+// Wide-screen equivalent of toggleChatPicker/closeChatPicker above — same
+// CHAT_PRESETS, same lazy-init-once pattern, just an inline grid next to
+// the chat log instead of a full-screen modal sheet (there's room for it
+// directly in the left-column layout on wide screens, no need for an
+// overlay). sendChatPreset itself is unchanged and unaware of which of the
+// two surfaces triggered it — it closes whichever is actually open.
+function toggleWideChatPresets() {
+  const grid = document.getElementById('wide-preset-grid');
+  if (!grid) return;
+  if (grid.classList.contains('open')) { closeWideChatPresets(); return; }
+  if (!grid.dataset.init) {
+    grid.innerHTML = CHAT_PRESETS.map((p, i) =>
+      `<button class="wide-preset-btn" onclick="sendChatPreset(${i})">${p.text} ${p.emoji}</button>`
+    ).join('');
+    grid.dataset.init = '1';
+  }
+  grid.classList.add('open');
+}
+
+function closeWideChatPresets() {
+  const grid = document.getElementById('wide-preset-grid');
+  if (grid) grid.classList.remove('open');
+}
+
 function sendChatPreset(idx) {
   const preset = CHAT_PRESETS[idx];
   if (!preset || !myId) return;
   const text = `${preset.text} ${preset.emoji}`;
   closeChatPicker();
+  closeWideChatPresets();
   showChatBubble(myId, text); // show on my own screen immediately
   if (roomRef) {
     roomRef.child('toasts').push({ isChat: true, fromId: myId, text, timestamp: Date.now() }).catch(() => {});
@@ -7442,7 +7596,15 @@ function showChatBubble(fromId, text) {
   // doesn't show rather than interrupting one already being read.
   if (document.querySelector('.chat-bubble')) return false;
 
-  const badge = document.querySelector(`.score-badge[data-team="${sender.team}"]`);
+  // Score badges now exist in BOTH #team-scores (portrait) and
+  // #wide-players-list (wide screens) simultaneously - CSS shows only one
+  // at a given width. A plain first-match query could find whichever one
+  // happens to come first in DOM order regardless of which is actually
+  // visible, silently anchoring the bubble to a hidden badge. Filtering to
+  // offsetParent!==null (the standard "not display:none, not inside a
+  // display:none ancestor" check) picks the one actually on screen.
+  const badgeCandidates = [...document.querySelectorAll(`.score-badge[data-team="${sender.team}"]`)];
+  const badge = badgeCandidates.find(b => b.offsetParent !== null) || badgeCandidates[0];
   if (!badge) return false; // sender's team badge isn't on screen (shouldn't normally happen)
   if (getComputedStyle(badge).position === 'static') badge.style.position = 'relative';
 
@@ -7463,7 +7625,37 @@ function showChatBubble(fromId, text) {
       fireChatLine(next.situationKey, next.fromTeam, next.targetTeam);
     }
   }, 5500);
+
+  appendToWideChatLog(sender, text);
   return true;
+}
+
+// Wide-screen persistent chat log — every message that successfully shows
+// a bubble also lands here, permanently (until the next game), giving wide
+// screens scrollback the transient bubble never had. Hooked at this single
+// point specifically because it's the one place every message source
+// (human presets AND every AI chatter line, across all difficulty tiers)
+// already funnels through on success — no separate wiring needed per
+// source, and nothing here duplicates showChatBubble's own gating (cooldown,
+// one-bubble-at-a-time, etc.) since this only runs once a message has
+// already cleared all of that.
+function appendToWideChatLog(sender, text) {
+  const feed = document.getElementById('wide-chat-feed');
+  if (!feed) return; // portrait screens don't have this element at all
+  const label = sender.id === myId ? 'You' : sender.name;
+  const colour = CHIP_HEX[TEAM_COLORS[sender.team]] || '#1E90FF';
+  const msg = document.createElement('div');
+  msg.className = 'wide-chat-msg';
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.style.color = colour;
+  who.textContent = label + ':';
+  const txt = document.createElement('span');
+  txt.className = 'txt';
+  txt.textContent = ' ' + text;
+  msg.append(who, txt);
+  feed.appendChild(msg);
+  feed.scrollTop = feed.scrollHeight;
 }
 
 // Fires an AI chat line for the given situation, IF: chatter is enabled,
@@ -8190,24 +8382,26 @@ function renderTopBar() {
   // for whichever team's turn it currently is gets a glowing highlight, so
   // "whose turn" is conveyed visually/spatially rather than through text
   // that can get clipped with 3 team badges + timer all sharing the bar.
+  //
+  // Rendered into BOTH #team-scores (portrait) and #wide-players-list (wide
+  // screens) identically — CSS shows exactly one of the two at any given
+  // width, but both stay populated so showChatBubble's badge lookup (see
+  // its own comment) always has a real, currently-visible target to anchor
+  // to regardless of screen size.
   const scoresEl = document.getElementById('team-scores');
-  // Preserve any currently-showing chat bubble(s) across the rebuild below.
-  // scoresEl.innerHTML='' a few lines down would otherwise destroy them
-  // mid-display — they live as children of the score badges being wiped
-  // here, and this function runs on essentially every game update (each
-  // move, each render cycle), so a bubble could easily get wiped well
-  // before its own 4-second timer expires, sometimes within a second of
-  // appearing. Detaching first and re-appending after rebuild keeps the
-  // SAME bubble element (and its already-running removal timer) intact.
-  const preservedBubbles = [...scoresEl.querySelectorAll('.chat-bubble')].map(b => {
+  const wideListEl = document.getElementById('wide-players-list');
+  // Preserve any currently-showing chat bubble(s) across the rebuild below,
+  // from EITHER container — a bubble could be anchored to whichever one is
+  // actually visible right now. scoresEl.innerHTML='' a few lines down
+  // would otherwise destroy them mid-display — they live as children of
+  // the score badges being wiped here, and this function runs on
+  // essentially every game update (each move, each render cycle), so a
+  // bubble could easily get wiped well before its own 4-second timer
+  // expires, sometimes within a second of appearing. Detaching first and
+  // re-appending after rebuild keeps the SAME bubble element (and its
+  // already-running removal timer) intact.
+  const preservedBubbles = [...scoresEl.querySelectorAll('.chat-bubble'), ...wideListEl.querySelectorAll('.chat-bubble')].map(b => {
     const team = b.closest('.score-badge')?.dataset.team;
-    // Removing an element from the DOM and re-inserting it retriggers any
-    // CSS animation on it — .chat-bubble has a "pop in" entrance animation,
-    // so without this, every render this function runs while a bubble is
-    // showing would replay that animation, making one unchanged message
-    // look like it fired again. It only needs to play once, on genuine
-    // first appearance (set fresh in showChatBubble), not on every
-    // preservation-driven reattachment.
     // Removing an element from the DOM and re-inserting it retriggers any
     // CSS animation on it — .chat-bubble has a "pop in" entrance animation,
     // so without this, every render this function runs while a bubble is
@@ -8219,21 +8413,15 @@ function renderTopBar() {
     // animation) guards against the edge case where this runs before the
     // browser has painted even the animation's first frame — animation:none
     // alone could otherwise leave it stuck at the 0% keyframe (invisible)
-    // instead of reverting to its intended fully-visible appearance.
-    // Removing an element from the DOM and re-inserting it retriggers any
-    // CSS animation on it — .chat-bubble has a "pop in" entrance animation,
-    // so without this, every render this function runs while a bubble is
-    // showing would replay that animation, making one unchanged message
-    // look like it fired again. It only needs to play once, on genuine
-    // first appearance (set fresh in showChatBubble), not on every
-    // preservation-driven reattachment. Uses !important specifically —
-    // CSS animations sit ABOVE plain inline styles in the cascade, so a
-    // normal style.opacity assignment can be silently overridden by a
-    // still-active animation if this runs before the browser has painted
-    // even the first frame, leaving the bubble stuck invisible at the
-    // animation's starting keyframe. !important normal declarations sit
-    // above animations, so this guarantees the override actually applies
-    // regardless of exactly when in the animation's lifecycle it runs.
+    // instead of reverting to its intended fully-visible appearance. Uses
+    // !important specifically — CSS animations sit ABOVE plain inline
+    // styles in the cascade, so a normal style.opacity assignment can be
+    // silently overridden by a still-active animation if this runs before
+    // the browser has painted even the first frame, leaving the bubble
+    // stuck invisible at the animation's starting keyframe. !important
+    // normal declarations sit above animations, so this guarantees the
+    // override actually applies regardless of exactly when in the
+    // animation's lifecycle it runs.
     b.style.setProperty('animation', 'none', 'important');
     b.style.setProperty('opacity', '1', 'important');
     b.style.setProperty('transform', 'scale(1) translateY(0)', 'important');
@@ -8241,6 +8429,7 @@ function renderTopBar() {
     return { el: b, team };
   });
   scoresEl.innerHTML = '';
+  wideListEl.innerHTML = '';
   // 3-team mode gets a class enabling graceful shrink-with-ellipsis instead
   // of the default flex-shrink:0 — see .team-scores.scores-compact below for
   // why this is scoped to exactly the case that actually overflows on
@@ -8291,10 +8480,19 @@ function renderTopBar() {
       </div>
       ${seriesWinHtml}`;
     scoresEl.append(div);
+    wideListEl.append(div.cloneNode(true)); // identical badge, independent element - both containers stay real, populated targets
   }
-  // Re-attach preserved bubbles to their (newly rebuilt) matching badge.
+  // Re-attach preserved bubbles to their (newly rebuilt) matching badge —
+  // in whichever of the two containers is actually visible right now.
+  // Searching team-scores unconditionally would silently misplace a bubble
+  // that was showing in the wide-screen list, moving it onto a hidden
+  // badge and making it invisible.
   preservedBubbles.forEach(({el, team}) => {
-    const newBadge = scoresEl.querySelector(`.score-badge[data-team="${team}"]`);
+    const candidates = [
+      scoresEl.querySelector(`.score-badge[data-team="${team}"]`),
+      wideListEl.querySelector(`.score-badge[data-team="${team}"]`),
+    ];
+    const newBadge = candidates.find(b => b && b.offsetParent !== null) || candidates.find(Boolean);
     if (newBadge) newBadge.appendChild(el);
   });
 
@@ -8472,6 +8670,10 @@ function renderHand() {
   if (hardLocked && selectedCardIdx !== GS.forcedCardIdx) {
     selectedCardIdx = GS.forcedCardIdx;
   }
+  // Wide-screen hover-lift is disabled once any card is already selected —
+  // see the .hand-cards:not(.has-selection) rule — so hovering elsewhere
+  // in the hand can't lift a second card while one is already tapped up.
+  handEl.classList.toggle('has-selection', selectedCardIdx >= 0);
   const forcedBanner = document.getElementById('forced-card-banner');
   if (forcedBanner) {
     if (hardLocked) {
@@ -8559,6 +8761,36 @@ function renderHand() {
     wrap.appendChild(el);
     handEl.append(wrap);
   });
+
+  // Wide-screen fan-overlap: a fixed CSS overlap amount can't adapt to
+  // different hand sizes (5-7 cards depending on player count) or the
+  // actual available column width on a given screen — it was letting
+  // cards overflow past the right edge of the window on real laptop
+  // resolutions. Computed here instead: measure what's actually
+  // available, and only overlap as much as genuinely needed to fit,
+  // never more, never as a fixed guess.
+  if (window.matchMedia('(min-width: 1024px)').matches) {
+    const cardEls = [...handEl.querySelectorAll('.hand-card')];
+    if (cardEls.length > 1) {
+      const availableWidth = handEl.clientWidth;
+      const cardWidth = cardEls[0].getBoundingClientRect().width;
+      const n = cardEls.length;
+      const naturalTotalWidth = cardWidth * n;
+      if (cardWidth > 0 && naturalTotalWidth > availableWidth) {
+        // Solve for the per-card overlap that makes the total width
+        // exactly fit: cardWidth + (n-1)*(cardWidth - overlap) = available
+        let overlap = cardWidth - (availableWidth - cardWidth) / (n - 1);
+        // Cap overlap at 65% of a card's width — beyond that even the
+        // protected top-left identifying corner starts genuinely
+        // crowding its neighbor, which is worse than a slightly tight fit.
+        overlap = Math.max(0, Math.min(overlap, cardWidth * 0.65));
+        cardEls.forEach((el, i) => { if (i > 0) el.style.marginLeft = `-${overlap}px`; });
+      } else {
+        // Plenty of room already - sit naturally with no overlap at all.
+        cardEls.forEach((el, i) => { if (i > 0) el.style.marginLeft = '0px'; });
+      }
+    }
+  }
 }
 
 function isDeadCard(card, idx, team) {
