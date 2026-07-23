@@ -8261,6 +8261,7 @@ function showGameScreen() {
 
   if (aiTurnHandle) { clearTimeout(aiTurnHandle); aiTurnHandle = null; }
   renderGame();
+  renderWideStats(); // no-ops harmlessly on portrait screens (elements don't exist there)
   startCountdownDisplay();
   if (aiMode && players[GS.currentTurn] && players[GS.currentTurn].id.startsWith(AI_ID)) {
     aiTurnHandle = setTimeout(() => { aiTurnHandle = null; aiTakeTurn(); }, 800);
@@ -9275,6 +9276,49 @@ async function renderMyStats() {
   maybeShowSaveProgressPrompt(s.totalGames);
 }
 
+// Computes head-to-head rows as plain data ({label, wins, losses, draws}[]),
+// with no DOM dependency - shared by renderH2HBox (post-game modal) and the
+// wide-screen sidebar stats panel below, so the underlying VS-AI/multiplayer
+// lookup logic stays in exactly one place rather than drifting apart across
+// two callers that render it differently.
+async function computeH2HRows() {
+  if (aiMode) {
+    const games = await fetchMyStatsHistory();
+    const relevant = games.filter(g => g.mode === 'vs_ai' && g.aiDifficulty === aiDifficulty);
+    if (!relevant.length) return null;
+    const wins   = relevant.filter(g => g.outcome === 'win').length;
+    const losses = relevant.filter(g => g.outcome === 'loss').length;
+    const draws  = relevant.filter(g => g.outcome === 'draw').length;
+    // Label by the tier's son bot (Alison/Ibravo/Zaytro) rather than the raw
+    // difficulty word — under the personality scheme the name IS the
+    // difficulty, and "vs Zaytro" reads better than "vs AI · Hard".
+    const botName = (AI_TIER[aiDifficulty] || AI_TIER['medium']).son.name;
+    return [{ label: botName, wins, losses, draws }];
+  }
+
+  if (!currentAccount) return null;
+  const myTeam = players[myIndex]?.team;
+  const opponents = players.filter(p => p.team !== myTeam && p.username);
+  if (!opponents.length) return null;
+
+  const rows = await Promise.all(opponents.map(async opp => {
+    try {
+      const snap = await db.ref('sq_h2h/' + h2hKey(currentAccount.username, opp.username)).once('value');
+      if (!snap.exists()) return null;
+      const rec = snap.val();
+      return {
+        label: opp.name,
+        wins: rec.wins?.[currentAccount.username] || 0,
+        losses: rec.wins?.[opp.username] || 0,
+        draws: rec.draws || 0,
+      };
+    } catch(e) { return null; }
+  }));
+
+  const validRows = rows.filter(Boolean);
+  return validRows.length ? validRows : null;
+}
+
 // Shows the LOCAL viewing player's own head-to-head record for THIS game's
 // matchup. Two distinct paths depending on mode:
 //
@@ -9301,48 +9345,11 @@ async function renderH2HBox() {
   if (!box) return;
   if (isSpectator || !fbInit() || !db) { box.style.display = 'none'; return; }
 
-  if (aiMode) {
-    const games = await fetchMyStatsHistory();
-    const relevant = games.filter(g => g.mode === 'vs_ai' && g.aiDifficulty === aiDifficulty);
-    if (!relevant.length) { box.style.display = 'none'; return; }
-    const wins   = relevant.filter(g => g.outcome === 'win').length;
-    const losses = relevant.filter(g => g.outcome === 'loss').length;
-    const draws  = relevant.filter(g => g.outcome === 'draw').length;
-    // Label by the tier's son bot (Alison/Ibravo/Zaytro) rather than the raw
-    // difficulty word — under the personality scheme the name IS the
-    // difficulty, and "vs Zaytro" reads better than "vs AI · Hard". The son
-    // is the constant across both 1v1 and 1v1v1 at that tier, so it's the
-    // natural identity for the whole difficulty's record.
-    const botName = (AI_TIER[aiDifficulty] || AI_TIER['medium']).son.name;
-    document.getElementById('h2h-rows').innerHTML = renderH2HRow(botName, wins, losses, draws);
-    box.style.display = 'block';
-    return;
-  }
-
-  if (!currentAccount) { box.style.display = 'none'; return; }
-  const myTeam = players[myIndex]?.team;
-  const opponents = players.filter(p => p.team !== myTeam && p.username);
-  if (!opponents.length) { box.style.display = 'none'; return; }
-
-  const rows = await Promise.all(opponents.map(async opp => {
-    try {
-      const snap = await db.ref('sq_h2h/' + h2hKey(currentAccount.username, opp.username)).once('value');
-      if (!snap.exists()) return null;
-      const rec = snap.val();
-      return {
-        name: opp.name,
-        myWins: rec.wins?.[currentAccount.username] || 0,
-        theirWins: rec.wins?.[opp.username] || 0,
-        draws: rec.draws || 0,
-      };
-    } catch(e) { return null; }
-  }));
-
-  const validRows = rows.filter(Boolean);
-  if (!validRows.length) { box.style.display = 'none'; return; }
+  const validRows = await computeH2HRows();
+  if (!validRows) { box.style.display = 'none'; return; }
 
   document.getElementById('h2h-rows').innerHTML = validRows
-    .map(r => renderH2HRow(r.name, r.myWins, r.theirWins, r.draws))
+    .map(r => renderH2HRow(r.label, r.wins, r.losses, r.draws))
     .join('');
   box.style.display = 'block';
 }
@@ -9360,6 +9367,56 @@ function renderH2HRow(label, wins, losses, draws) {
       <span class="h2h-stat">Draws <strong>${draws}</strong></span>
     </div>
   </div>`;
+}
+
+// Compact H2H row for the wide-screen sidebar - the post-game modal's
+// renderH2HRow above is deliberately wider (4 full stat labels), which
+// doesn't fit the narrow sidebar column. Same underlying data via
+// computeH2HRows(), just laid out to match .wide-h2h-row's CSS.
+function renderWideH2HRow(label, wins, losses, draws) {
+  return `<div class="wide-h2h-row"><span>vs ${label}</span><span>${wins}W ${losses}L ${draws}D</span></div>`;
+}
+
+// Wide-screen sidebar stats panel — H2H (via the shared computeH2HRows(),
+// same data/logic as the post-game modal) plus overall win/loss/draw
+// totals and a couple of headline numbers (via the existing, already-
+// tested computeMyStats()). Unlike renderTopBar(), this doesn't need to
+// re-run on every move — the underlying stats don't change mid-game — so
+// it's called once when the game screen opens, not on every render tick.
+async function renderWideStats() {
+  const h2hRowsEl = document.getElementById('wide-h2h-rows');
+  const wldRowEl = document.getElementById('wide-wld-row');
+  const statLinesEl = document.getElementById('wide-stat-lines');
+  if (!h2hRowsEl || !wldRowEl || !statLinesEl) return; // portrait screens don't have these at all
+
+  if (isSpectator) {
+    // Spectators have no seat in this game - showing "their own" stats
+    // here would be meaningless at best, misleading at worst.
+    h2hRowsEl.innerHTML = '';
+    wldRowEl.innerHTML = '';
+    statLinesEl.innerHTML = '';
+    return;
+  }
+
+  const h2hRows = await computeH2HRows();
+  h2hRowsEl.innerHTML = h2hRows
+    ? h2hRows.map(r => renderWideH2HRow(r.label, r.wins, r.losses, r.draws)).join('')
+    : `<div class="wide-stat-line">No games yet</div>`;
+
+  const games = await fetchMyStatsHistory();
+  const s = computeMyStats(games);
+  wldRowEl.innerHTML = `
+    <div class="wide-wld-item w"><span class="wide-wld-num">${s.wins}</span><span class="wide-wld-label">Wins</span></div>
+    <div class="wide-wld-item l"><span class="wide-wld-num">${s.losses}</span><span class="wide-wld-label">Losses</span></div>
+    <div class="wide-wld-item d"><span class="wide-wld-num">${s.draws}</span><span class="wide-wld-label">Draws</span></div>`;
+
+  const avgSequences = games.length
+    ? (games.reduce((sum, g) => sum + (g.sequencesCompleted || 0), 0) / games.length).toFixed(1)
+    : '0.0';
+  statLinesEl.innerHTML = `
+    <div class="wide-stat-line"><span>Games played</span><b>${s.totalGames}</b></div>
+    <div class="wide-stat-line"><span>Win streak</span><b>${s.streakType === 'win' ? s.streak : 0}</b></div>
+    <div class="wide-stat-line"><span>Avg. sequences/game</span><b>${avgSequences}</b></div>`;
 }
 
 // Shown exactly once — right after the very first game ever logged on this
