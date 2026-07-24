@@ -2617,26 +2617,45 @@
        aspect-ratio:1/1, silently distorting every cell into the wrong
        shape by overriding the board's real, correct proportions. */
 
-    /* Shared white-card look for every new panel, matching the existing
-       score-badge/hand-info-bar visual language (white surfaces, navy
-       #1a2080 accents) rather than introducing a new palette. */
+    /* Direction B — navy immersion. Brings the lobby's own surface (navy
+       card + gold hairline accents) directly into the sidebar, so this
+       reads as one continuous crafted space rather than a light admin
+       panel sitting next to a dark game screen. Type system is entirely
+       what's already loaded elsewhere in this app, nothing new: Cinzel for
+       section titles (identical gold-gradient-line device as
+       .lobby-section-title), EB Garamond for body/labels, Barlow Condensed
+       900 for anything that's actually a number worth noticing (the same
+       face as the game's own logo). */
     .wide-block {
-      background: rgba(255,255,255,0.98);
-      border-radius: 10px;
-      padding: 12px;
-      font-family: 'Poppins', sans-serif;
+      background: linear-gradient(165deg, #1c2454, #131a3d);
+      border-radius: 14px;
+      padding: 16px;
+      font-family: 'EB Garamond', serif;
+      border: 1px solid rgba(212,184,48,0.18);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 28px -10px rgba(0,0,0,0.55);
     }
     .wide-block-title {
-      font-size: 0.68rem;
-      letter-spacing: 0.5px;
+      font-family: 'Cinzel', serif;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #6b7099;
-      font-weight: 600;
-      margin-bottom: 8px;
+      text-align: center;
+      color: #d4b830;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .wide-block-title::before, .wide-block-title::after {
+      content: ''; flex: 1; height: 1px;
+      background: linear-gradient(90deg, transparent, #d4b830, transparent);
     }
 
     /* Left column: player list (reuses the same score-badge visual
-       treatment as portrait, just stacked and given room to breathe) */
+       treatment as portrait, just stacked and given room to breathe) - the
+       white pills stay as-is, they read cleanly against the navy card the
+       same way the white hand cards already do against the navy hand area. */
     .wide-left-col .wide-block:first-child { flex: 0 0 auto; }
     #wide-players-list .score-badge { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
     #wide-players-list .score-badge:last-child { margin-bottom: 0; }
@@ -2644,14 +2663,21 @@
     /* Chat log — the one persistent, internally-scrollable region; the
        overall page/screen itself never scrolls in this layout. */
     .wide-chat-block { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
-    .wide-chat-feed { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-    .wide-chat-msg { font-size: 0.72rem; line-height: 1.4; }
+    .wide-chat-feed { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; min-height: 100px; }
+    .wide-chat-msg { font-size: 0.78rem; line-height: 1.4; }
     .wide-chat-msg .who { font-weight: 600; margin-right: 4px; }
-    .wide-chat-msg .txt { color: #444; }
-    .wide-chat-input-row { margin-top: 8px; position: relative; }
+    .wide-chat-msg .txt { color: #a8adcf; }
+    /* Deliberate empty state instead of blank space - reads as ready and
+       waiting rather than unfinished. Hidden the instant a real message
+       lands (see appendToWideChatLog), shown again once the log is
+       cleared for a new game (see showGameScreen). */
+    .wide-chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #6b71a0; text-align: center; padding: 16px 8px; }
+    .wide-chat-empty-mark { font-size: 1.5rem; opacity: 0.6; color: #d4b830; }
+    .wide-chat-empty-text { font-style: italic; font-size: 0.82rem; }
+    .wide-chat-input-row { margin-top: 10px; position: relative; }
     .wide-chat-input {
-      background: #f4f5fa; border: 1px solid #E0E4F0; border-radius: 8px;
-      font-size: 0.72rem; color: #888; padding: 7px 10px; cursor: pointer;
+      background: rgba(0,0,0,0.22); border: 1px solid rgba(212,184,48,0.2); border-radius: 8px;
+      font-size: 0.76rem; font-style: italic; color: #8890c0; padding: 8px 11px; cursor: pointer;
     }
     .wide-preset-grid {
       display: none; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px;
@@ -2659,10 +2685,10 @@
     }
     .wide-preset-grid.open { display: grid; }
     .wide-preset-btn {
-      background: #f4f5fa; border: 1px solid #E0E4F0; border-radius: 6px;
-      font-size: 0.66rem; color: #444; padding: 6px 4px; text-align: center; cursor: pointer;
+      background: rgba(0,0,0,0.22); border: 1px solid rgba(212,184,48,0.2); border-radius: 6px;
+      font-size: 0.68rem; color: #c4c8e8; padding: 6px 4px; text-align: center; cursor: pointer;
     }
-    .wide-preset-btn:hover { border-color: #1a2080; color: #1a2080; }
+    .wide-preset-btn:hover { border-color: #d4b830; color: #d4b830; }
 
     /* Right column: hand-info-bar keeps team-scores hidden here (the left
        column's player list replaces that role) and shows only
@@ -2675,8 +2701,10 @@
       justify-content: center;
       gap: 8px 10px;
       padding: 10px 12px;
-      border-radius: 10px;
-      background: rgba(255,255,255,0.98);
+      border-radius: 14px;
+      background: linear-gradient(165deg, #1c2454, #131a3d);
+      border: 1px solid rgba(212,184,48,0.18);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 28px -10px rgba(0,0,0,0.55);
     }
     .hand-info-bar .team-scores { display: none; }
     /* flex-basis:100% forces this onto its own full-width row on its own -
@@ -2698,36 +2726,58 @@
     .hand-info-bar .turn-info {
       display: block;
       flex: 1 1 100%;
-      font-size: 0.85rem;
+      font-family: 'Cinzel', serif;
+      font-size: 0.8rem;
       font-weight: 600;
-      color: #1a2080;
+      letter-spacing: 0.02em;
+      color: #d4b830;
       white-space: normal;
       overflow: visible;
       text-overflow: clip;
     }
     .hand-info-bar .timer-wrap { gap: 6px; }
     .hand-info-bar .turn-timer { width: 38px; height: 38px; }
-    .hand-info-bar #timer-num { font-size: 0.85rem; }
-    .hand-info-bar .timer-sound-btn { width: 32px; height: 32px; font-size: 0.85rem; }
-    .hand-info-bar .info-icon-btn { position: static; width: 32px; height: 32px; }
+    .hand-info-bar #timer-num { font-size: 0.85rem; color: #f0eee4; }
+    .hand-info-bar .timer-sound-btn { width: 32px; height: 32px; font-size: 0.85rem; background: rgba(0,0,0,0.2); border-color: rgba(212,184,48,0.25); }
+    .hand-info-bar .info-icon-btn { position: static; width: 32px; height: 32px; background: rgba(0,0,0,0.2); border-color: rgba(212,184,48,0.25); color: #c4c8e8; }
 
-    /* Head-to-head / stats block */
-    .wide-wld-row { display: flex; gap: 6px; margin: 8px 0; }
-    .wide-wld-item { flex: 1; background: #f4f5fa; border-radius: 6px; padding: 6px 2px; text-align: center; }
-    .wide-wld-num { font-size: 0.95rem; font-weight: 700; display: block; }
-    .wide-wld-item.w .wide-wld-num { color: #1a7a3c; }
-    .wide-wld-item.l .wide-wld-num { color: #a02020; }
-    .wide-wld-item.d .wide-wld-num { color: #777; }
-    .wide-wld-label { font-size: 0.55rem; color: #999; letter-spacing: 0.4px; text-transform: uppercase; }
-    .wide-h2h-row { display: flex; justify-content: space-between; font-size: 0.7rem; padding: 3px 0; }
-    .wide-stat-line { display: flex; justify-content: space-between; font-size: 0.68rem; padding: 3px 0; color: #777; }
-    .wide-stat-line b { color: #333; font-weight: 600; }
+    /* Head-to-head / stats block. Wins/losses/draws as small radial-shaded
+       tokens rather than flat fills — the same visual language as the
+       poker chips already used for players on the board, so this reads as
+       part of the same game rather than a generic stat widget. */
+    .wide-h2h-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.82rem; padding: 5px 0; border-bottom: 1px solid rgba(212,184,48,0.12); }
+    .wide-h2h-row:last-of-type { border-bottom: none; }
+    .wide-h2h-row .opp { color: #c4c8e8; font-style: italic; }
+    .wide-h2h-row .rec { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; letter-spacing: 0.02em; }
+    .wide-h2h-row .rec .w { color: #5fd88a; }
+    .wide-h2h-row .rec .l { color: #e87a7a; }
+    .wide-h2h-row .rec .d { color: #c9bd94; }
 
-    /* Last-move-by-team */
-    .wide-lastmove-row { display: flex; align-items: flex-start; gap: 6px; padding: 3px 0; font-size: 0.68rem; line-height: 1.4; }
-    .wide-lastmove-row .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; }
-    .wide-lastmove-row .txt { color: #555; }
-    .wide-lastmove-row .txt b { color: #222; font-weight: 600; }
+    .wide-wld-row { display: flex; gap: 10px; margin: 14px 0 12px; }
+    .wide-wld-item { flex: 1; text-align: center; padding: 10px 2px 8px; border-radius: 12px; background: rgba(0,0,0,0.18); }
+    .wide-wld-ring {
+      width: 38px; height: 38px; border-radius: 50%; margin: 0 auto 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.05rem; color: white;
+      box-shadow: 0 3px 10px -2px rgba(0,0,0,0.5), inset 0 2px 3px rgba(255,255,255,0.3), inset 0 -2px 3px rgba(0,0,0,0.25);
+    }
+    .wide-wld-item.w .wide-wld-ring { background: radial-gradient(circle at 35% 30%, #5fd88a, #1a7a3c); }
+    .wide-wld-item.l .wide-wld-ring { background: radial-gradient(circle at 35% 30%, #e87a7a, #a02020); }
+    .wide-wld-item.d .wide-wld-ring { background: radial-gradient(circle at 35% 30%, #c9bd94, #8a7a50); }
+    .wide-wld-label { font-family: 'Cinzel', serif; font-size: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; color: #8890c0; }
+
+    .wide-stat-line { display: flex; justify-content: space-between; font-size: 0.78rem; padding: 4px 0; color: #a8adcf; }
+    .wide-stat-line b { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 0.92rem; color: #f0eee4; letter-spacing: 0.02em; }
+
+    /* Last-move-by-team — actual mini playing cards, not text. A real card
+       at a glance reads faster than a sentence, and matches the game's own
+       visual vocabulary instead of narrating it in words. */
+    .wide-lastmove-rows-inner { display: flex; justify-content: center; gap: 12px; }
+    .wide-lastmove-slot { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+    .lastmove-card-wrap { border-radius: 5px; box-shadow: 0 4px 10px -3px rgba(0,0,0,0.5); border: 2px solid var(--team-colour, rgba(212,184,48,0.3)); line-height: 0; }
+    .lastmove-card-wrap svg { display: block; border-radius: 3px; }
+    .lastmove-empty-slot { width: 34px; height: 47px; border-radius: 3px; border: 1.5px dashed rgba(212,184,48,0.25); background: rgba(0,0,0,0.15); }
+    .lastmove-slot-name { font-family: 'Cinzel', serif; font-size: 0.55rem; letter-spacing: 0.04em; color: #c4c8e8; text-transform: uppercase; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Hand — pinned to the bottom of the right column, fan-overlapped into
        a single row. Real card art/size untouched; only the layout
@@ -3352,7 +3402,7 @@
       </div>
       <div class="wide-block wide-chat-block">
         <div class="wide-block-title">Chat</div>
-        <div class="wide-chat-feed" id="wide-chat-feed"></div>
+        <div class="wide-chat-feed" id="wide-chat-feed"><div class="wide-chat-empty" id="wide-chat-empty"><div class="wide-chat-empty-mark">✦</div><div class="wide-chat-empty-text">No messages yet — say hello</div></div></div>
         <div class="wide-chat-input-row">
           <div class="wide-chat-input" id="wide-chat-trigger" onclick="toggleWideChatPresets()">Send a message…</div>
           <div class="wide-preset-grid" id="wide-preset-grid"></div>
@@ -7352,7 +7402,7 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = null;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastRemoved = {row, col, team: target, seq: GS.moveSeq, jackRemove: true};
-    GS.lastMoveByTeam[p.team] = `${p.name} removed a chip with ${lastMoveCardText(card)}`;
+    GS.lastMoveByTeam[p.team] = { playerName: p.name, rank: card.rank, suit: card.suit, isRemoval: true };
     // Announce one-eyed jack to all players — show the actual JACK card
     // that was played (not the target cell's card), since that's the
     // information the text doesn't already cover; "where" is in the message.
@@ -7367,7 +7417,7 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: true, fromId};
-    GS.lastMoveByTeam[p.team] = `${p.name} played ${lastMoveCardText(card)}`;
+    GS.lastMoveByTeam[p.team] = { playerName: p.name, rank: card.rank, suit: card.suit, isRemoval: false };
     // Announce two-eyed jack to all players — show the actual JACK card
     // that was played (not the target cell's card), matching the fix above.
     const targetCell = GS.board[row][col];
@@ -7383,7 +7433,7 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: false, fromId};
-    GS.lastMoveByTeam[p.team] = `${p.name} played ${lastMoveCardText(card)}`;
+    GS.lastMoveByTeam[p.team] = { playerName: p.name, rank: card.rank, suit: card.suit, isRemoval: false };
   }
 
   // Remove played card, draw new
@@ -7738,6 +7788,8 @@ function showChatBubble(fromId, text) {
 function appendToWideChatLog(sender, text) {
   const feed = document.getElementById('wide-chat-feed');
   if (!feed) return; // portrait screens don't have this element at all
+  const emptyState = document.getElementById('wide-chat-empty');
+  if (emptyState) emptyState.remove();
   const label = sender.id === myId ? 'You' : sender.name;
   const colour = CHIP_HEX[TEAM_COLORS[sender.team]] || '#1E90FF';
   const msg = document.createElement('div');
@@ -8334,7 +8386,10 @@ function showGameScreen() {
   jackMode = null;
   revealedDeadCardKeys.clear();
   const wideChatFeed = document.getElementById('wide-chat-feed');
-  if (wideChatFeed) wideChatFeed.innerHTML = ''; // last game's messages shouldn't bleed into a rematch/new game
+  // last game's messages shouldn't bleed into a rematch/new game - re-insert
+  // the empty-state placeholder rather than leaving this blank, matching
+  // its own first-load appearance.
+  if (wideChatFeed) wideChatFeed.innerHTML = '<div class="wide-chat-empty" id="wide-chat-empty"><div class="wide-chat-empty-mark">✦</div><div class="wide-chat-empty-text">No messages yet — say hello</div></div>';
   updateAIChatToggleUI(); // shows the mute button only for VS AI games
 
   // Show/hide spectator banner and hand area
@@ -8616,22 +8671,39 @@ function renderTopBar() {
   }
 }
 
-// Wide-screen sidebar: one row per team, each showing only that team's own
+// Wide-screen sidebar: one slot per team, each showing only that team's own
 // most recently completed move — NOT a single "most recent move overall"
-// line that would get overwritten by whichever team happened to act last,
+// slot that would get overwritten by whichever team happened to act last,
 // losing visibility into what the other team(s) did earlier in the same
-// round. Reads GS.lastMoveByTeam (kept current by applyMoveInner),
-// re-rendered on the same cadence as renderTopBar() since this changes on
-// every move just like scores do.
+// round. Reads GS.lastMoveByTeam (kept current by applyMoveInner) and
+// renders the ACTUAL card that was played, via the same buildBoardCardSVG
+// used for hand and board cards, rather than describing it as text — a
+// real, tiny playing card reads faster than a sentence, and matches the
+// game's own visual language instead of narrating it. Re-rendered on the
+// same cadence as renderTopBar() since this changes on every move just
+// like scores do.
 function renderLastMove() {
   const el = document.getElementById('wide-lastmove-rows');
   if (!el) return; // portrait screens don't have this element at all
   const byTeam = GS.lastMoveByTeam || [null, null, null];
-  el.innerHTML = Array.from({length: numTeams}, (_, t) => {
+  const slots = Array.from({length: numTeams}, (_, t) => {
     const colour = CHIP_HEX[TEAM_COLORS[t]] || '#1E90FF';
-    const text = byTeam[t] || `${teamLabel(t)} — no moves yet`;
-    return `<div class="wide-lastmove-row"><span class="dot" style="background:${colour}"></span><span class="txt">${text}</span></div>`;
+    const entry = byTeam[t];
+    // Backward-compat: a game already in progress from before this field
+    // held structured data (rank/suit/playerName) would still have the
+    // OLD plain-string format - treat that the same as "no move yet"
+    // rather than trying to render a card out of a sentence.
+    const hasCard = entry && typeof entry === 'object' && entry.rank;
+    const cardHtml = hasCard
+      ? buildBoardCardSVG(entry.rank, entry.suit, 34, 47)
+      : `<div class="lastmove-empty-slot"></div>`;
+    const name = hasCard ? entry.playerName : teamLabel(t);
+    return `<div class="wide-lastmove-slot">
+      <div class="lastmove-card-wrap" style="--team-colour:${colour}">${cardHtml}</div>
+      <div class="lastmove-slot-name">${name}</div>
+    </div>`;
   }).join('');
+  el.innerHTML = `<div class="wide-lastmove-rows-inner">${slots}</div>`;
 }
 
 function renderBoard() {
@@ -9494,7 +9566,7 @@ function renderH2HRow(label, wins, losses, draws) {
 // doesn't fit the narrow sidebar column. Same underlying data via
 // computeH2HRows(), just laid out to match .wide-h2h-row's CSS.
 function renderWideH2HRow(label, wins, losses, draws) {
-  return `<div class="wide-h2h-row"><span>vs ${label}</span><span>${wins}W ${losses}L ${draws}D</span></div>`;
+  return `<div class="wide-h2h-row"><span class="opp">vs ${label}</span><span class="rec"><span class="w">${wins}W</span> <span class="l">${losses}L</span> <span class="d">${draws}D</span></span></div>`;
 }
 
 // Wide-screen sidebar stats panel — H2H (via the shared computeH2HRows(),
@@ -9526,9 +9598,9 @@ async function renderWideStats() {
   const games = await fetchMyStatsHistory();
   const s = computeMyStats(games);
   wldRowEl.innerHTML = `
-    <div class="wide-wld-item w"><span class="wide-wld-num">${s.wins}</span><span class="wide-wld-label">Wins</span></div>
-    <div class="wide-wld-item l"><span class="wide-wld-num">${s.losses}</span><span class="wide-wld-label">Losses</span></div>
-    <div class="wide-wld-item d"><span class="wide-wld-num">${s.draws}</span><span class="wide-wld-label">Draws</span></div>`;
+    <div class="wide-wld-item w"><div class="wide-wld-ring">${s.wins}</div><span class="wide-wld-label">Wins</span></div>
+    <div class="wide-wld-item l"><div class="wide-wld-ring">${s.losses}</div><span class="wide-wld-label">Losses</span></div>
+    <div class="wide-wld-item d"><div class="wide-wld-ring">${s.draws}</div><span class="wide-wld-label">Draws</span></div>`;
 
   const avgSequences = games.length
     ? (games.reduce((sum, g) => sum + (g.sequencesCompleted || 0), 0) / games.length).toFixed(1)
