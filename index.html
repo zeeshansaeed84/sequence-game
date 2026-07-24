@@ -4507,6 +4507,17 @@ function coloredSuitText(rank, suit) {
   return `${rank}<span style="color:${color}">${SUIT_SYM[suit]}</span>`;
 }
 
+// Same idea as coloredSuitText above, but tuned for the wide-screen sidebar's
+// WHITE background (last-move-by-team) rather than the action banner's navy
+// one — coloredSuitText's light/gold palette would be nearly invisible
+// there. Standard playing-card red/black instead, matching how hand and
+// board cards themselves are already colored elsewhere in the UI.
+function lastMoveCardText(card) {
+  const isRed = card.suit === 'hearts' || card.suit === 'diamonds';
+  const color = isRed ? '#b5312c' : '#232323';
+  return `${card.rank}<span style="color:${color}">${SUIT_SYM[card.suit]}</span>`;
+}
+
 function setError(id, msg) {
   document.getElementById(id).textContent = msg;
 }
@@ -6680,6 +6691,18 @@ function initGameState() {
     winReason: null,       // null | 'forfeit' — read by showWinModal() to show
                             // forfeit-specific messaging instead of the normal
                             // "completed N sequences" framing
+    lastMoveByTeam: [null, null, null], // wide-screen sidebar: one entry per
+                            // team, holding a brief description of that
+                            // team's own most recent turn-completing action
+                            // (placement, wild placement, or removal) —
+                            // updated only when that specific team acts, so
+                            // each row keeps showing that team's last move
+                            // until they act again, not overwritten by
+                            // whichever team happens to move most recently
+                            // overall. Deliberately does NOT include a
+                            // dead-card discard as "the move" — that's an
+                            // interim step within a turn, not the
+                            // turn-completing action itself.
   };
 }
 
@@ -7196,6 +7219,13 @@ function applyMoveInner(move, fromId) {
   if (pIdx !== GS.currentTurn) return; // not their turn
 
   const p = players[pIdx];
+  // Backward compatibility: a game already in progress and synced to
+  // Firebase from before this field existed would have GS.lastMoveByTeam
+  // undefined, which would throw the first time anything below tries to
+  // write into it. Safe to lazily initialize here rather than only in
+  // initGameState() — every code path that reads or writes it goes through
+  // applyMoveInner first.
+  if (!GS.lastMoveByTeam) GS.lastMoveByTeam = [null, null, null];
   // A real move from the correct player — this team is actively engaged,
   // so any forfeit-warning countdown against them resets. Covers every
   // move type below uniformly (including the dead-card discard chain,
@@ -7278,6 +7308,7 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = null;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastRemoved = {row, col, team: target, seq: GS.moveSeq, jackRemove: true};
+    GS.lastMoveByTeam[p.team] = `${p.name} removed a chip with ${lastMoveCardText(card)}`;
     // Announce one-eyed jack to all players — show the actual JACK card
     // that was played (not the target cell's card), since that's the
     // information the text doesn't already cover; "where" is in the message.
@@ -7292,6 +7323,7 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: true, fromId};
+    GS.lastMoveByTeam[p.team] = `${p.name} played ${lastMoveCardText(card)}`;
     // Announce two-eyed jack to all players — show the actual JACK card
     // that was played (not the target cell's card), matching the fix above.
     const targetCell = GS.board[row][col];
@@ -7307,6 +7339,7 @@ function applyMoveInner(move, fromId) {
     GS.chipOwners[row][col] = fromId;
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     GS.lastMove = {row, col, seq: GS.moveSeq, jackWild: false, fromId};
+    GS.lastMoveByTeam[p.team] = `${p.name} played ${lastMoveCardText(card)}`;
   }
 
   // Remove played card, draw new
@@ -8355,6 +8388,7 @@ function renderGame() {
     renderBoard();
     renderHand();
     renderTopBar();
+    renderLastMove();
 
     const cp = players[GS.currentTurn];
     const isMyTurn = cp && cp.id === myId;
@@ -8385,21 +8419,24 @@ function renderGame() {
 // bots + human) rather than needing a separate hardcoded list to keep in sync.
 const CHIP_HEX = Object.fromEntries(Object.entries(CHIP_COLORS).map(([k, v]) => [k, v.ring]));
 
+// Shared by renderTopBar (score badges) and renderLastMove (wide-screen
+// sidebar) - kept as one implementation rather than two copies that could
+// drift apart, same reasoning as computeH2HRows above.
+function teamLabel(t) {
+  const teamPlayers = players.filter(p => p.team === t);
+  if (teamPlayers.length === 0) return TEAM_NAMES[t];
+  if (teamPlayers.length === 1) return teamPlayers[0].name.slice(0, 7).toUpperCase();
+  return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('&');
+}
+
+function teamInitial(t) {
+  const teamPlayers = players.filter(p => p.team === t);
+  if (teamPlayers.length === 0) return '?';
+  if (teamPlayers.length === 1) return teamPlayers[0].name.charAt(0).toUpperCase();
+  return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('');
+}
+
 function renderTopBar() {
-  function teamLabel(t) {
-    const teamPlayers = players.filter(p => p.team === t);
-    if (teamPlayers.length === 0) return TEAM_NAMES[t];
-    if (teamPlayers.length === 1) return teamPlayers[0].name.slice(0, 7).toUpperCase();
-    return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('&');
-  }
-
-  function teamInitial(t) {
-    const teamPlayers = players.filter(p => p.team === t);
-    if (teamPlayers.length === 0) return '?';
-    if (teamPlayers.length === 1) return teamPlayers[0].name.charAt(0).toUpperCase();
-    return teamPlayers.map(p => p.name.charAt(0).toUpperCase()).join('');
-  }
-
   // Scores — new badge design: coloured circle + name + score. The badge
   // for whichever team's turn it currently is gets a glowing highlight, so
   // "whose turn" is conveyed visually/spatially rather than through text
@@ -8533,6 +8570,24 @@ function renderTopBar() {
     turnEl.textContent = cp ? `${cp.name}'s turn` : '';
     turnEl.style.color = '#1a2080';
   }
+}
+
+// Wide-screen sidebar: one row per team, each showing only that team's own
+// most recently completed move — NOT a single "most recent move overall"
+// line that would get overwritten by whichever team happened to act last,
+// losing visibility into what the other team(s) did earlier in the same
+// round. Reads GS.lastMoveByTeam (kept current by applyMoveInner),
+// re-rendered on the same cadence as renderTopBar() since this changes on
+// every move just like scores do.
+function renderLastMove() {
+  const el = document.getElementById('wide-lastmove-rows');
+  if (!el) return; // portrait screens don't have this element at all
+  const byTeam = GS.lastMoveByTeam || [null, null, null];
+  el.innerHTML = Array.from({length: numTeams}, (_, t) => {
+    const colour = CHIP_HEX[TEAM_COLORS[t]] || '#1E90FF';
+    const text = byTeam[t] || `${teamLabel(t)} — no moves yet`;
+    return `<div class="wide-lastmove-row"><span class="dot" style="background:${colour}"></span><span class="txt">${text}</span></div>`;
+  }).join('');
 }
 
 function renderBoard() {
