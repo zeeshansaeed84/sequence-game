@@ -8256,6 +8256,8 @@ function showGameScreen() {
   selectedCardIdx = -1;
   jackMode = null;
   revealedDeadCardKeys.clear();
+  const wideChatFeed = document.getElementById('wide-chat-feed');
+  if (wideChatFeed) wideChatFeed.innerHTML = ''; // last game's messages shouldn't bleed into a rematch/new game
   updateAIChatToggleUI(); // shows the mute button only for VS AI games
 
   // Show/hide spectator banner and hand area
