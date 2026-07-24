@@ -4843,6 +4843,21 @@ function aiTakeTurn() {
     return;
   }
 
+  // Soft-lock: the AI already discarded once this turn, and the
+  // replacement drawn into that same slot is ALSO dead (chain continues,
+  // no live card yet). It must discard specifically GS.chainCardIdx again —
+  // NOT scan the hand for "any" dead card, which is what the normal
+  // dead-card fallback further below does. Without this branch, the AI
+  // would fall through to normal evaluation, its actual move would get
+  // silently rejected by applyMoveInner's chain-slot check (any cardIdx
+  // other than GS.chainCardIdx is invalid once locked), and its turn timer
+  // would simply run out — this was the real bug behind "discard message
+  // fires once, then the AI's turn times out every time after."
+  if (GS.discardLockActive && GS.chainCardIdx !== null && GS.forcedCardIdx === null) {
+    aiExecuteMove({cardIdx: GS.chainCardIdx, dead: true, row: 0, col: 0}, hand, aiId, aiTeam);
+    return;
+  }
+
   // ── Step 1: Find best NORMAL card move ──────────────────────────
   let bestNormalScore = -Infinity;
   let bestNormalMove  = null;
@@ -7362,7 +7377,18 @@ function applyMoveInner(move, fromId) {
       return;
     }
     GS.discardLockActive = true;
-    GS.discard.push(hand.splice(cardIdx, 1)[0]);
+    const discardedCard = hand.splice(cardIdx, 1)[0];
+    GS.discard.push(discardedCard);
+    // A card's "revealed as dead" status is tracked client-side by uid, and
+    // that Set is never cleared mid-game (only at a fresh game start) - once
+    // this card leaves the hand, its old revealed status needs to leave
+    // with it. Without this, a card that was tapped once, discarded,
+    // reshuffled back into the deck (once it's empty), and dealt out again
+    // later in a long game would show its red dead-card frame immediately
+    // on redraw, without the player having tapped it this time - the
+    // "only find out when you tap it" rule silently broken for any card
+    // that's been through a reshuffle.
+    if (discardedCard) revealedDeadCardKeys.delete(deadCardRevealKey(cardIdx, discardedCard));
     drawCard(fromId);
     GS.moveSeq = (GS.moveSeq || 0) + 1;
     const newCardIdx = hand.length - 1; // drawCard pushes the replacement to the end
@@ -7444,7 +7470,13 @@ function applyMoveInner(move, fromId) {
   }
 
   // Remove played card, draw new
-  GS.discard.push(hand.splice(cardIdx, 1)[0]);
+  const playedCard = hand.splice(cardIdx, 1)[0];
+  GS.discard.push(playedCard);
+  // Defensive cleanup, matching the dead-card discard path above - a card
+  // that was actually played shouldn't normally have been marked
+  // revealed-dead in the first place, but harmless and consistent to clear
+  // its uid from the revealed set regardless of how it left the hand.
+  if (playedCard) revealedDeadCardKeys.delete(deadCardRevealKey(cardIdx, playedCard));
   drawCard(fromId);
 
   // Check for sequences — capture newly completed cells for blink animation
