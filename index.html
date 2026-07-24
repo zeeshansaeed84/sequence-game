@@ -3,6 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, viewport-fit=cover">
+<script>
+// Testing aid, not a real feature: load this page with ?wide=1 in the URL
+// on a real phone to force the layout to render as if the viewport were
+// 1100px wide (comfortably clearing the 1024px breakpoint the wide-screen
+// layout activates at), the same mechanism "desktop site" browser toggles
+// use — except those typically fall back to ~980px (confirmed against
+// Apple's own developer docs for Safari on iOS), which sits just under
+// this app's breakpoint and won't reliably trigger it. Starts zoomed out
+// to show the whole layout at once; pinch to zoom into specific areas.
+// Has zero effect without the parameter — every real user's viewport tag
+// is completely untouched.
+(function() {
+  if (new URLSearchParams(window.location.search).get('wide') === '1') {
+    document.querySelector('meta[name="viewport"]').setAttribute(
+      'content', 'width=1100, initial-scale=0.35, maximum-scale=4.0, viewport-fit=cover'
+    );
+  }
+})();
+</script>
 <title>Sequence</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
