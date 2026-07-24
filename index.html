@@ -5423,6 +5423,24 @@ function fbIsConfigured() {
   return !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.databaseURL);
 }
 
+// Wraps a promise with a timeout, specifically for Firebase calls that can
+// hang indefinitely — the SDK successfully connects (fbInit() returns
+// true) but a specific read just never resolves or rejects. This has been
+// observed in practice (a stuck "Logging in..." button with no error ever
+// surfacing to trigger the surrounding try/catch), not just a theoretical
+// concern — every existing catch block around a Firebase call was written
+// assuming the promise would eventually settle one way or another, which
+// isn't actually guaranteed. Rejects with a clear timeout error if the
+// real promise hasn't settled within ms, which normal try/catch handling
+// downstream then treats the same as any other failure.
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error((label || 'Operation') + ' timed out')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function fbInit() {
   if (db) return true;
   if (!fbIsConfigured()) return false;
@@ -6195,7 +6213,7 @@ function isValidPin(p) {
 async function checkUsernameAvailable(usernameLower) {
   if (!fbInit() || !db) return null; // null = "couldn't check", not "available"
   try {
-    const snap = await db.ref('sq_accounts/' + usernameLower).once('value');
+    const snap = await withTimeout(db.ref('sq_accounts/' + usernameLower).once('value'), 8000, 'Username check');
     return !snap.exists();
   } catch(e) { return null; }
 }
@@ -6254,7 +6272,7 @@ async function loginAccount(usernameRaw, pin) {
   const usernameLower = usernameRaw.trim().toLowerCase();
   if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
   try {
-    const snap = await db.ref('sq_accounts/' + usernameLower).once('value');
+    const snap = await withTimeout(db.ref('sq_accounts/' + usernameLower).once('value'), 8000, 'Login');
     if (!snap.exists()) return { ok: false, reason: 'Username or PIN incorrect.' };
     const account = snap.val();
     const pinHash = await sha256Hex(usernameLower + ':' + pin);
@@ -6300,7 +6318,7 @@ async function changePin(currentPin, newPin) {
   if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
   const usernameLower = currentAccount.username;
   try {
-    const snap = await db.ref('sq_accounts/' + usernameLower).once('value');
+    const snap = await withTimeout(db.ref('sq_accounts/' + usernameLower).once('value'), 8000, 'PIN change');
     if (!snap.exists()) return { ok: false, reason: 'Account not found.' };
     const account = snap.val();
     const currentHash = await sha256Hex(usernameLower + ':' + currentPin);
@@ -6366,7 +6384,7 @@ async function loadActiveAccount() {
   const saved = localStorage.getItem('seq_account_username');
   if (!saved || !fbInit() || !db) { renderAccountStatus(); return; }
   try {
-    const snap = await db.ref('sq_accounts/' + saved).once('value');
+    const snap = await withTimeout(db.ref('sq_accounts/' + saved).once('value'), 8000, 'Account lookup');
     if (snap.exists()) {
       const account = snap.val();
       currentAccount = { username: saved, displayUsername: account.username, displayName: account.displayName, tutorialSeenVersion: account.tutorialSeenVersion || 0 };
