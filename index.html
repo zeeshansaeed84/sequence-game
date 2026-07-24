@@ -2747,7 +2747,7 @@
        part of the same game rather than a generic stat widget. */
     .wide-h2h-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.82rem; padding: 5px 0; border-bottom: 1px solid rgba(212,184,48,0.12); }
     .wide-h2h-row:last-of-type { border-bottom: none; }
-    .wide-h2h-row .opp { color: #c4c8e8; font-style: italic; }
+    .wide-h2h-row .opp { color: #d4d7f0; font-style: italic; font-size: 0.85rem; }
     .wide-h2h-row .rec { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; letter-spacing: 0.02em; }
     .wide-h2h-row .rec .w { color: #5fd88a; }
     .wide-h2h-row .rec .l { color: #e87a7a; }
@@ -2764,9 +2764,9 @@
     .wide-wld-item.w .wide-wld-ring { background: radial-gradient(circle at 35% 30%, #5fd88a, #1a7a3c); }
     .wide-wld-item.l .wide-wld-ring { background: radial-gradient(circle at 35% 30%, #e87a7a, #a02020); }
     .wide-wld-item.d .wide-wld-ring { background: radial-gradient(circle at 35% 30%, #c9bd94, #8a7a50); }
-    .wide-wld-label { font-family: 'Cinzel', serif; font-size: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; color: #8890c0; }
+    .wide-wld-label { font-family: 'Cinzel', serif; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: #aab0dd; }
 
-    .wide-stat-line { display: flex; justify-content: space-between; font-size: 0.78rem; padding: 4px 0; color: #a8adcf; }
+    .wide-stat-line { display: flex; justify-content: space-between; font-size: 0.84rem; padding: 5px 0; color: #bcc0e6; }
     .wide-stat-line b { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 0.92rem; color: #f0eee4; letter-spacing: 0.02em; }
 
     /* Last-move-by-team — actual mini playing cards, not text. A real card
@@ -2775,9 +2775,16 @@
     .wide-lastmove-rows-inner { display: flex; justify-content: center; gap: 12px; }
     .wide-lastmove-slot { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0; }
     .lastmove-card-wrap { border-radius: 5px; box-shadow: 0 4px 10px -3px rgba(0,0,0,0.5); border: 2px solid var(--team-colour, rgba(212,184,48,0.3)); line-height: 0; }
-    .lastmove-card-wrap svg { display: block; border-radius: 3px; }
+    /* buildBoardCardSVG returns an SVG with only a viewBox, no explicit
+       width/height attribute on the tag - fine everywhere else it's used
+       since those call sites size it via CSS. Without doing the same here,
+       the SVG has nothing to size itself against inside this flex layout
+       and collapses to 0x0 - present in the DOM (so a naive
+       querySelector().length check looks correct) but completely
+       invisible, which is exactly the bug this explicit size fixes. */
+    .lastmove-card-wrap svg { display: block; width: 34px; height: 47px; border-radius: 3px; }
     .lastmove-empty-slot { width: 34px; height: 47px; border-radius: 3px; border: 1.5px dashed rgba(212,184,48,0.25); background: rgba(0,0,0,0.15); }
-    .lastmove-slot-name { font-family: 'Cinzel', serif; font-size: 0.55rem; letter-spacing: 0.04em; color: #c4c8e8; text-transform: uppercase; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lastmove-slot-name { font-family: 'Cinzel', serif; font-size: 0.65rem; letter-spacing: 0.03em; color: #d4d7f0; text-transform: uppercase; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Hand — pinned to the bottom of the right column, fan-overlapped into
        a single row. Real card art/size untouched; only the layout
