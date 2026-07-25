@@ -6683,10 +6683,43 @@ async function submitLoginAccount() {
 
 async function getApproxLocation() {
   try {
-    const r = await fetch('https://ipapi.co/json/');
+    // withTimeout reused from the Firebase login fix earlier - this fetch
+    // has no built-in timeout of its own, so a slow/unresponsive server
+    // could otherwise hang logGameStart() indefinitely the same way the
+    // login calls used to.
+    const r = await withTimeout(fetch('https://ipapi.co/json/'), 8000, 'Location lookup');
+    if (!r.ok) {
+      // Covers rate-limiting (ipapi.co's free tier is capped around
+      // 1000/day) and any other HTTP-level failure - the status code
+      // itself is the most useful diagnostic detail available here.
+      return { city: '', country: '', region: '', lookupError: `http_${r.status}` };
+    }
     const d = await r.json();
-    return { city: d.city || '', country: d.country_name || '', region: d.region || '' };
-  } catch(e) { return { city: '', country: '', region: '' }; }
+    // Some IP geolocation APIs return HTTP 200 with an error/reason field
+    // in the body instead of a non-ok status for certain failure modes
+    // (reserved/invalid IP ranges, etc.) - checking for this defensively
+    // even without certainty ipapi.co uses this exact shape, since it's a
+    // harmless check either way and costs nothing if absent.
+    if (d.error) {
+      return { city: '', country: '', region: '', lookupError: `api_error:${d.reason || d.message || 'unknown'}` };
+    }
+    const city = d.city || '', country = d.country_name || '', region = d.region || '';
+    if (!city && !country && !region) {
+      // A genuinely successful response with nothing usable in it - worth
+      // distinguishing from a hard failure, since it points at a data-gap
+      // in the service's own coverage rather than a connectivity problem.
+      return { city, country, region, lookupError: 'empty_response' };
+    }
+    return { city, country, region };
+  } catch(e) {
+    // Network-level failure - DNS, connection refused, blocked by an
+    // extension/firewall, CORS, or the withTimeout rejection above.
+    // e.message is the most specific detail browsers expose for this
+    // category (deliberately vague as "Failed to fetch" in many cases,
+    // for security/privacy reasons - but still distinguishes this from
+    // the other failure categories above).
+    return { city: '', country: '', region: '', lookupError: `fetch_failed:${e.message}` };
+  }
 }
 
 async function logGameStart() {
