@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Location Diagnostics</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #0b0e2e; color: #e8e6dd; padding: 20px 16px 60px; }
+  h1 { font-size: 1.1rem; color: #d4b830; margin-bottom: 4px; }
+  .sub { font-size: 0.8rem; color: #8890c0; margin-bottom: 20px; }
+  .status { font-size: 0.85rem; color: #8890c0; padding: 20px 0; text-align: center; }
+  .game-card {
+    background: #171b34; border: 1px solid #2a2f52; border-radius: 10px;
+    padding: 14px; margin-bottom: 10px;
+  }
+  .game-time { font-size: 0.78rem; color: #8890c0; margin-bottom: 6px; }
+  .game-mode { font-size: 0.72rem; color: #6b71a0; margin-bottom: 8px; }
+  .loc-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 2px 0; }
+  .loc-row .k { color: #a8adcf; }
+  .loc-row .v { color: #e8e6dd; font-weight: 600; }
+  .loc-ok { color: #5fd88a; }
+  .loc-error {
+    margin-top: 8px; padding: 8px 10px; background: rgba(232,90,90,0.12);
+    border: 1px solid rgba(232,90,90,0.3); border-radius: 6px;
+    font-size: 0.82rem; color: #e88a8a; word-break: break-word;
+  }
+  .refresh-btn {
+    display: block; width: 100%; margin-top: 16px; padding: 12px;
+    background: #1c2454; border: 1px solid rgba(212,184,48,0.3); border-radius: 8px;
+    color: #d4b830; font-size: 0.9rem; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>Location lookup diagnostics</h1>
+<div class="sub">Most recent games, newest first</div>
+<div id="content"><div class="status">Loading…</div></div>
+<div class="refresh-btn" onclick="load()">Refresh</div>
+
+<script>
+firebase.initializeApp({
+  apiKey:            "AIzaSyDNTc973eY-dt1UQSJqs0kCTLAZF14xuG4",
+  authDomain:        "sequence-game-5a793.firebaseapp.com",
+  databaseURL:       "https://sequence-game-5a793-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "sequence-game-5a793",
+  storageBucket:     "sequence-game-5a793.firebasestorage.app",
+  messagingSenderId: "957529800610",
+  appId:             "1:957529800610:web:6983060a3f83b15367bcfb"
+});
+const db = firebase.database();
+
+async function load() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="status">Loading…</div>';
+  try {
+    const snap = await db.ref('sq_analytics').orderByChild('startedAt').limitToLast(15).once('value');
+    const games = snap.val() || {};
+    const sorted = Object.entries(games).sort((a, b) => b[1].startedAt - a[1].startedAt);
+    if (!sorted.length) {
+      content.innerHTML = '<div class="status">No games found yet.</div>';
+      return;
+    }
+    content.innerHTML = sorted.map(([id, g]) => {
+      const loc = g.location || {};
+      const when = new Date(g.startedAt).toLocaleString();
+      const hasRealLocation = loc.city || loc.country || loc.region;
+      const rows = `
+        <div class="loc-row"><span class="k">City</span><span class="v">${loc.city || '—'}</span></div>
+        <div class="loc-row"><span class="k">Country</span><span class="v">${loc.country || '—'}</span></div>
+        <div class="loc-row"><span class="k">Region</span><span class="v">${loc.region || '—'}</span></div>
+      `;
+      const errorBlock = loc.lookupError
+        ? `<div class="loc-error">⚠ ${loc.lookupError}</div>`
+        : (hasRealLocation ? '' : `<div class="loc-error">⚠ Blank, but no error was recorded — this game may predate the diagnostic update.</div>`);
+      return `<div class="game-card">
+        <div class="game-time">${when}</div>
+        <div class="game-mode">${g.mode || ''}${g.aiDifficulty ? ' · ' + g.aiDifficulty : ''} · ${g.device || ''}</div>
+        ${rows}
+        ${errorBlock}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    content.innerHTML = '<div class="status">Could not load: ' + e.message + '</div>';
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>
