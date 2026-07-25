@@ -6681,45 +6681,60 @@ async function submitLoginAccount() {
   renderLobbyStats();
 }
 
-async function getApproxLocation() {
+// Attempts one geolocation provider, returning either a successful mapped
+// location or a diagnostic failure reason - shared between both providers
+// below so each gets identical-quality error handling (timeout, HTTP
+// status, in-body error, empty response) rather than two slightly
+// different copies of the same checks that could drift apart.
+async function tryLocationProvider(url, mapFields, label) {
   try {
-    // withTimeout reused from the Firebase login fix earlier - this fetch
-    // has no built-in timeout of its own, so a slow/unresponsive server
-    // could otherwise hang logGameStart() indefinitely the same way the
-    // login calls used to.
-    const r = await withTimeout(fetch('https://ipapi.co/json/'), 8000, 'Location lookup');
-    if (!r.ok) {
-      // Covers rate-limiting (ipapi.co's free tier is capped around
-      // 1000/day) and any other HTTP-level failure - the status code
-      // itself is the most useful diagnostic detail available here.
-      return { city: '', country: '', region: '', lookupError: `http_${r.status}` };
-    }
+    const r = await withTimeout(fetch(url), 8000, label + ' lookup');
+    if (!r.ok) return { ok: false, reason: `${label}:http_${r.status}` };
     const d = await r.json();
     // Some IP geolocation APIs return HTTP 200 with an error/reason field
-    // in the body instead of a non-ok status for certain failure modes
-    // (reserved/invalid IP ranges, etc.) - checking for this defensively
-    // even without certainty ipapi.co uses this exact shape, since it's a
-    // harmless check either way and costs nothing if absent.
-    if (d.error) {
-      return { city: '', country: '', region: '', lookupError: `api_error:${d.reason || d.message || 'unknown'}` };
+    // in the body instead of a non-ok status for certain failure modes -
+    // checking defensively even without certainty every provider uses
+    // this exact shape, since it's harmless if absent.
+    if (d.error) return { ok: false, reason: `${label}:api_error:${d.reason || d.message || 'unknown'}` };
+    const mapped = mapFields(d);
+    if (!mapped.city && !mapped.country && !mapped.region) {
+      return { ok: false, reason: `${label}:empty_response` };
     }
-    const city = d.city || '', country = d.country_name || '', region = d.region || '';
-    if (!city && !country && !region) {
-      // A genuinely successful response with nothing usable in it - worth
-      // distinguishing from a hard failure, since it points at a data-gap
-      // in the service's own coverage rather than a connectivity problem.
-      return { city, country, region, lookupError: 'empty_response' };
-    }
-    return { city, country, region };
+    return { ok: true, location: mapped };
   } catch(e) {
     // Network-level failure - DNS, connection refused, blocked by an
     // extension/firewall, CORS, or the withTimeout rejection above.
-    // e.message is the most specific detail browsers expose for this
-    // category (deliberately vague as "Failed to fetch" in many cases,
-    // for security/privacy reasons - but still distinguishes this from
-    // the other failure categories above).
-    return { city: '', country: '', region: '', lookupError: `fetch_failed:${e.message}` };
+    return { ok: false, reason: `${label}:fetch_failed:${e.message}` };
   }
+}
+
+// Tries ipapi.co first (unchanged from before), then falls back to
+// freeipapi.com - genuinely different infrastructure and hosting - ONLY if
+// the primary fails. This doesn't explain WHY a given provider is
+// unreachable from a given network (confirmed from real gameplay data:
+// consistent fetch_failed results specifically from Pakistan, likely
+// network-level rather than rate-limiting, though the exact cause isn't
+// diagnosable from the client side), but a second, independent provider
+// meaningfully improves the odds that at least one of the two is reachable
+// regardless of the underlying cause. If BOTH fail, both reasons are
+// reported together (not just the last one), so this stays diagnosable
+// rather than just trading one blank result for another.
+async function getApproxLocation() {
+  const primary = await tryLocationProvider(
+    'https://ipapi.co/json/',
+    d => ({ city: d.city || '', country: d.country_name || '', region: d.region || '' }),
+    'ipapi.co'
+  );
+  if (primary.ok) return primary.location;
+
+  const fallback = await tryLocationProvider(
+    'https://free.freeipapi.com/api/json/',
+    d => ({ city: d.cityName || '', country: d.countryName || '', region: d.regionName || '' }),
+    'freeipapi.com'
+  );
+  if (fallback.ok) return fallback.location;
+
+  return { city: '', country: '', region: '', lookupError: `${primary.reason} | ${fallback.reason}` };
 }
 
 async function logGameStart() {
