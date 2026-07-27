@@ -1164,6 +1164,13 @@
   .btn-danger:active { background: rgba(224,128,128,0.12); }
   .btn-secondary:hover { background: rgba(201,168,76,0.1); }
 
+  .share-icon-btn {
+    width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+    background: transparent; color: var(--gold); border: 1px solid var(--gold);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .share-icon-btn:hover { background: rgba(201,168,76,0.1); }
+
   .btn-danger {
     background: var(--red);
     color: white;
@@ -3029,7 +3036,12 @@
 
     <div id="lobby-waiting" class="lobby-section" style="display:none">
       <div class="section-label">SHARE THIS CODE</div>
-      <div class="room-code" id="display-code"></div>
+      <div class="room-code-row" style="display:flex;align-items:center;justify-content:center;gap:10px">
+        <div class="room-code" id="display-code"></div>
+        <button class="share-icon-btn" onclick="shareRoomCode()" title="Share room code" aria-label="Share room code">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M12 3l-4 4M12 3l4 4M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg>
+        </button>
+      </div>
       <div class="status-msg" id="waiting-status">Waiting for players…</div>
       <div class="players-list" id="waiting-players"></div>
       <div id="team-assign-area"></div>
@@ -3564,6 +3576,9 @@
       </div>
       <button class="btn btn-primary" id="rematch-btn" onclick="requestRematch()" style="display:none">🔁 Rematch</button>
       <button class="btn btn-secondary" onclick="leaveGame()">New Game</button>
+      <button class="share-icon-btn" style="margin:8px auto 0;display:flex" onclick="shareWinResult()" title="Share result" aria-label="Share result">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M12 3l-4 4M12 3l4 4M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6"/></svg>
+      </button>
     </div>
 
     <!-- Waiting for host to start rematch, or waiting for other players to respond -->
@@ -5615,6 +5630,17 @@ async function createGame() {
   numTeams = parseInt(document.getElementById('num-teams').value);
   seqToWin = parseInt(document.getElementById('seq-to-win').value);
   matchFormat = parseInt(document.getElementById('match-format')?.value || '1');
+  await createGameRoom();
+}
+
+// The actual room-creation core, extracted from createGame() above so it
+// can be reused by a direct challenge/invite (triggered from the Friends
+// screen, which has no game-setup form to read from) without duplicating
+// this logic or forcing that flow to depend on DOM state that wouldn't
+// exist in that context. Expects numTeams/seqToWin/matchFormat to already
+// be set by the caller - createGame() reads them from the lobby form,
+// sendGameInvite() below sets sensible 1v1 defaults directly.
+async function createGameRoom() {
   seriesWins = Array(numTeams).fill(0);
   seriesGameNum = 1;
   seriesWinnerTeam = null;
@@ -5636,7 +5662,7 @@ async function createGame() {
     });
   } catch(e) {
     setError('lobby-error', 'Could not create room: ' + e.message);
-    return;
+    throw e; // let the caller (createGame's UI path, or sendGameInvite) know it failed
   }
 
   // Host: process incoming moves
@@ -5685,6 +5711,20 @@ async function joinGame() {
   if (!fbInit()) { setError('join-error','Firebase not available. Check your connection.'); return; }
   setError('join-error', 'Connecting…');
 
+  const result = await joinGameRoom(code);
+  if (!result.ok) { setError('join-error', result.reason); return; }
+  setError('join-error', '');
+  document.getElementById('display-code').textContent = code;
+  document.getElementById('waiting-status').textContent = 'Joined! Waiting for host to start…';
+}
+
+// The actual join-room core, extracted from joinGame() above for the same
+// reason createGameRoom() was extracted - accepting a direct challenge
+// (triggered from the Friends screen) needs this same logic without a
+// join-code DOM field to read from. Returns {ok, reason} instead of
+// writing to a specific DOM error element directly, since callers other
+// than the join-code form need to handle failure their own way.
+async function joinGameRoom(code) {
   isHost = false;
   roomCode = code;
   fbGameStarted = false;
@@ -5692,11 +5732,11 @@ async function joinGame() {
   roomRef = db.ref('sq_rooms/' + code);
   let snap;
   try { snap = await roomRef.once('value'); }
-  catch(e) { setError('join-error', 'Connection error: ' + e.message); return; }
+  catch(e) { return { ok: false, reason: 'Connection error: ' + e.message }; }
 
-  if (!snap.exists()) { setError('join-error', 'Room not found. Check the code and try again.'); return; }
+  if (!snap.exists()) return { ok: false, reason: 'Room not found. Check the code and try again.' };
   const data = snap.val();
-  if (data.phase === 'abandoned') { setError('join-error', 'This room has ended.'); return; }
+  if (data.phase === 'abandoned') return { ok: false, reason: 'This room has ended.' };
 
   numTeams = data.numTeams || 2;
   seqToWin = data.seqToWin || 2;
@@ -5718,8 +5758,7 @@ async function joinGame() {
   const returningPlayer = existing.find(p => p.name.toLowerCase() === myName.toLowerCase());
 
   if (data.phase === 'playing' && !returningPlayer) {
-    setError('join-error', 'Game already in progress. Use 👁 Watch to spectate.');
-    return;
+    return { ok: false, reason: 'Game already in progress. Use 👁 Watch to spectate.' };
   }
 
   let updated;
@@ -5732,14 +5771,12 @@ async function joinGame() {
     try {
       await roomRef.child('players').set(JSON.stringify(updated));
     } catch(e) {
-      setError('join-error', 'Could not join: ' + e.message);
-      return;
+      return { ok: false, reason: 'Could not join: ' + e.message };
     }
   }
 
   players = updated;
   myIndex = players.findIndex(p => p.id === myId);
-  setError('join-error', '');
 
   // Watch players list
   fbOn(roomRef.child('players'), 'value', snap => {
@@ -5784,8 +5821,7 @@ async function joinGame() {
   });
 
   showWaitingLobby();
-  document.getElementById('display-code').textContent = code;
-  document.getElementById('waiting-status').textContent = 'Joined! Waiting for host to start…';
+  return { ok: true };
 }
 
 async function spectateGame() {
@@ -6387,6 +6423,7 @@ function setActiveAccount(usernameLower, displayUsername, displayName, tutorialS
   if (nameInput && !nameInput.value.trim()) nameInput.value = displayName; // convenience prefill, still editable
   renderAccountStatus();
   syncMyUsernameToRoom();
+  startPresenceTracking();
 }
 
 // A player's account link is written into the shared room player list ONCE,
@@ -6428,6 +6465,7 @@ async function changePin(currentPin, newPin) {
 }
 
 function logoutAccount() {
+  stopPresenceTracking();
   currentAccount = null;
   localStorage.removeItem('seq_account_username');
   renderAccountStatus();
@@ -6493,6 +6531,7 @@ async function loadActiveAccount() {
       // session, which is most launches for a returning player.
       const nameInput = document.getElementById('player-name');
       if (nameInput && !nameInput.value.trim()) nameInput.value = account.displayName;
+      startPresenceTracking();
     } else {
       localStorage.removeItem('seq_account_username'); // account was deleted server-side; don't keep referencing it
     }
@@ -6570,6 +6609,522 @@ async function creditH2HPair(usernameA, usernameB, winnerUsername) {
       return rec;
     });
   } catch(e) { /* non-fatal — H2H is a bonus feature, must never block game-end flow */ }
+}
+
+// ── Friends ──────────────────────────────────────────────────────────
+//
+// Schema, deliberately NOT the sorted-pair-key pattern h2hKey uses above —
+// that pattern only works well when you already know both usernames before
+// reading (true for H2H: you already know who your opponent was). Friends
+// needs "list everyone I'm connected to" without knowing them upfront,
+// which a sorted-pair key can't serve without downloading the entire node.
+// Direct, per-user paths instead, so both a friends list and a pending-
+// requests inbox are single fast lookups:
+//   sq_friends/{username}/{friendUsername}: true   — denormalized to BOTH
+//     sides once accepted, written together in one multi-path update so
+//     they can't drift out of sync with each other.
+//   sq_friend_requests/{toUsername}/{fromUsername}: { createdAt }
+//     — keyed by RECIPIENT specifically, so reading "who's requested me"
+//     is a direct lookup rather than a scan.
+//
+// Friends requires an account on both sides (matches the existing H2H
+// precedent, which already only tracks account-to-account, not guests) —
+// deliberately not extended to guests in this first pass; a guest's
+// identity is a per-device session, not something a friend request could
+// meaningfully persist against.
+
+async function sendFriendRequest(targetUsernameRaw) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account to add friends.' };
+  const target = targetUsernameRaw.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (!target) return { ok: false, reason: 'Enter a username.' };
+  if (target === me) return { ok: false, reason: "You can't add yourself." };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const targetSnap = await withTimeout(db.ref('sq_accounts/' + target).once('value'), 8000, 'Friend lookup');
+    if (!targetSnap.exists()) return { ok: false, reason: 'No account found with that username.' };
+
+    const alreadyFriendsSnap = await withTimeout(db.ref('sq_friends/' + me + '/' + target).once('value'), 8000, 'Friend check');
+    if (alreadyFriendsSnap.exists()) return { ok: false, reason: 'Already friends.' };
+
+    // If they already sent ME a request, treat this as accepting theirs
+    // rather than creating a second, redundant outgoing request — the
+    // natural behavior when both people happen to add each other.
+    const theirRequestSnap = await withTimeout(db.ref('sq_friend_requests/' + me + '/' + target).once('value'), 8000, 'Friend check');
+    if (theirRequestSnap.exists()) return respondToFriendRequest(target, true);
+
+    const myRequestSnap = await withTimeout(db.ref('sq_friend_requests/' + target + '/' + me).once('value'), 8000, 'Friend check');
+    if (myRequestSnap.exists()) return { ok: false, reason: 'Request already sent.' };
+
+    await withTimeout(db.ref('sq_friend_requests/' + target + '/' + me).set({ createdAt: Date.now() }), 8000, 'Send friend request');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't send request — try again." }; }
+}
+
+async function respondToFriendRequest(fromUsername, accept) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const from = fromUsername.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const reqSnap = await withTimeout(db.ref('sq_friend_requests/' + me + '/' + from).once('value'), 8000, 'Friend request check');
+    if (!reqSnap.exists()) return { ok: false, reason: 'That request no longer exists.' };
+
+    if (accept) {
+      // Single multi-path update: remove the pending request and write the
+      // friendship to both sides together, so a failure partway through
+      // can't leave one side friended and the other not, or a request
+      // half-cleared.
+      await withTimeout(db.ref().update({
+        ['sq_friend_requests/' + me + '/' + from]: null,
+        ['sq_friends/' + me + '/' + from]: true,
+        ['sq_friends/' + from + '/' + me]: true,
+      }), 8000, 'Accept friend request');
+    } else {
+      await withTimeout(db.ref('sq_friend_requests/' + me + '/' + from).remove(), 8000, 'Decline friend request');
+    }
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't respond to request — try again." }; }
+}
+
+async function cancelSentFriendRequest(targetUsername) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const target = targetUsername.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    await withTimeout(db.ref('sq_friend_requests/' + target + '/' + me).remove(), 8000, 'Cancel friend request');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't cancel request — try again." }; }
+}
+
+async function removeFriend(friendUsername) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const friend = friendUsername.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    // Same reasoning as accepting above — both sides removed together in
+    // one update, not two separate calls that could leave a one-sided
+    // "friendship" if the second call failed.
+    await withTimeout(db.ref().update({
+      ['sq_friends/' + me + '/' + friend]: null,
+      ['sq_friends/' + friend + '/' + me]: null,
+    }), 8000, 'Remove friend');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't remove friend — try again." }; }
+}
+
+async function getMyFriends() {
+  if (!currentAccount || !fbInit() || !db) return [];
+  try {
+    const snap = await withTimeout(db.ref('sq_friends/' + currentAccount.username).once('value'), 8000, 'Friends list');
+    return Object.keys(snap.val() || {});
+  } catch(e) { return []; }
+}
+
+async function getMyPendingFriendRequests() {
+  if (!currentAccount || !fbInit() || !db) return [];
+  try {
+    const snap = await withTimeout(db.ref('sq_friend_requests/' + currentAccount.username).once('value'), 8000, 'Pending requests');
+    return Object.keys(snap.val() || {});
+  } catch(e) { return []; }
+}
+
+// ── Presence ─────────────────────────────────────────────────────────
+//
+// Firebase's own standard, well-established pattern for this: a flag at
+// sq_presence/{username} while a logged-in account is actually connected,
+// combined with onDisconnect() - which the Firebase SERVER itself queues
+// and fires the instant a connection genuinely drops, including an abrupt
+// tab close or lost network, not just a clean logout. A simple last-seen
+// timestamp/heartbeat would leave someone looking "online" for a stale
+// window after an abrupt disconnect; this clears immediately instead.
+//
+// .info/connected is a Firebase-managed special path that fires whenever
+// THIS client's own connection state changes (including reconnecting after
+// a network blip) - re-registering onDisconnect() on every reconnect is
+// deliberate and necessary, since a fresh connection doesn't carry over
+// the previous connection's queued disconnect action.
+//
+// Deliberately NOT reusing the game's own fbOn/fbOff listener tracking
+// (see applyMoveInner's callers) - those get torn down at game-end/leave
+// points, which has nothing to do with a presence listener's actual
+// lifecycle (tied to being on the Friends screen, independent of any game).
+let presenceConnectedRef = null;
+
+function startPresenceTracking() {
+  if (!currentAccount || !fbInit() || !db) return;
+  if (presenceConnectedRef) return; // already tracking - don't double-register
+  const myPresenceRef = db.ref('sq_presence/' + currentAccount.username);
+  presenceConnectedRef = db.ref('.info/connected');
+  presenceConnectedRef.on('value', (snap) => {
+    if (snap.val() === true) {
+      // Queue the disconnect cleanup FIRST, only mark online once that's
+      // confirmed registered - reversing this order would leave a window
+      // where a drop between the two calls leaves the flag stuck on with
+      // no cleanup ever queued.
+      myPresenceRef.onDisconnect().remove().then(() => {
+        myPresenceRef.set(true);
+      });
+    }
+  });
+}
+
+function stopPresenceTracking() {
+  if (presenceConnectedRef) {
+    presenceConnectedRef.off();
+    presenceConnectedRef = null;
+  }
+  if (currentAccount && db) {
+    db.ref('sq_presence/' + currentAccount.username).remove().catch(() => {});
+  }
+}
+
+// Real-time subscription to one friend's online status - returns an
+// unsubscribe function. Callback fires immediately with the current value
+// and again every time it changes, for as long as the caller keeps the
+// subscription open (e.g. while the Friends screen is showing).
+function subscribeToPresence(username, callback) {
+  if (!fbInit() || !db) { callback(false); return () => {}; }
+  const ref = db.ref('sq_presence/' + username);
+  const handler = (snap) => callback(snap.val() === true);
+  ref.on('value', handler);
+  return () => ref.off('value', handler);
+}
+
+// ── Groups ───────────────────────────────────────────────────────────
+//
+// A named, owned collection of friends — "the recurring squad you replay
+// with" — deliberately separate from Friends itself, per the earlier
+// design discussion. Same indexing lesson applied as Friends: the
+// canonical record lives at sq_groups/{groupId}, with a parallel
+// per-user index for fast "which groups am I in" lookups, since RTDB
+// can't efficiently scan for "does this record's members object contain
+// my username" across every group.
+//
+//   sq_groups/{groupId}: { name, ownerUsername, members: {username:true,...}, createdAt }
+//   sq_user_groups/{username}/{groupId}: true
+//
+// Membership is gated on already being friends with the group's owner —
+// consistent with Friends' own consent-based reasoning (nobody ends up in
+// a group via someone they have no prior mutual connection with), and it
+// means Groups don't need a second, separate invite/accept flow of their
+// own: the consent already happened when the friendship formed. Adding
+// and removing OTHER members is owner-only for this first pass, to keep
+// the permission model simple and unambiguous; any member (including the
+// owner) can always remove themselves to leave.
+
+async function createGroup(nameRaw, initialMemberUsernames) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account to create a group.' };
+  const name = (nameRaw || '').trim().slice(0, 40);
+  const me = currentAccount.username;
+  if (!name) return { ok: false, reason: 'Give the group a name.' };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const friendsSnap = await withTimeout(db.ref('sq_friends/' + me).once('value'), 8000, 'Friends check');
+    const myFriends = friendsSnap.val() || {};
+    const members = (initialMemberUsernames || []).map(u => u.trim().toLowerCase()).filter(Boolean);
+    const notFriends = members.filter(u => !myFriends[u]);
+    if (notFriends.length) return { ok: false, reason: `Not friends with: ${notFriends.join(', ')}` };
+
+    const groupId = 'group_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const allMembers = Array.from(new Set([me, ...members])); // owner is always a member too
+    const updates = {
+      ['sq_groups/' + groupId]: {
+        name,
+        ownerUsername: me,
+        members: Object.fromEntries(allMembers.map(u => [u, true])),
+        createdAt: Date.now(),
+      },
+    };
+    allMembers.forEach(u => { updates['sq_user_groups/' + u + '/' + groupId] = true; });
+    await withTimeout(db.ref().update(updates), 8000, 'Create group');
+    return { ok: true, groupId };
+  } catch(e) { return { ok: false, reason: "Couldn't create the group — try again." }; }
+}
+
+async function addGroupMember(groupId, usernameToAddRaw) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const usernameToAdd = usernameToAddRaw.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const groupSnap = await withTimeout(db.ref('sq_groups/' + groupId).once('value'), 8000, 'Group lookup');
+    if (!groupSnap.exists()) return { ok: false, reason: 'Group not found.' };
+    const group = groupSnap.val();
+    if (group.ownerUsername !== me) return { ok: false, reason: 'Only the group owner can add members.' };
+    if (group.members && group.members[usernameToAdd]) return { ok: false, reason: 'Already a member.' };
+
+    const friendsSnap = await withTimeout(db.ref('sq_friends/' + me + '/' + usernameToAdd).once('value'), 8000, 'Friends check');
+    if (!friendsSnap.exists()) return { ok: false, reason: 'You can only add friends to a group.' };
+
+    await withTimeout(db.ref().update({
+      ['sq_groups/' + groupId + '/members/' + usernameToAdd]: true,
+      ['sq_user_groups/' + usernameToAdd + '/' + groupId]: true,
+    }), 8000, 'Add group member');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't add member — try again." }; }
+}
+
+// Handles both "owner removes someone else" and "a member leaves
+// voluntarily" with one function, since the underlying operation (clear
+// this one member from this one group, both sides) is identical either
+// way — only the permission check differs.
+async function removeGroupMember(groupId, usernameToRemoveRaw) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const usernameToRemove = usernameToRemoveRaw.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const groupSnap = await withTimeout(db.ref('sq_groups/' + groupId).once('value'), 8000, 'Group lookup');
+    if (!groupSnap.exists()) return { ok: false, reason: 'Group not found.' };
+    const group = groupSnap.val();
+    const isOwner = group.ownerUsername === me;
+    const isSelfRemoval = usernameToRemove === me;
+    if (!isOwner && !isSelfRemoval) return { ok: false, reason: 'Only the group owner can remove other members.' };
+    if (usernameToRemove === group.ownerUsername) return { ok: false, reason: 'The owner can\'t be removed — delete the group instead.' };
+    if (!group.members || !group.members[usernameToRemove]) return { ok: false, reason: 'Not a member of this group.' };
+
+    await withTimeout(db.ref().update({
+      ['sq_groups/' + groupId + '/members/' + usernameToRemove]: null,
+      ['sq_user_groups/' + usernameToRemove + '/' + groupId]: null,
+    }), 8000, 'Remove group member');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't remove member — try again." }; }
+}
+
+async function renameGroup(groupId, newNameRaw) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const newName = (newNameRaw || '').trim().slice(0, 40);
+  const me = currentAccount.username;
+  if (!newName) return { ok: false, reason: 'Give the group a name.' };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const groupSnap = await withTimeout(db.ref('sq_groups/' + groupId).once('value'), 8000, 'Group lookup');
+    if (!groupSnap.exists()) return { ok: false, reason: 'Group not found.' };
+    if (groupSnap.val().ownerUsername !== me) return { ok: false, reason: 'Only the group owner can rename it.' };
+
+    await withTimeout(db.ref('sq_groups/' + groupId + '/name').set(newName), 8000, 'Rename group');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't rename the group — try again." }; }
+}
+
+async function deleteGroup(groupId) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const groupSnap = await withTimeout(db.ref('sq_groups/' + groupId).once('value'), 8000, 'Group lookup');
+    if (!groupSnap.exists()) return { ok: false, reason: 'Group not found.' };
+    const group = groupSnap.val();
+    if (group.ownerUsername !== me) return { ok: false, reason: 'Only the group owner can delete it.' };
+
+    // Every current member's own index entry needs cleaning up too, not
+    // just the canonical record — otherwise getMyGroups() for anyone who
+    // was a member would try to fetch a group that no longer exists.
+    const updates = { ['sq_groups/' + groupId]: null };
+    Object.keys(group.members || {}).forEach(u => { updates['sq_user_groups/' + u + '/' + groupId] = null; });
+    await withTimeout(db.ref().update(updates), 8000, 'Delete group');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't delete the group — try again." }; }
+}
+
+async function getMyGroups() {
+  if (!currentAccount || !fbInit() || !db) return [];
+  try {
+    const idsSnap = await withTimeout(db.ref('sq_user_groups/' + currentAccount.username).once('value'), 8000, 'Groups list');
+    const groupIds = Object.keys(idsSnap.val() || {});
+    // Fan-out read — normal and expected at this scale (nobody is in
+    // hundreds of groups in a casual card game), same pattern as any
+    // index-then-fetch-details lookup.
+    const groups = await Promise.all(groupIds.map(async id => {
+      try {
+        const snap = await withTimeout(db.ref('sq_groups/' + id).once('value'), 8000, 'Group detail');
+        return snap.exists() ? { id, ...snap.val() } : null;
+      } catch(e) { return null; }
+    }));
+    return groups.filter(Boolean);
+  } catch(e) { return []; }
+}
+
+// ── Game invites (direct challenge) ─────────────────────────────────
+//
+// sq_invites/{toUsername}/{fromUsername}: { fromDisplayName, roomCode,
+// createdAt } — same per-recipient-indexed shape as friend requests, for
+// the same reason: a fast, direct "what's waiting for me" lookup rather
+// than a scan. Built entirely on createGameRoom()/joinGameRoom() (see
+// createGame()/joinGame() above) rather than duplicating room setup —
+// challenging a friend and using the manual room-code form end up
+// creating/joining rooms through the exact same underlying path, just
+// triggered from a different screen with a different source for the
+// config values.
+//
+// A challenge always uses sensible 1v1 defaults - it doesn't go through
+// the lobby's own setup form, so there's nothing to inherit from there.
+// Deliberately requires BOTH an existing friendship AND current presence -
+// the friendship gate matches the same consent principle Friends and
+// Groups are already built on, and the presence gate exists because
+// challenging someone who isn't even online would just leave a stale
+// invite sitting there with nothing behind it.
+async function sendGameInvite(targetUsernameRaw) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account to challenge a friend.' };
+  const target = targetUsernameRaw.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (target === me) return { ok: false, reason: "You can't challenge yourself." };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const friendSnap = await withTimeout(db.ref('sq_friends/' + me + '/' + target).once('value'), 8000, 'Friend check');
+    if (!friendSnap.exists()) return { ok: false, reason: 'You can only challenge friends.' };
+
+    const presenceSnap = await withTimeout(db.ref('sq_presence/' + target).once('value'), 8000, 'Presence check');
+    if (presenceSnap.val() !== true) return { ok: false, reason: "They're not online right now." };
+
+    numTeams = 2;
+    seqToWin = 2;
+    matchFormat = 1;
+    myName = currentAccount.displayName || currentAccount.displayUsername;
+    await createGameRoom(); // sets roomCode, isHost, myId, players, roomRef; registers the host's own listeners; shows the waiting lobby
+
+    await withTimeout(db.ref('sq_invites/' + target + '/' + me).set({
+      fromDisplayName: myName,
+      roomCode,
+      createdAt: Date.now(),
+    }), 8000, 'Send challenge');
+
+    return { ok: true, roomCode };
+  } catch(e) { return { ok: false, reason: "Couldn't send the challenge — try again." }; }
+}
+
+// Same mechanism as sendGameInvite, reused for a whole group at once
+// rather than being a separate feature - one room gets created, then every
+// OTHER member of the group (excluding whoever's starting it) gets an
+// invite to the same roomCode. No presence gate here, unlike the
+// single-friend challenge: requiring every group member to happen to be
+// online at the same moment would make group-start far less useful in
+// practice than a quick 1:1 challenge, where presence is the whole point.
+async function sendGroupGameInvite(groupId) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const groupSnap = await withTimeout(db.ref('sq_groups/' + groupId).once('value'), 8000, 'Group lookup');
+    if (!groupSnap.exists()) return { ok: false, reason: 'Group not found.' };
+    const group = groupSnap.val();
+    const otherMembers = Object.keys(group.members || {}).filter(u => u !== me);
+
+    const teamCount = Math.min(Math.max(otherMembers.length + 1, 2), 3); // this app supports 2 or 3 teams
+    numTeams = teamCount;
+    seqToWin = 2;
+    matchFormat = 1;
+    myName = currentAccount.displayName || currentAccount.displayUsername;
+    await createGameRoom();
+
+    const updates = {};
+    otherMembers.forEach(u => {
+      updates['sq_invites/' + u + '/' + me] = { fromDisplayName: myName, roomCode, createdAt: Date.now(), groupName: group.name };
+    });
+    await withTimeout(db.ref().update(updates), 8000, 'Send group invites');
+
+    return { ok: true, roomCode };
+  } catch(e) { return { ok: false, reason: "Couldn't start the group game — try again." }; }
+}
+
+// Real-time inbox, same reasoning as chat/presence being listeners rather
+// than one-time fetches: a challenge is only actually useful if it shows
+// up the moment it arrives, not whenever the recipient next happens to
+// manually refresh the Friends screen.
+function subscribeToGameInvites(callback) {
+  if (!currentAccount || !fbInit() || !db) { callback([]); return () => {}; }
+  const ref = db.ref('sq_invites/' + currentAccount.username);
+  const handler = (snap) => {
+    const val = snap.val() || {};
+    callback(Object.entries(val).map(([fromUsername, data]) => ({ fromUsername, ...data })));
+  };
+  ref.on('value', handler);
+  return () => ref.off('value', handler);
+}
+
+async function acceptGameInvite(fromUsername) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const me = currentAccount.username;
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const inviteSnap = await withTimeout(db.ref('sq_invites/' + me + '/' + fromUsername).once('value'), 8000, 'Invite lookup');
+    if (!inviteSnap.exists()) return { ok: false, reason: 'That invite is no longer available.' };
+    const invite = inviteSnap.val();
+
+    myName = currentAccount.displayName || currentAccount.displayUsername;
+    const joinResult = await joinGameRoom(invite.roomCode);
+    if (!joinResult.ok) return joinResult;
+
+    await db.ref('sq_invites/' + me + '/' + fromUsername).remove().catch(() => {});
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't join — try again." }; }
+}
+
+async function declineGameInvite(fromUsername) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    await withTimeout(db.ref('sq_invites/' + currentAccount.username + '/' + fromUsername).remove(), 8000, 'Decline invite');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't decline — try again." }; }
+}
+
+// ── Sharing ──────────────────────────────────────────────────────────
+//
+// One generic helper, reused for both the room code and the win result
+// rather than two separate share systems - "share" should always mean the
+// same mechanism everywhere it shows up in the app. Tries the native Web
+// Share API first (opens the device's own share sheet - WhatsApp, Messages,
+// whatever the player picks), falling back to copying to the clipboard for
+// the browsers/contexts that don't support it. A user simply cancelling
+// the share sheet (AbortError) is NOT a failure worth surfacing as one -
+// only an actual inability to share falls through to the clipboard path.
+async function shareContent({ title, text, url }) {
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url });
+      return { ok: true, method: 'share' };
+    } catch(e) {
+      if (e.name === 'AbortError') return { ok: true, method: 'cancelled' };
+      // Any other failure (permission denied, unsupported data, etc.) falls
+      // through to the clipboard fallback below rather than giving up.
+    }
+  }
+  try {
+    const fallbackText = [text, url].filter(Boolean).join(' ');
+    await navigator.clipboard.writeText(fallbackText);
+    return { ok: true, method: 'clipboard' };
+  } catch(e) {
+    return { ok: false, method: 'failed' };
+  }
+}
+
+async function shareRoomCode() {
+  const result = await shareContent({
+    title: 'Join my Sequence game',
+    text: `Join my Sequence game! Room code: ${roomCode}`,
+  });
+  if (result.method === 'clipboard') toast('Room code copied to clipboard!');
+  else if (result.method === 'failed') toast('Could not share — copy the code manually.');
+}
+
+// Deliberately reads the ALREADY-RENDERED win-title/win-msg text rather
+// than rebuilding the win/loss/draw/forfeit message logic a second time
+// here — showWinModal() already handles every one of those cases
+// correctly; this just shares whatever it decided to display, so the two
+// can never drift out of sync with each other.
+async function shareWinResult() {
+  const title = document.getElementById('win-title').textContent;
+  const msg = document.getElementById('win-msg').textContent;
+  const result = await shareContent({
+    title: 'Sequence result',
+    text: `${title} ${msg}`.trim(),
+  });
+  if (result.method === 'clipboard') toast('Result copied to clipboard!');
+  else if (result.method === 'failed') toast('Could not share.');
 }
 
 // ── Account modal UI wiring ─────────────────────────────────────────
@@ -6725,14 +7280,14 @@ async function getApproxLocation() {
     d => ({ city: d.city || '', country: d.country_name || '', region: d.region || '' }),
     'ipapi.co'
   );
-  if (primary.ok) return primary.location;
+  if (primary.ok) return { ...primary.location, source: 'ipapi.co' };
 
   const fallback = await tryLocationProvider(
     'https://free.freeipapi.com/api/json/',
     d => ({ city: d.cityName || '', country: d.countryName || '', region: d.regionName || '' }),
     'freeipapi.com'
   );
-  if (fallback.ok) return fallback.location;
+  if (fallback.ok) return { ...fallback.location, source: 'freeipapi.com' };
 
   return { city: '', country: '', region: '', lookupError: `${primary.reason} | ${fallback.reason}` };
 }
