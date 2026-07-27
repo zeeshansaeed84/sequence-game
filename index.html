@@ -3578,6 +3578,19 @@
      started whenever a logged-in player is on the lobby screen. -->
 <div id="invite-banner" style="display:none"></div>
 
+<!-- Generic confirmation dialog - reusable for any destructive action, not
+     hard-coded to friend removal specifically. Custom-built rather than
+     the native confirm() to match the app's own visual language. -->
+<div id="confirm-modal" class="htp-backdrop" style="display:none;z-index:1300">
+  <div class="htp-modal" style="max-width:300px;padding:26px 22px;text-align:center">
+    <div id="confirm-modal-message" style="font-family:'EB Garamond',serif;font-size:1rem;color:#333;margin-bottom:20px;line-height:1.4"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1;width:auto" onclick="resolveConfirmModal(false)">Cancel</button>
+      <button class="btn btn-danger" style="flex:1;width:auto" id="confirm-modal-confirm-btn" onclick="resolveConfirmModal(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════════════════════════
      GAME SCREEN
 ═══════════════════════════════════════════════════ -->
@@ -6683,6 +6696,28 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// Generic confirmation dialog - promise-based so any destructive action
+// anywhere in the app can just `if (!await confirmAction(...)) return;`,
+// rather than each call site needing its own bespoke confirm UI.
+let confirmModalResolve = null;
+
+function confirmAction(message, confirmLabel) {
+  return new Promise((resolve) => {
+    confirmModalResolve = resolve;
+    document.getElementById('confirm-modal-message').textContent = message;
+    document.getElementById('confirm-modal-confirm-btn').textContent = confirmLabel || 'Confirm';
+    document.getElementById('confirm-modal').style.display = 'flex';
+  });
+}
+
+function resolveConfirmModal(result) {
+  document.getElementById('confirm-modal').style.display = 'none';
+  if (confirmModalResolve) {
+    confirmModalResolve(result);
+    confirmModalResolve = null;
+  }
+}
+
 // Active presence subscriptions for whatever friends list is currently
 // rendered - cleaned up before every re-render and on modal close, so
 // re-opening the modal (or re-rendering after an action) never leaks
@@ -6803,6 +6838,8 @@ async function renderFriendsList() {
 }
 
 async function handleRemoveFriend(friendUsername) {
+  const confirmed = await confirmAction(`Remove ${friendUsername} from your friends?`, 'Remove');
+  if (!confirmed) return;
   const r = await removeFriend(friendUsername);
   if (!r.ok) { toast(r.reason); return; }
   await renderFriendsList();
