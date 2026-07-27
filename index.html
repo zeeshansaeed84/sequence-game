@@ -340,6 +340,12 @@
   .group-row-meta { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.72rem; color: #a8a0c8; letter-spacing: 0.03em; }
 
   .friends-checkbox-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-family: 'EB Garamond', serif; font-size: 0.88rem; color: #d4d7f0; }
+  /* Override the app's own global "input, select { width: 100% }" rule
+     specifically for these - that rule is meant for text inputs elsewhere
+     in the app, but as a bare "input" selector it also matches checkboxes,
+     stretching them to fill the row and leaving almost no room for the
+     username text next to them. */
+  .new-group-member-checkbox { width: 16px; height: 16px; flex-shrink: 0; margin-bottom: 0; }
   .friends-field-feedback { font-family: 'EB Garamond', serif; font-style: italic; font-size: 0.78rem; color: #e88a8a; min-height: 1.1em; margin: 4px 0 8px; }
   .friends-modal-close {
     position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border-radius: 50%;
