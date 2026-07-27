@@ -243,6 +243,18 @@
     cursor: pointer;
   }
 
+  /* Notification badge - red filled circle, white number, positioned on
+     the corner of whatever button/tab it's attached to. Reusable wherever
+     a future notification count needs to show, not just on the Friends
+     button specifically. */
+  .notif-badge {
+    position: absolute; top: -6px; right: -8px; min-width: 17px; height: 17px;
+    background: #E0392B; color: white; border-radius: 9px; padding: 0 4px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 0.68rem; font-weight: 700; line-height: 17px; text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
+
   /* Friends & Groups modal — the exact approved design from
      friends_groups_combined.html (navy gradient modal, gold section
      titles, dimensional chip avatars, pill tab bar), ported in precisely
@@ -3002,7 +3014,7 @@
           <span class="account-status-icon">✓</span>
           <span class="account-status-text">Logged in as <strong id="account-status-name"></strong></span>
           <button class="account-status-link" onclick="openAccountDetailsModal()">Account</button>
-          <button class="account-status-link" onclick="openFriendsModal()">👥 Friends</button>
+          <button class="account-status-link" id="friends-nav-btn" onclick="openFriendsModal()" style="position:relative">👥 Friends<span id="friends-notif-badge" class="notif-badge" style="display:none">0</span></button>
         </div>
       </div>
 
@@ -6596,6 +6608,7 @@ function setActiveAccount(usernameLower, displayUsername, displayName, tutorialS
   syncMyUsernameToRoom();
   startPresenceTracking();
   startInviteWatcher();
+  startNotificationWatcher();
 }
 
 // A player's account link is written into the shared room player list ONCE,
@@ -6639,6 +6652,7 @@ async function changePin(currentPin, newPin) {
 function logoutAccount() {
   stopPresenceTracking();
   stopInviteWatcher();
+  stopNotificationWatcher();
   currentAccount = null;
   localStorage.removeItem('seq_account_username');
   renderAccountStatus();
@@ -6682,6 +6696,7 @@ function clearFriendsListPresenceSubs() {
 function openFriendsModal() {
   document.getElementById('friends-modal').style.display = 'flex';
   switchFriendsTab('friends');
+  markAllNotificationsRead();
 }
 
 function closeFriendsModal() {
@@ -6907,6 +6922,26 @@ async function handleDeclineInvite(fromUsername) {
   // subscription re-rendering) is confirmation enough.
 }
 
+// ── Notification badge on the Friends button ────────────────────────
+let notifBadgeUnsub = null;
+
+function startNotificationWatcher() {
+  if (notifBadgeUnsub) return; // already watching
+  notifBadgeUnsub = subscribeToUnreadNotificationCount(renderNotifBadge);
+}
+
+function stopNotificationWatcher() {
+  if (notifBadgeUnsub) { notifBadgeUnsub(); notifBadgeUnsub = null; }
+  renderNotifBadge(0);
+}
+
+function renderNotifBadge(count) {
+  const badge = document.getElementById('friends-notif-badge');
+  if (!badge) return;
+  badge.style.display = count > 0 ? 'block' : 'none';
+  badge.textContent = count > 99 ? '99+' : String(count);
+}
+
 async function submitChangePin() {
   const currentPin = document.getElementById('change-pin-current').value.trim();
   const newPin = document.getElementById('change-pin-new').value.trim();
@@ -6952,6 +6987,7 @@ async function loadActiveAccount() {
       if (nameInput && !nameInput.value.trim()) nameInput.value = account.displayName;
       startPresenceTracking();
       startInviteWatcher();
+      startNotificationWatcher();
     } else {
       localStorage.removeItem('seq_account_username'); // account was deleted server-side; don't keep referencing it
     }
@@ -7031,6 +7067,49 @@ async function creditH2HPair(usernameA, usernameB, winnerUsername) {
   } catch(e) { /* non-fatal — H2H is a bonus feature, must never block game-end flow */ }
 }
 
+// ── Notifications ────────────────────────────────────────────────────
+//
+// sq_notifications/{username}/{notificationId}: { type, message, read,
+// createdAt } — a genuine event log, not just a recount of current pending
+// state. This distinction matters specifically because "accepted your
+// friend request" is a past EVENT, not a pending item — the request
+// record itself is deleted the moment it's accepted, so there'd be
+// nothing left to count if this only reflected current state. Built as a
+// general-purpose log (a "type" field, not a friends-specific shape) so
+// future notification sources (game invites, group activity, etc.) can
+// write into the same system rather than needing a parallel one.
+async function createNotification(targetUsername, type, message) {
+  if (!fbInit() || !db) return; // best-effort - a notification failing to write must never block the underlying action (the friend request/accept itself) that triggered it
+  try {
+    const notifId = 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    await db.ref('sq_notifications/' + targetUsername + '/' + notifId).set({ type, message, read: false, createdAt: Date.now() });
+  } catch(e) { /* non-fatal, see above */ }
+}
+
+// Real-time, not a one-time fetch - a badge should update live the moment
+// something new arrives, the same reasoning as presence and game invites.
+function subscribeToUnreadNotificationCount(callback) {
+  if (!currentAccount || !fbInit() || !db) { callback(0); return () => {}; }
+  const ref = db.ref('sq_notifications/' + currentAccount.username);
+  const handler = (snap) => {
+    const val = snap.val() || {};
+    callback(Object.values(val).filter(n => !n.read).length);
+  };
+  ref.on('value', handler);
+  return () => ref.off('value', handler);
+}
+
+async function markAllNotificationsRead() {
+  if (!currentAccount || !fbInit() || !db) return;
+  try {
+    const snap = await withTimeout(db.ref('sq_notifications/' + currentAccount.username).once('value'), 8000, 'Notifications');
+    const val = snap.val() || {};
+    const updates = {};
+    Object.keys(val).forEach(id => { if (!val[id].read) updates['sq_notifications/' + currentAccount.username + '/' + id + '/read'] = true; });
+    if (Object.keys(updates).length) await withTimeout(db.ref().update(updates), 8000, 'Mark notifications read');
+  } catch(e) { /* non-fatal */ }
+}
+
 // ── Friends ──────────────────────────────────────────────────────────
 //
 // Schema, deliberately NOT the sorted-pair-key pattern h2hKey uses above —
@@ -7077,6 +7156,7 @@ async function sendFriendRequest(targetUsernameRaw) {
     if (myRequestSnap.exists()) return { ok: false, reason: 'Request already sent.' };
 
     await withTimeout(db.ref('sq_friend_requests/' + target + '/' + me).set({ createdAt: Date.now() }), 8000, 'Send friend request');
+    createNotification(target, 'friend_request', `${currentAccount.displayName || me} sent you a friend request`);
     return { ok: true };
   } catch(e) { return { ok: false, reason: "Couldn't send request — try again." }; }
 }
@@ -7100,6 +7180,11 @@ async function respondToFriendRequest(fromUsername, accept) {
         ['sq_friends/' + me + '/' + from]: true,
         ['sq_friends/' + from + '/' + me]: true,
       }), 8000, 'Accept friend request');
+      // Notifies the ORIGINAL requester ('from') - correct whether this was
+      // reached via the direct accept button, or via sendFriendRequest's
+      // auto-accept path (mutual add), since 'from' is always the person
+      // who sent the request first either way.
+      createNotification(from, 'friend_accepted', `${currentAccount.displayName || me} accepted your friend request`);
     } else {
       await withTimeout(db.ref('sq_friend_requests/' + me + '/' + from).remove(), 8000, 'Decline friend request');
     }
