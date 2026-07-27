@@ -243,6 +243,43 @@
     cursor: pointer;
   }
 
+  /* Friends & Groups modal — functional styling reusing the lobby's own
+     colors/fonts, not the richer mockup treatment (deferred to the later
+     visual pass across the whole app). */
+  .friends-tabs { display: flex; gap: 6px; background: #f0f1f7; border-radius: 10px; padding: 4px; }
+  .friends-tab { flex: 1; text-align: center; padding: 9px; border-radius: 8px; border: none; background: none; font-family: 'Cinzel', serif; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.03em; color: #888; cursor: pointer; }
+  .friends-tab.active { background: white; color: var(--logo-blue); box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+
+  .friend-row, .group-row, .request-row {
+    display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #eee;
+  }
+  .friend-row:last-child, .group-row:last-child, .request-row:last-child { border-bottom: none; }
+  .friend-row-name, .group-row-name { flex: 1; font-family: 'EB Garamond', serif; font-weight: 600; font-size: 0.92rem; color: #222; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .friend-row-sub { font-size: 0.72rem; color: #999; }
+  .friends-empty-note { text-align: center; color: #aaa; font-size: 0.82rem; font-style: italic; padding: 10px 0; }
+
+  .presence-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
+  .presence-dot.online { background: #3cb56a; }
+  .presence-dot.offline { background: #ccc; }
+
+  .friends-icon-btn {
+    width: 30px; height: 30px; border-radius: 50%; border: 1px solid #ddd; background: white;
+    display: flex; align-items: center; justify-content: center; font-size: 0.95rem; cursor: pointer; flex-shrink: 0;
+  }
+  .friends-icon-btn.accept { border-color: #3cb56a; color: #1a7a3c; }
+  .friends-icon-btn.decline, .friends-icon-btn.remove { border-color: #ddd; color: #a02020; }
+  .friends-icon-btn.challenge { border-color: var(--logo-gold); color: #a87400; background: #fffaf0; }
+  .friends-checkbox-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-family: 'EB Garamond', serif; font-size: 0.88rem; color: #333; }
+
+  #invite-banner {
+    position: fixed; top: 14px; left: 14px; right: 14px; z-index: 1100;
+    background: white; border: 1.5px solid var(--logo-gold); border-radius: 12px;
+    padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    display: flex; align-items: center; gap: 10px;
+  }
+  #invite-banner .invite-banner-text { flex: 1; font-family: 'EB Garamond', serif; font-size: 0.88rem; color: #222; }
+  #invite-banner .invite-banner-text strong { color: var(--logo-blue); }
+
   .htp-header {
     background: linear-gradient(180deg, #2233CC 0%, #1a2080 100%);
     padding: 14px 16px;
@@ -2902,6 +2939,7 @@
           <span class="account-status-icon">✓</span>
           <span class="account-status-text">Logged in as <strong id="account-status-name"></strong></span>
           <button class="account-status-link" onclick="openAccountDetailsModal()">Account</button>
+          <button class="account-status-link" onclick="openFriendsModal()">👥 Friends</button>
         </div>
       </div>
 
@@ -3394,6 +3432,63 @@
     </div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════
+     FRIENDS & GROUPS MODAL — functional pass. Deliberately reuses the
+     existing .htp-backdrop/.htp-modal/.account-modal white-card pattern
+     and the lobby's own .lbl/.input-wrap/.lobby-input/.lobby-btn-primary
+     classes rather than introducing the richer navy/gold mockup styling —
+     that's an explicit later exercise across the whole app, not something
+     to do piecemeal on just this one screen right now.
+     ═══════════════════════════════════════════════════ -->
+<div id="friends-modal" class="htp-backdrop" style="display:none">
+  <div class="htp-modal account-modal">
+    <button class="account-modal-close" onclick="closeFriendsModal()">✕</button>
+
+    <div style="padding:26px 24px 0">
+      <div class="friends-tabs">
+        <button class="friends-tab active" id="friends-tab-btn" onclick="switchFriendsTab('friends')">Friends</button>
+        <button class="friends-tab" id="groups-tab-btn" onclick="switchFriendsTab('groups')">Groups</button>
+      </div>
+    </div>
+
+    <div id="friends-tab-panel" style="padding:16px 24px 24px">
+      <div class="lbl" id="requests-section-lbl" style="display:none">REQUESTS</div>
+      <div id="friend-requests-list"></div>
+
+      <div class="lbl">ADD A FRIEND</div>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <input id="friend-username-input" type="text" placeholder="Username" class="lobby-input" style="margin-bottom:0" autocapitalize="off" autocomplete="off" spellcheck="false">
+        <button class="lobby-btn-primary" style="width:auto;padding:0 16px;margin-bottom:0" onclick="handleSendFriendRequest()">Send</button>
+      </div>
+      <div class="account-field-feedback" id="friend-add-feedback">&nbsp;</div>
+
+      <div class="lbl" style="margin-top:14px">MY FRIENDS</div>
+      <div id="friends-list"></div>
+    </div>
+
+    <div id="groups-tab-panel" style="display:none;padding:16px 24px 24px">
+      <div class="lbl">MY GROUPS</div>
+      <div id="groups-list"></div>
+      <button class="lobby-btn-primary" style="margin-top:10px" onclick="openCreateGroupForm()">+ Create Group</button>
+
+      <div id="create-group-form" style="display:none;margin-top:16px">
+        <div class="lbl">GROUP NAME</div>
+        <input id="new-group-name-input" type="text" placeholder="e.g. Weekend Squad" class="lobby-input" maxlength="40">
+        <div class="lbl">MEMBERS (FROM YOUR FRIENDS)</div>
+        <div id="new-group-members-list"></div>
+        <div class="account-field-feedback" id="create-group-feedback">&nbsp;</div>
+        <button class="lobby-btn-primary" onclick="handleCreateGroup()">Create</button>
+        <button class="account-status-link" style="display:block;margin:6px auto 0" onclick="closeCreateGroupForm()">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Incoming game challenge — a simple, functional banner rather than a
+     full notification system for now. Populated by subscribeToGameInvites,
+     started whenever a logged-in player is on the lobby screen. -->
+<div id="invite-banner" style="display:none"></div>
 
 <!-- ═══════════════════════════════════════════════════
      GAME SCREEN
@@ -6424,6 +6519,7 @@ function setActiveAccount(usernameLower, displayUsername, displayName, tutorialS
   renderAccountStatus();
   syncMyUsernameToRoom();
   startPresenceTracking();
+  startInviteWatcher();
 }
 
 // A player's account link is written into the shared room player list ONCE,
@@ -6466,6 +6562,7 @@ async function changePin(currentPin, newPin) {
 
 function logoutAccount() {
   stopPresenceTracking();
+  stopInviteWatcher();
   currentAccount = null;
   localStorage.removeItem('seq_account_username');
   renderAccountStatus();
@@ -6486,6 +6583,227 @@ function openAccountDetailsModal() {
 
 function closeAccountDetailsModal() {
   document.getElementById('account-details-modal').style.display = 'none';
+}
+
+// ── Friends & Groups modal wiring ───────────────────────────────────
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+// Active presence subscriptions for whatever friends list is currently
+// rendered - cleaned up before every re-render and on modal close, so
+// re-opening the modal (or re-rendering after an action) never leaks
+// listeners that keep firing against rows that no longer exist.
+let friendsListPresenceUnsubs = [];
+function clearFriendsListPresenceSubs() {
+  friendsListPresenceUnsubs.forEach(unsub => unsub());
+  friendsListPresenceUnsubs = [];
+}
+
+function openFriendsModal() {
+  document.getElementById('friends-modal').style.display = 'flex';
+  switchFriendsTab('friends');
+}
+
+function closeFriendsModal() {
+  document.getElementById('friends-modal').style.display = 'none';
+  clearFriendsListPresenceSubs();
+  closeCreateGroupForm();
+}
+
+function switchFriendsTab(tab) {
+  const isFriends = tab === 'friends';
+  document.getElementById('friends-tab-btn').classList.toggle('active', isFriends);
+  document.getElementById('groups-tab-btn').classList.toggle('active', !isFriends);
+  document.getElementById('friends-tab-panel').style.display = isFriends ? 'block' : 'none';
+  document.getElementById('groups-tab-panel').style.display = isFriends ? 'none' : 'block';
+  if (isFriends) { renderFriendRequests(); renderFriendsList(); }
+  else { clearFriendsListPresenceSubs(); renderGroupsList(); }
+}
+
+async function renderFriendRequests() {
+  const usernames = await getMyPendingFriendRequests();
+  const listEl = document.getElementById('friend-requests-list');
+  const lblEl = document.getElementById('requests-section-lbl');
+  if (!usernames.length) { listEl.innerHTML = ''; lblEl.style.display = 'none'; return; }
+  lblEl.style.display = 'block';
+  listEl.innerHTML = usernames.map(u => `
+    <div class="request-row">
+      <div class="friend-row-name">${escapeHtml(u)}</div>
+      <button class="friends-icon-btn accept" onclick="handleAcceptFriendRequest('${escapeHtml(u)}')" title="Accept">✓</button>
+      <button class="friends-icon-btn decline" onclick="handleDeclineFriendRequest('${escapeHtml(u)}')" title="Decline">✕</button>
+    </div>`).join('');
+}
+
+async function handleAcceptFriendRequest(fromUsername) {
+  const r = await respondToFriendRequest(fromUsername, true);
+  if (!r.ok) { toast(r.reason); return; }
+  await renderFriendRequests();
+  await renderFriendsList();
+}
+
+async function handleDeclineFriendRequest(fromUsername) {
+  const r = await respondToFriendRequest(fromUsername, false);
+  if (!r.ok) { toast(r.reason); return; }
+  await renderFriendRequests();
+}
+
+async function handleSendFriendRequest() {
+  const input = document.getElementById('friend-username-input');
+  const feedbackEl = document.getElementById('friend-add-feedback');
+  const target = input.value.trim();
+  if (!target) { feedbackEl.textContent = 'Enter a username.'; return; }
+  feedbackEl.textContent = 'Sending…';
+  const r = await sendFriendRequest(target);
+  if (!r.ok) { feedbackEl.textContent = r.reason; return; }
+  feedbackEl.textContent = '';
+  input.value = '';
+  toast('Friend request sent!');
+  await renderFriendsList(); // covers the auto-accept case (they'd already requested me)
+}
+
+async function renderFriendsList() {
+  clearFriendsListPresenceSubs();
+  const friends = await getMyFriends();
+  const listEl = document.getElementById('friends-list');
+  if (!friends.length) { listEl.innerHTML = '<div class="friends-empty-note">No friends yet — add one above.</div>'; return; }
+
+  listEl.innerHTML = friends.map(u => `
+    <div class="friend-row" id="friend-row-${escapeHtml(u)}">
+      <span class="presence-dot offline" id="presence-dot-${escapeHtml(u)}"></span>
+      <div class="friend-row-name">${escapeHtml(u)}</div>
+      <button class="friends-icon-btn challenge" id="challenge-btn-${escapeHtml(u)}" style="display:none" onclick="handleChallengeFriend('${escapeHtml(u)}')" title="Challenge to a game">▶</button>
+      <button class="friends-icon-btn remove" onclick="handleRemoveFriend('${escapeHtml(u)}')" title="Remove friend">✕</button>
+    </div>`).join('');
+
+  // Live presence per friend - each row's dot and challenge button update
+  // in real time for as long as this list stays rendered, not just a
+  // one-time snapshot of who happened to be online when the modal opened.
+  friends.forEach(u => {
+    const unsub = subscribeToPresence(u, (online) => {
+      const dot = document.getElementById('presence-dot-' + u);
+      const btn = document.getElementById('challenge-btn-' + u);
+      if (dot) dot.className = 'presence-dot ' + (online ? 'online' : 'offline');
+      if (btn) btn.style.display = online ? 'flex' : 'none';
+    });
+    friendsListPresenceUnsubs.push(unsub);
+  });
+}
+
+async function handleRemoveFriend(friendUsername) {
+  const r = await removeFriend(friendUsername);
+  if (!r.ok) { toast(r.reason); return; }
+  await renderFriendsList();
+}
+
+async function handleChallengeFriend(targetUsername) {
+  const r = await sendGameInvite(targetUsername);
+  if (!r.ok) { toast(r.reason); return; }
+  closeFriendsModal();
+  toast('Challenge sent! Waiting for them to join…');
+}
+
+async function renderGroupsList() {
+  const groups = await getMyGroups();
+  const listEl = document.getElementById('groups-list');
+  if (!groups.length) { listEl.innerHTML = '<div class="friends-empty-note">No groups yet — create one below.</div>'; return; }
+
+  listEl.innerHTML = groups.map(g => `
+    <div class="group-row">
+      <div>
+        <div class="group-row-name">${escapeHtml(g.name)}</div>
+        <div class="friend-row-sub">${Object.keys(g.members || {}).length} members</div>
+      </div>
+      <button class="friends-icon-btn challenge" onclick="handleStartGroupGame('${escapeHtml(g.id)}')" title="Start game with this group">▶</button>
+    </div>`).join('');
+}
+
+async function handleStartGroupGame(groupId) {
+  const r = await sendGroupGameInvite(groupId);
+  if (!r.ok) { toast(r.reason); return; }
+  closeFriendsModal();
+  toast('Game started! Invites sent to the group.');
+}
+
+async function openCreateGroupForm() {
+  document.getElementById('create-group-form').style.display = 'block';
+  document.getElementById('new-group-name-input').value = '';
+  document.getElementById('create-group-feedback').textContent = '';
+  const friends = await getMyFriends();
+  const membersEl = document.getElementById('new-group-members-list');
+  if (!friends.length) {
+    membersEl.innerHTML = '<div class="friends-empty-note">Add some friends first to form a group.</div>';
+    return;
+  }
+  membersEl.innerHTML = friends.map(u => `
+    <label class="friends-checkbox-row">
+      <input type="checkbox" class="new-group-member-checkbox" value="${escapeHtml(u)}">
+      ${escapeHtml(u)}
+    </label>`).join('');
+}
+
+function closeCreateGroupForm() {
+  const form = document.getElementById('create-group-form');
+  if (form) form.style.display = 'none';
+}
+
+async function handleCreateGroup() {
+  const name = document.getElementById('new-group-name-input').value.trim();
+  const feedbackEl = document.getElementById('create-group-feedback');
+  const members = [...document.querySelectorAll('.new-group-member-checkbox:checked')].map(c => c.value);
+  feedbackEl.textContent = 'Creating…';
+  const r = await createGroup(name, members);
+  if (!r.ok) { feedbackEl.textContent = r.reason; return; }
+  feedbackEl.textContent = '';
+  closeCreateGroupForm();
+  toast('Group created!');
+  await renderGroupsList();
+}
+
+// ── Incoming game challenge banner ──────────────────────────────────
+//
+// A simple, functional notification rather than a full system for now -
+// started once a logged-in player reaches the lobby, so a challenge shows
+// up without needing to manually open the Friends modal and check.
+let inviteBannerUnsub = null;
+
+function startInviteWatcher() {
+  if (inviteBannerUnsub) return; // already watching
+  inviteBannerUnsub = subscribeToGameInvites(renderInviteBanner);
+}
+
+function stopInviteWatcher() {
+  if (inviteBannerUnsub) { inviteBannerUnsub(); inviteBannerUnsub = null; }
+  document.getElementById('invite-banner').style.display = 'none';
+}
+
+function renderInviteBanner(invites) {
+  const bannerEl = document.getElementById('invite-banner');
+  if (!invites.length) { bannerEl.style.display = 'none'; return; }
+  // Only ever show the single most recent invite at a time, to keep this
+  // a simple banner rather than a stacked list - a rare edge case (more
+  // than one pending challenge at once) for a first functional pass.
+  const invite = invites.sort((a, b) => b.createdAt - a.createdAt)[0];
+  bannerEl.innerHTML = `
+    <span class="invite-banner-text"><strong>${escapeHtml(invite.fromDisplayName)}</strong> challenged you to a game!</span>
+    <button class="friends-icon-btn accept" onclick="handleAcceptInvite('${escapeHtml(invite.fromUsername)}')" title="Accept">✓</button>
+    <button class="friends-icon-btn decline" onclick="handleDeclineInvite('${escapeHtml(invite.fromUsername)}')" title="Decline">✕</button>`;
+  bannerEl.style.display = 'flex';
+}
+
+async function handleAcceptInvite(fromUsername) {
+  const r = await acceptGameInvite(fromUsername);
+  if (!r.ok) { toast(r.reason); return; }
+  document.getElementById('invite-banner').style.display = 'none';
+}
+
+async function handleDeclineInvite(fromUsername) {
+  await declineGameInvite(fromUsername);
+  // No toast needed - the banner itself disappearing (via the real-time
+  // subscription re-rendering) is confirmation enough.
 }
 
 async function submitChangePin() {
@@ -6532,6 +6850,7 @@ async function loadActiveAccount() {
       const nameInput = document.getElementById('player-name');
       if (nameInput && !nameInput.value.trim()) nameInput.value = account.displayName;
       startPresenceTracking();
+      startInviteWatcher();
     } else {
       localStorage.removeItem('seq_account_username'); // account was deleted server-side; don't keep referencing it
     }
