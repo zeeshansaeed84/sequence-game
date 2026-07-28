@@ -353,7 +353,14 @@
      in the app, but as a bare "input" selector it also matches checkboxes,
      stretching them to fill the row and leaving almost no room for the
      username text next to them. */
-  .new-group-member-checkbox { width: 16px; height: 16px; flex-shrink: 0; margin-bottom: 0; }
+  /* Targets ANY checkbox inside a .friends-checkbox-row, not one specific
+     class - the previous fix only covered .new-group-member-checkbox,
+     which is exactly why the identical bug reappeared in the add-existing-
+     member form (.add-member-checkbox), built afterward with the same row
+     structure but a different class name. Scoping to the shared parent
+     instead means this can't recur a third time for any future checkbox
+     added the same way. */
+  .friends-checkbox-row input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; margin-bottom: 0; }
   .friends-field-feedback { font-family: 'EB Garamond', serif; font-style: italic; font-size: 0.78rem; color: #e88a8a; min-height: 1.1em; margin: 4px 0 8px; }
   .friends-modal-close {
     position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border-radius: 50%;
@@ -6833,7 +6840,7 @@ async function renderFriendRequests() {
 // the current state is, read or not, since someone should still be able to
 // glance back at recent activity even after it's technically been "seen".
 async function renderRecentActivity() {
-  const notifications = await getMyNotifications(15);
+  const notifications = await getMyNotifications();
   const listEl = document.getElementById('activity-list');
   const lblEl = document.getElementById('activity-section-lbl');
   const cardEl = document.getElementById('activity-card');
@@ -7293,10 +7300,21 @@ async function getMyNotifications(limit) {
   try {
     const snap = await withTimeout(db.ref('sq_notifications/' + currentAccount.username).once('value'), 8000, 'Notifications');
     const val = snap.val() || {};
+    // Today and yesterday only, by calendar day - not a fixed count. A
+    // fixed count doesn't actually track "recent": it could show something
+    // a week old on a quiet account, or hide something from an hour ago on
+    // a busy one. limit here is just a safety cap for an unusually busy
+    // day+yesterday, not the primary filter.
+    const startOfYesterday = new Date();
+    startOfYesterday.setHours(0, 0, 0, 0);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    const cutoff = startOfYesterday.getTime();
+
     return Object.entries(val)
       .map(([id, data]) => ({ id, ...data }))
+      .filter(n => n.createdAt >= cutoff)
       .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, limit || 15);
+      .slice(0, limit || 30);
   } catch(e) { return []; }
 }
 
