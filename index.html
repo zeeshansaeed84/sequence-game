@@ -284,7 +284,7 @@
     flex: 1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-weight: 700; font-size: 0.92rem; color: #1a1a3a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .friend-row-sub { font-family: 'EB Garamond', serif; font-style: italic; font-size: 0.76rem; color: #9a9fc0; margin-top: 1px; }
+  .friend-row-sub { font-family: 'EB Garamond', serif; font-style: italic; font-size: 0.76rem; color: #5c6089; margin-top: 1px; }
   .friends-empty-note { text-align: center; color: #a89898; font-size: 0.82rem; font-style: italic; padding: 10px 0; }
 
   .friends-avatar {
@@ -337,7 +337,11 @@
   .group-avatars { display: flex; }
   .group-avatars .friends-avatar { width: 30px; height: 30px; font-size: 0.8rem; margin-left: -9px; border: 2.5px solid #f6f7fb; }
   .group-avatars .friends-avatar:first-child { margin-left: 0; }
-  .group-row-meta { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.72rem; color: #a8a0c8; letter-spacing: 0.03em; }
+  .group-row-meta { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.72rem; color: #5c6089; letter-spacing: 0.03em; }
+  .activity-row { padding: 9px 0; border-bottom: 1px solid #edeef7; }
+  .activity-row:last-child { border-bottom: none; }
+  .activity-message { font-family: 'EB Garamond', serif; font-size: 0.88rem; color: #1a1a3a; line-height: 1.35; }
+  .activity-time { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.68rem; color: #5c6089; letter-spacing: 0.03em; text-transform: uppercase; margin-top: 3px; }
 
   .friends-checkbox-row {
     display: flex; align-items: center; gap: 8px; padding: 6px 0;
@@ -3558,6 +3562,11 @@
           <div id="friend-requests-list"></div>
         </div>
 
+        <div class="friends-section-title" id="activity-section-lbl" style="display:none">Recent Activity</div>
+        <div class="friends-card" id="activity-card" style="display:none">
+          <div id="activity-list"></div>
+        </div>
+
         <div class="friends-section-title">Add a Friend</div>
         <div class="friends-card">
           <div class="friends-add-row">
@@ -3592,6 +3601,16 @@
             <div class="friends-field-feedback" id="create-group-feedback"></div>
             <button class="friends-btn-primary friends-btn-create" onclick="handleCreateGroup()">Create</button>
             <button class="friends-tab" style="margin-top:6px;background:none" onclick="closeCreateGroupForm()">Cancel</button>
+          </div>
+        </div>
+
+        <div id="add-member-form" style="display:none">
+          <div class="friends-section-title">Add to <span id="add-member-group-name"></span></div>
+          <div class="friends-card">
+            <div id="add-member-friends-list"></div>
+            <div class="friends-field-feedback" id="add-member-feedback"></div>
+            <button class="friends-btn-primary friends-btn-create" onclick="handleAddMembersToGroup()">Add</button>
+            <button class="friends-tab" style="margin-top:6px;background:none" onclick="closeAddMemberForm()">Cancel</button>
           </div>
         </div>
       </div>
@@ -6772,7 +6791,7 @@ function switchFriendsTab(tab) {
   document.getElementById('groups-tab-btn').classList.toggle('active', !isFriends);
   document.getElementById('friends-tab-panel').style.display = isFriends ? 'block' : 'none';
   document.getElementById('groups-tab-panel').style.display = isFriends ? 'none' : 'block';
-  if (isFriends) { renderFriendRequests(); renderFriendsList(); }
+  if (isFriends) { renderFriendRequests(); renderFriendsList(); renderRecentActivity(); }
   else { clearFriendsListPresenceSubs(); renderGroupsList(); }
 }
 
@@ -6787,6 +6806,7 @@ function avatarColorClass(username) {
 const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg>';
 const ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8V4z" fill="white" stroke="none"/></svg>';
+const ICON_PLUS = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
 
 async function renderFriendRequests() {
   const usernames = await getMyPendingFriendRequests();
@@ -6802,6 +6822,28 @@ async function renderFriendRequests() {
       <div class="friend-row-name">${escapeHtml(u)}</div>
       <button class="friends-icon-btn accept" onclick="handleAcceptFriendRequest('${escapeHtml(u)}')" title="Accept">${ICON_CHECK}</button>
       <button class="friends-icon-btn decline" onclick="handleDeclineFriendRequest('${escapeHtml(u)}')" title="Decline">${ICON_X}</button>
+    </div>`).join('');
+}
+
+// This is specifically what makes the notification badge meaningful -
+// without it, tapping a badge just clears it with nothing to show for
+// what actually happened, which is the exact gap this fixes. Notifications
+// aren't marked read here - that already happens via markAllNotificationsRead()
+// when the modal opens (see openFriendsModal) - this only renders whatever
+// the current state is, read or not, since someone should still be able to
+// glance back at recent activity even after it's technically been "seen".
+async function renderRecentActivity() {
+  const notifications = await getMyNotifications(15);
+  const listEl = document.getElementById('activity-list');
+  const lblEl = document.getElementById('activity-section-lbl');
+  const cardEl = document.getElementById('activity-card');
+  if (!notifications.length) { listEl.innerHTML = ''; lblEl.style.display = 'none'; cardEl.style.display = 'none'; return; }
+  lblEl.style.display = 'block';
+  cardEl.style.display = 'block';
+  listEl.innerHTML = notifications.map(n => `
+    <div class="activity-row">
+      <div class="activity-message">${escapeHtml(n.message)}</div>
+      <div class="activity-time">${escapeHtml(relativeTimeAgo(n.createdAt))}</div>
     </div>`).join('');
 }
 
@@ -6888,6 +6930,17 @@ async function renderGroupsList() {
     const avatarsHtml = memberUsernames.slice(0, 4).map(u =>
       `<div class="friends-avatar ${avatarColorClass(u)}">${escapeHtml(u.charAt(0).toUpperCase())}</div>`
     ).join('');
+    // Only the group's owner can add members (matches addGroupMember's own
+    // server-side rule) - hidden entirely for non-owners rather than shown
+    // and left to fail, since a button that never works isn't a good affordance.
+    // Deliberately passes only g.id through onclick, not g.name - group
+    // names are free user text (unlike usernames/ids, which are strictly
+    // validated/system-generated), so interpolating one directly into a JS
+    // string literal inside an attribute would be unsafe. The name gets
+    // looked up safely inside openAddMemberForm() instead, via .textContent.
+    const addMemberBtn = (currentAccount && g.ownerUsername === currentAccount.username)
+      ? `<button class="friends-icon-btn accept" onclick="openAddMemberForm('${escapeHtml(g.id)}')" title="Add members">${ICON_PLUS}</button>`
+      : '';
     return `
     <div class="group-row">
       <div class="group-avatars">${avatarsHtml}</div>
@@ -6895,6 +6948,7 @@ async function renderGroupsList() {
         <div class="group-row-name">${escapeHtml(g.name)}</div>
         <div class="group-row-meta">${memberUsernames.length} members</div>
       </div>
+      ${addMemberBtn}
       <button class="friends-icon-btn challenge" onclick="handleStartGroupGame('${escapeHtml(g.id)}')" title="Start game with this group">${ICON_PLAY}</button>
     </div>`;
   }).join('');
@@ -6939,6 +6993,61 @@ async function handleCreateGroup() {
   feedbackEl.textContent = '';
   closeCreateGroupForm();
   toast('Group created!');
+  await renderGroupsList();
+}
+
+// Only the group's own owner ever sees the button that triggers this (see
+// renderGroupsList), matching addGroupMember's own server-side rule -
+// but this is still re-validated server-side regardless, same as every
+// other action in this app.
+let addMemberFormGroupId = null;
+
+async function openAddMemberForm(groupId) {
+  const [friends, groups] = await Promise.all([getMyFriends(), getMyGroups()]);
+  const group = groups.find(g => g.id === groupId);
+  if (!group) { toast('Group not found.'); return; }
+
+  addMemberFormGroupId = groupId;
+  document.getElementById('add-member-group-name').textContent = group.name; // .textContent, not innerHTML - safe regardless of what characters the free-text name contains
+  document.getElementById('add-member-feedback').textContent = '';
+  document.getElementById('add-member-form').style.display = 'block';
+
+  const existingMembers = new Set(Object.keys(group.members || {}));
+  const availableFriends = friends.filter(u => !existingMembers.has(u));
+  const listEl = document.getElementById('add-member-friends-list');
+  if (!availableFriends.length) {
+    listEl.innerHTML = '<div class="friends-empty-note">All your friends are already in this group.</div>';
+    return;
+  }
+  listEl.innerHTML = availableFriends.map(u => `
+    <label class="friends-checkbox-row">
+      <input type="checkbox" class="add-member-checkbox" value="${escapeHtml(u)}">
+      ${escapeHtml(u)}
+    </label>`).join('');
+}
+
+function closeAddMemberForm() {
+  addMemberFormGroupId = null;
+  const form = document.getElementById('add-member-form');
+  if (form) form.style.display = 'none';
+}
+
+async function handleAddMembersToGroup() {
+  const feedbackEl = document.getElementById('add-member-feedback');
+  const checked = [...document.querySelectorAll('.add-member-checkbox:checked')].map(c => c.value);
+  if (!checked.length) { feedbackEl.textContent = 'Select at least one friend.'; return; }
+  feedbackEl.textContent = 'Adding…';
+  // Sequential, not parallel - addGroupMember() re-reads the group's
+  // current member list on every call, so firing several at once could
+  // race against each other reading a stale snapshot. Group sizes are
+  // small in a casual game, so this isn't a real performance concern.
+  for (const username of checked) {
+    const r = await addGroupMember(addMemberFormGroupId, username);
+    if (!r.ok) { feedbackEl.textContent = `Couldn't add ${username}: ${r.reason}`; return; }
+  }
+  feedbackEl.textContent = '';
+  closeAddMemberForm();
+  toast('Members added!');
   await renderGroupsList();
 }
 
@@ -7171,6 +7280,36 @@ async function markAllNotificationsRead() {
     Object.keys(val).forEach(id => { if (!val[id].read) updates['sq_notifications/' + currentAccount.username + '/' + id + '/read'] = true; });
     if (Object.keys(updates).length) await withTimeout(db.ref().update(updates), 8000, 'Mark notifications read');
   } catch(e) { /* non-fatal */ }
+}
+
+// Fetches the actual notification LIST (not just the unread count, which
+// subscribeToUnreadNotificationCount already covers for the badge) - this
+// is what actually lets someone see what a notification WAS after tapping
+// it, rather than the badge just silently clearing with nothing to show
+// for it. Most recent first, capped at a reasonable number for a casual
+// game rather than an unbounded history.
+async function getMyNotifications(limit) {
+  if (!currentAccount || !fbInit() || !db) return [];
+  try {
+    const snap = await withTimeout(db.ref('sq_notifications/' + currentAccount.username).once('value'), 8000, 'Notifications');
+    const val = snap.val() || {};
+    return Object.entries(val)
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit || 15);
+  } catch(e) { return []; }
+}
+
+function relativeTimeAgo(timestamp) {
+  const diffMin = Math.floor((Date.now() - timestamp) / 60000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return diffMin + 'm ago';
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return diffHr + 'h ago';
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay === 1) return 'Yesterday';
+  if (diffDay < 7) return diffDay + 'd ago';
+  return new Date(timestamp).toLocaleDateString();
 }
 
 // ── Friends ──────────────────────────────────────────────────────────
