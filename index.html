@@ -2740,6 +2740,22 @@
     .wide-right-stack { grid-column: 3; grid-row: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
     #wide-stats-block, #wide-lastmove-block { display: block; }
 
+    /* Space-priority fix: on a short viewport, the four stacked blocks
+       (stats, turn-info, last-move, hand) can together exceed the
+       available height. Without an explicit priority, the LAST item in
+       source order (hand) is the one that gets pushed below the visible
+       area first - exactly backwards, since the hand is the one thing
+       actually required to play, while stats/last-move are purely
+       informational. Stats and last-move become the ones that shrink and
+       scroll internally when space is tight; hand and turn-info always
+       get their full needed space, in every case.
+       Confirmed via direct measurement: at 1400x550 (a real, short-viewport
+       scenario e.g. iPad Safari with its toolbar visible), all 18 hand
+       cards existed in the DOM but were pushed entirely below window
+       height. */
+    #wide-stats-block, #wide-lastmove-block { flex-shrink: 1; min-height: 40px; overflow-y: auto; }
+    .hand-info-bar, .hand-area { flex-shrink: 0; }
+
     /* .board's own sizing formula (aspect-ratio 5/7, container-query-based
        width) already handles this correctly on its own — no override
        needed here. An earlier version of this rule incorrectly forced
