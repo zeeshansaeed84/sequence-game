@@ -313,6 +313,8 @@
   .friends-icon-btn.decline svg, .friends-icon-btn.remove svg { stroke: #a02020; width: 15px; height: 15px; }
   .friends-icon-btn.challenge { background: linear-gradient(180deg, #f0c454, #c9860f); box-shadow: 0 3px 9px -2px rgba(201,134,15,0.55), inset 0 1px 0 rgba(255,255,255,0.4); }
   .friends-icon-btn.challenge svg { stroke: white; }
+  .friends-icon-btn.add-suggested { background: linear-gradient(180deg, #4a5fe8, #1a2080); box-shadow: 0 3px 8px -2px rgba(26,32,128,0.45), inset 0 1px 0 rgba(255,255,255,0.25); }
+  .friends-icon-btn.add-suggested svg { stroke: white; }
 
   .friends-add-row { display: flex; gap: 8px; }
   .friends-input {
@@ -3572,6 +3574,11 @@
         <div class="friends-section-title" id="requests-section-lbl" style="display:none">Requests</div>
         <div class="friends-card requests" id="friend-requests-card" style="display:none">
           <div id="friend-requests-list"></div>
+        </div>
+
+        <div class="friends-section-title" id="suggested-section-lbl" style="display:none">Suggested</div>
+        <div class="friends-card" id="suggested-card" style="display:none">
+          <div id="suggested-list"></div>
         </div>
 
         <div class="friends-section-title" id="activity-section-lbl" style="display:none">Recent Activity</div>
@@ -6839,7 +6846,7 @@ function switchFriendsTab(tab) {
   document.getElementById('groups-tab-btn').classList.toggle('active', !isFriends);
   document.getElementById('friends-tab-panel').style.display = isFriends ? 'block' : 'none';
   document.getElementById('groups-tab-panel').style.display = isFriends ? 'none' : 'block';
-  if (isFriends) { renderFriendRequests(); renderFriendsList(); renderRecentActivity(); }
+  if (isFriends) { renderFriendRequests(); renderSuggestedFriends(); renderFriendsList(); renderRecentActivity(); }
   else { clearFriendsListPresenceSubs(); renderGroupsList(); }
 }
 
@@ -6871,6 +6878,45 @@ async function renderFriendRequests() {
       <button class="friends-icon-btn accept" onclick="handleAcceptFriendRequest('${escapeHtml(u)}')" title="Accept">${ICON_CHECK}</button>
       <button class="friends-icon-btn decline" onclick="handleDeclineFriendRequest('${escapeHtml(u)}')" title="Decline">${ICON_X}</button>
     </div>`).join('');
+}
+
+// Shows recent opponents who aren't friends yet - the actual message
+// prioritizes whichever detail is more interesting: multiple games played
+// together beats a single, possibly-long-ago match's exact date.
+async function renderSuggestedFriends() {
+  const suggestions = await getSuggestedFriends();
+  const listEl = document.getElementById('suggested-list');
+  const lblEl = document.getElementById('suggested-section-lbl');
+  const cardEl = document.getElementById('suggested-card');
+  if (!suggestions.length) { listEl.innerHTML = ''; lblEl.style.display = 'none'; cardEl.style.display = 'none'; return; }
+  lblEl.style.display = 'block';
+  cardEl.style.display = 'block';
+  listEl.innerHTML = suggestions.map(s => {
+    const why = s.totalMatches > 1 ? `Played ${s.totalMatches} games together` : `You played together ${relativeTimeAgo(s.lastPlayed).toLowerCase()}`;
+    return `
+      <div class="request-row">
+        <div class="friends-avatar ${avatarColorClass(s.username)}">${escapeHtml(s.username.charAt(0).toUpperCase())}</div>
+        <div style="flex:1;min-width:0">
+          <div class="friend-row-name">${escapeHtml(s.username)}</div>
+          <div class="friend-row-sub">${escapeHtml(why)}</div>
+        </div>
+        <button class="friends-icon-btn add-suggested" onclick="handleAddSuggestedFriend('${escapeHtml(s.username)}')" title="Add friend">${ICON_PLUS}</button>
+        <button class="friends-icon-btn decline" onclick="handleDismissSuggestedFriend('${escapeHtml(s.username)}')" title="Dismiss">${ICON_X}</button>
+      </div>`;
+  }).join('');
+}
+
+async function handleAddSuggestedFriend(username) {
+  const r = await sendFriendRequest(username);
+  if (!r.ok) { toast(r.reason); return; }
+  toast('Friend request sent!');
+  await renderSuggestedFriends();
+  await renderFriendsList(); // covers the case where they'd already requested me too (auto-accept)
+}
+
+async function handleDismissSuggestedFriend(username) {
+  await dismissSuggestedFriend(username);
+  await renderSuggestedFriends();
 }
 
 // This is specifically what makes the notification badge meaningful -
@@ -7376,7 +7422,7 @@ async function recordH2H(teams, winnerTeamIdx) {
 async function creditH2HPair(usernameA, usernameB, winnerUsername) {
   const key = h2hKey(usernameA, usernameB);
   try {
-    await db.ref('sq_h2h/' + key).transaction(existing => {
+    const result = await db.ref('sq_h2h/' + key).transaction(existing => {
       const rec = existing || { players: [usernameA, usernameB].sort(), wins: {}, draws: 0, totalMatches: 0 };
       rec.totalMatches = (rec.totalMatches || 0) + 1;
       if (winnerUsername) rec.wins[winnerUsername] = (rec.wins[winnerUsername] || 0) + 1;
@@ -7384,7 +7430,74 @@ async function creditH2HPair(usernameA, usernameB, winnerUsername) {
       rec.lastPlayed = Date.now();
       return rec;
     });
+    // Per-user index for "who have I played with" (powers Suggested
+    // Friends) - sq_h2h itself is keyed by sorted pair, which can't be
+    // efficiently queried "all pairs involving me" without a full table
+    // scan, the same limitation Friends and Groups both had before their
+    // own per-user indexes. Written from the TRANSACTION's own committed
+    // result, not recomputed independently, so this can never drift out
+    // of sync with the real totalMatches/lastPlayed even if a concurrent
+    // update from another game finishing at the same moment changed what
+    // actually got committed.
+    const finalRec = result.snapshot.val();
+    if (finalRec) {
+      await db.ref().update({
+        ['sq_h2h_opponents/' + usernameA + '/' + usernameB]: { lastPlayed: finalRec.lastPlayed, totalMatches: finalRec.totalMatches },
+        ['sq_h2h_opponents/' + usernameB + '/' + usernameA]: { lastPlayed: finalRec.lastPlayed, totalMatches: finalRec.totalMatches },
+      });
+    }
   } catch(e) { /* non-fatal — H2H is a bonus feature, must never block game-end flow */ }
+}
+
+// ── Suggested Friends ────────────────────────────────────────────────
+//
+// Powered by sq_h2h_opponents (see creditH2HPair above) - surfaces recent
+// opponents who aren't already friends, so people can be found without
+// ever needing to know a username, which is otherwise the only way to add
+// a friend (display names aren't visible during a game).
+async function getSuggestedFriends(limit) {
+  if (!currentAccount || !fbInit() || !db) return [];
+  const me = currentAccount.username;
+  try {
+    const [opponentsSnap, friendsSnap, dismissedSnap] = await Promise.all([
+      withTimeout(db.ref('sq_h2h_opponents/' + me).once('value'), 8000, 'Suggested friends'),
+      withTimeout(db.ref('sq_friends/' + me).once('value'), 8000, 'Friends check'),
+      withTimeout(db.ref('sq_dismissed_suggestions/' + me).once('value'), 8000, 'Dismissed suggestions'),
+    ]);
+    const opponents = opponentsSnap.val() || {};
+    const friends = friendsSnap.val() || {};
+    const dismissed = dismissedSnap.val() || {};
+
+    const candidates = Object.keys(opponents).filter(u => !friends[u] && !dismissed[u]);
+
+    // Per-candidate: exclude anyone with a pending request already in
+    // EITHER direction - if I already sent them one, re-suggesting is
+    // redundant (sendFriendRequest itself would just reject a duplicate
+    // anyway); if they already sent ME one, they belong in Requests, not
+    // duplicated here too. Suggestion lists are short by nature, so this
+    // fan-out is fine at this scale, same reasoning as Groups' own
+    // fan-out reads.
+    const checked = await Promise.all(candidates.map(async u => {
+      const [sentByMe, sentToMe] = await Promise.all([
+        withTimeout(db.ref('sq_friend_requests/' + u + '/' + me).once('value'), 8000, 'Request check').catch(() => null),
+        withTimeout(db.ref('sq_friend_requests/' + me + '/' + u).once('value'), 8000, 'Request check').catch(() => null),
+      ]);
+      const hasPending = (sentByMe && sentByMe.exists()) || (sentToMe && sentToMe.exists());
+      return hasPending ? null : { username: u, ...opponents[u] };
+    }));
+
+    return checked
+      .filter(Boolean)
+      .sort((a, b) => b.lastPlayed - a.lastPlayed)
+      .slice(0, limit || 8);
+  } catch(e) { return []; }
+}
+
+async function dismissSuggestedFriend(username) {
+  if (!currentAccount || !fbInit() || !db) return;
+  try {
+    await withTimeout(db.ref('sq_dismissed_suggestions/' + currentAccount.username + '/' + username).set(true), 8000, 'Dismiss suggestion');
+  } catch(e) { /* non-fatal */ }
 }
 
 // ── Notifications ────────────────────────────────────────────────────
