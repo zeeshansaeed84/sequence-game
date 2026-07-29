@@ -333,6 +333,11 @@
   .friends-btn-primary svg { width: 15px; height: 15px; stroke: white; stroke-width: 2.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
   .friends-btn-send { padding: 11px 18px; flex-shrink: 0; }
   .friends-btn-create { width: 100%; padding: 13px; margin-top: 10px; }
+  .friends-btn-danger { background: linear-gradient(180deg, #e05050, #a02020); border-color: rgba(224,80,80,0.6); }
+  .group-info-clickable { flex: 1; min-width: 0; cursor: pointer; }
+  .group-detail-member-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #edeef7; }
+  .group-detail-member-row:last-child { border-bottom: none; }
+  .group-owner-tag { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.65rem; letter-spacing: 0.05em; text-transform: uppercase; color: #5c6089; }
 
   .group-avatars { display: flex; }
   .group-avatars .friends-avatar { width: 30px; height: 30px; font-size: 0.8rem; margin-left: -9px; border: 2.5px solid #f6f7fb; }
@@ -3620,6 +3625,24 @@
             <button class="friends-tab" style="margin-top:6px;background:none" onclick="closeAddMemberForm()">Cancel</button>
           </div>
         </div>
+
+        <div id="group-detail-view" style="display:none">
+          <div class="friends-section-title">Group Details</div>
+          <div class="friends-card">
+            <div id="group-detail-rename-row" style="display:none;margin-bottom:14px">
+              <input id="group-detail-rename-input" class="friends-input" style="width:100%;margin-bottom:8px" maxlength="40">
+              <div class="friends-field-feedback" id="group-detail-rename-feedback"></div>
+              <button class="friends-btn-primary" style="width:auto;padding:9px 16px" onclick="handleRenameGroup()">Save Name</button>
+            </div>
+
+            <div class="friends-section-title" style="margin-top:0">Members</div>
+            <div id="group-detail-members-list"></div>
+            <div class="friends-field-feedback" id="group-detail-feedback"></div>
+
+            <button class="friends-btn-primary friends-btn-create friends-btn-danger" id="group-detail-danger-btn" onclick="handleGroupDetailDangerAction()"></button>
+            <button class="friends-tab" style="margin-top:6px;background:none" onclick="closeGroupDetailView()">Back</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -4001,17 +4024,35 @@ function playSound(name) {
 // Pre-activate sounds that are triggered outside user gestures (sequence complete, lose).
 // iOS blocks audio.play() from setTimeout — but if we call play()+pause() during a
 // gesture, iOS marks the element as "user-activated" and allows later timer-triggered plays.
+//
+// Confirmed root cause of sounds randomly audible on lobby load: this used
+// to fire on every single pointerdown with no guard against overlapping
+// calls. Rapid taps (e.g. swiping through the How to Play tutorial) could
+// start a second priming cycle for the same sound before the first one's
+// .play().then() callback had unmuted+paused it - and that first
+// callback, firing later, would then unconditionally unmute an element
+// that a SECOND, newer priming call was still actively playing, briefly
+// making it genuinely audible. Confirmed structurally with a direct
+// reproduction (70 overlapping in-flight calls when fired rapidly) before
+// writing this fix, not fixed on theory alone.
+let lastPrimeTime = 0;
+const primingInFlight = new Set();
 function primeTimerSounds() {
+  const now = Date.now();
+  if (now - lastPrimeTime < 1000) return; // already primed within the last second - no need on every single tap
+  lastPrimeTime = now;
   ['Sequence_complete_', 'Lose', 'Win', 'Chip_removal_jack', 'Chip_placement'].forEach(name => {
+    if (primingInFlight.has(name)) return; // a priming call for this exact sound is already mid-flight - this is the actual overlap that caused the bug
     const el = audioEls[name];
     if (!el) return;
+    primingInFlight.add(name);
     el.muted = true;
     el.currentTime = 0;
     el.play().then(() => {
       el.pause();
       el.muted = false;
       el.currentTime = 0;
-    }).catch(() => { el.muted = false; });
+    }).catch(() => { el.muted = false; }).finally(() => { primingInFlight.delete(name); });
   });
 }
 
@@ -6951,7 +6992,7 @@ async function renderGroupsList() {
     return `
     <div class="group-row">
       <div class="group-avatars">${avatarsHtml}</div>
-      <div style="flex:1;min-width:0">
+      <div class="group-info-clickable" onclick="openGroupDetailView('${escapeHtml(g.id)}')">
         <div class="group-row-name">${escapeHtml(g.name)}</div>
         <div class="group-row-meta">${memberUsernames.length} members</div>
       </div>
@@ -7055,6 +7096,106 @@ async function handleAddMembersToGroup() {
   feedbackEl.textContent = '';
   closeAddMemberForm();
   toast('Members added!');
+  await renderGroupsList();
+}
+
+// ── Group detail view: rename, member removal, delete/leave ────────
+let groupDetailGroupId = null;
+
+async function openGroupDetailView(groupId) {
+  const groups = await getMyGroups();
+  const group = groups.find(g => g.id === groupId);
+  if (!group) { toast('Group not found.'); return; }
+
+  groupDetailGroupId = groupId;
+  const isOwner = currentAccount && group.ownerUsername === currentAccount.username;
+
+  closeCreateGroupForm();
+  closeAddMemberForm();
+  document.getElementById('group-detail-view').style.display = 'block';
+  document.getElementById('group-detail-feedback').textContent = '';
+
+  const renameRow = document.getElementById('group-detail-rename-row');
+  renameRow.style.display = isOwner ? 'block' : 'none';
+  if (isOwner) {
+    document.getElementById('group-detail-rename-input').value = group.name;
+    document.getElementById('group-detail-rename-feedback').textContent = '';
+  }
+
+  document.getElementById('group-detail-danger-btn').textContent = isOwner ? 'Delete Group' : 'Leave Group';
+
+  renderGroupDetailMembers(group, isOwner);
+}
+
+function renderGroupDetailMembers(group, isOwner) {
+  const listEl = document.getElementById('group-detail-members-list');
+  const memberUsernames = Object.keys(group.members || {});
+  listEl.innerHTML = memberUsernames.map(u => {
+    const isThisOwner = u === group.ownerUsername;
+    const isMe = currentAccount && u === currentAccount.username;
+    // The owner can remove anyone except themselves - matches
+    // removeGroupMember's own server-side rule (the owner would delete the
+    // group instead, not remove themselves as "just a member"). Nobody
+    // else gets a per-row remove button here; leaving is the dedicated
+    // Leave Group button below, not an action on your own row.
+    const canRemove = isOwner && !isThisOwner;
+    return `
+      <div class="group-detail-member-row">
+        <div class="friends-avatar ${avatarColorClass(u)}">${escapeHtml(u.charAt(0).toUpperCase())}</div>
+        <div class="friend-row-name">${escapeHtml(u)}${isMe ? ' (you)' : ''}</div>
+        ${isThisOwner ? '<span class="group-owner-tag">Owner</span>' : ''}
+        ${canRemove ? `<button class="friends-icon-btn remove" onclick="handleRemoveGroupMemberFromDetail('${escapeHtml(u)}')" title="Remove from group">${ICON_X}</button>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function closeGroupDetailView() {
+  groupDetailGroupId = null;
+  document.getElementById('group-detail-view').style.display = 'none';
+}
+
+async function handleRenameGroup() {
+  const newName = document.getElementById('group-detail-rename-input').value.trim();
+  const feedbackEl = document.getElementById('group-detail-rename-feedback');
+  feedbackEl.textContent = 'Saving…';
+  const r = await renameGroup(groupDetailGroupId, newName);
+  if (!r.ok) { feedbackEl.textContent = r.reason; return; }
+  feedbackEl.textContent = '';
+  toast('Group renamed!');
+  await renderGroupsList();
+  await openGroupDetailView(groupDetailGroupId); // refresh the detail view's own header/state to reflect the new name
+}
+
+async function handleRemoveGroupMemberFromDetail(username) {
+  const confirmed = await confirmAction(`Remove ${username} from this group?`, 'Remove');
+  if (!confirmed) return;
+  const r = await removeGroupMember(groupDetailGroupId, username);
+  if (!r.ok) { toast(r.reason); return; }
+  toast('Member removed.');
+  await renderGroupsList();
+  await openGroupDetailView(groupDetailGroupId); // refresh the member list in place
+}
+
+async function handleGroupDetailDangerAction() {
+  const groups = await getMyGroups();
+  const group = groups.find(g => g.id === groupDetailGroupId);
+  if (!group) { closeGroupDetailView(); return; }
+  const isOwner = currentAccount && group.ownerUsername === currentAccount.username;
+
+  if (isOwner) {
+    const confirmed = await confirmAction(`Delete "${group.name}"? This can't be undone.`, 'Delete');
+    if (!confirmed) return;
+    const r = await deleteGroup(groupDetailGroupId);
+    if (!r.ok) { toast(r.reason); return; }
+    toast('Group deleted.');
+  } else {
+    const confirmed = await confirmAction(`Leave "${group.name}"?`, 'Leave');
+    if (!confirmed) return;
+    const r = await removeGroupMember(groupDetailGroupId, currentAccount.username);
+    if (!r.ok) { toast(r.reason); return; }
+    toast('You left the group.');
+  }
+  closeGroupDetailView();
   await renderGroupsList();
 }
 
@@ -7565,6 +7706,7 @@ async function createGroup(nameRaw, initialMemberUsernames) {
     };
     allMembers.forEach(u => { updates['sq_user_groups/' + u + '/' + groupId] = true; });
     await withTimeout(db.ref().update(updates), 8000, 'Create group');
+    members.forEach(u => createNotification(u, 'group_added', `${currentAccount.displayName || me} added you to "${name}"`));
     return { ok: true, groupId };
   } catch(e) { return { ok: false, reason: "Couldn't create the group — try again." }; }
 }
@@ -7588,6 +7730,7 @@ async function addGroupMember(groupId, usernameToAddRaw) {
       ['sq_groups/' + groupId + '/members/' + usernameToAdd]: true,
       ['sq_user_groups/' + usernameToAdd + '/' + groupId]: true,
     }), 8000, 'Add group member');
+    createNotification(usernameToAdd, 'group_added', `${currentAccount.displayName || me} added you to "${group.name}"`);
     return { ok: true };
   } catch(e) { return { ok: false, reason: "Couldn't add member — try again." }; }
 }
