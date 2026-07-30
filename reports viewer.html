@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reports</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #0b0e2e; color: #e8e6dd; padding: 20px 16px 60px; }
+  h1 { font-size: 1.1rem; color: #d4b830; margin-bottom: 4px; }
+  .sub { font-size: 0.8rem; color: #8890c0; margin-bottom: 18px; }
+  .status { font-size: 0.85rem; color: #8890c0; padding: 20px 0; text-align: center; }
+
+  .filter-tabs { display: flex; gap: 6px; background: rgba(0,0,0,0.28); border-radius: 12px; padding: 4px; margin-bottom: 18px; }
+  .filter-tab { flex: 1; text-align: center; padding: 9px; border-radius: 9px; border: none; background: none; font-size: 0.82rem; font-weight: 600; color: #8890c0; }
+  .filter-tab.active { background: linear-gradient(180deg, #ffffff, #eef0f8); color: #1a2080; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+
+  .report-card {
+    background: #171b34; border: 1px solid #2a2f52; border-radius: 10px;
+    padding: 14px; margin-bottom: 10px;
+  }
+  .report-card.pending { border-color: rgba(212,184,48,0.4); box-shadow: 0 0 0 2px rgba(212,184,48,0.08); }
+  .report-card.resolved { opacity: 0.5; }
+  .report-time { font-size: 0.72rem; color: #8890c0; margin-bottom: 8px; }
+  .report-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 2px 0; }
+  .report-row .k { color: #a8adcf; }
+  .report-row .v { color: #e8e6dd; font-weight: 600; }
+  .repeat-badge { background: #a02020; color: white; border-radius: 8px; padding: 1px 6px; font-size: 0.68rem; font-weight: 700; margin-left: 6px; }
+  .report-reason { margin-top: 8px; padding: 8px 10px; background: rgba(212,184,48,0.08); border: 1px solid rgba(212,184,48,0.25); border-radius: 6px; font-size: 0.85rem; color: #f0dc90; }
+  .report-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .resolve-btn {
+    flex: 1; padding: 9px; border-radius: 8px; border: none;
+    background: linear-gradient(180deg, #3cd67e, #1a7a3c); color: white; font-size: 0.82rem; font-weight: 700;
+  }
+  .resolved-label { flex: 1; text-align: center; padding: 9px; font-size: 0.8rem; color: #5fd88a; }
+
+  .refresh-btn {
+    display: block; width: 100%; margin-top: 16px; padding: 12px;
+    background: #1c2454; border: 1px solid rgba(212,184,48,0.3); border-radius: 8px;
+    color: #d4b830; font-size: 0.9rem; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>Reports</h1>
+<div class="sub">Filed via the Friends list or during a game</div>
+
+<div class="filter-tabs">
+  <button class="filter-tab active" id="tab-pending" onclick="setFilter('pending')">Pending</button>
+  <button class="filter-tab" id="tab-all" onclick="setFilter('all')">All</button>
+</div>
+
+<div id="content"><div class="status">Loading…</div></div>
+<div class="refresh-btn" onclick="load()">Refresh</div>
+
+<script>
+firebase.initializeApp({
+  apiKey:            "AIzaSyDNTc973eY-dt1UQSJqs0kCTLAZF14xuG4",
+  authDomain:        "sequence-game-5a793.firebaseapp.com",
+  databaseURL:       "https://sequence-game-5a793-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "sequence-game-5a793",
+  storageBucket:     "sequence-game-5a793.firebasestorage.app",
+  messagingSenderId: "957529800610",
+  appId:             "1:957529800610:web:6983060a3f83b15367bcfb"
+});
+const db = firebase.database();
+
+let allReports = [];
+let currentFilter = 'pending';
+
+function setFilter(f) {
+  currentFilter = f;
+  document.getElementById('tab-pending').classList.toggle('active', f === 'pending');
+  document.getElementById('tab-all').classList.toggle('active', f === 'all');
+  render();
+}
+
+function timeAgo(ts) {
+  const diffMin = Math.floor((Date.now() - ts) / 60000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return diffMin + 'm ago';
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return diffHr + 'h ago';
+  const diffDay = Math.floor(diffHr / 24);
+  return diffDay + 'd ago';
+}
+
+async function load() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="status">Loading…</div>';
+  try {
+    const snap = await db.ref('sq_reports').once('value');
+    const data = snap.val() || {};
+    allReports = Object.entries(data)
+      .map(([id, r]) => ({ id, ...r }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    render();
+  } catch (e) {
+    content.innerHTML = '<div class="status">Could not load: ' + e.message + '</div>';
+  }
+}
+
+function render() {
+  const content = document.getElementById('content');
+  if (!allReports.length) {
+    content.innerHTML = '<div class="status">No reports yet.</div>';
+    return;
+  }
+
+  // Repeat-offender counts computed across ALL reports regardless of the
+  // current filter, so a name flagged multiple times stays visible as a
+  // strong signal even while only viewing "Pending".
+  const counts = {};
+  allReports.forEach(r => { counts[r.reportedUsername] = (counts[r.reportedUsername] || 0) + 1; });
+
+  const visible = currentFilter === 'pending' ? allReports.filter(r => r.status !== 'resolved') : allReports;
+  if (!visible.length) {
+    content.innerHTML = '<div class="status">Nothing pending — all caught up.</div>';
+    return;
+  }
+
+  content.innerHTML = visible.map(r => {
+    const isResolved = r.status === 'resolved';
+    const repeatCount = counts[r.reportedUsername];
+    return `
+      <div class="report-card ${isResolved ? 'resolved' : 'pending'}">
+        <div class="report-time">${new Date(r.createdAt).toLocaleString()} · ${timeAgo(r.createdAt)}</div>
+        <div class="report-row"><span class="k">Reported</span><span class="v">${r.reportedUsername}${repeatCount > 1 ? `<span class="repeat-badge">${repeatCount}× reported</span>` : ''}</span></div>
+        <div class="report-row"><span class="k">Reported by</span><span class="v">${r.reportedByUsername}</span></div>
+        <div class="report-row"><span class="k">Context</span><span class="v">${r.context === 'game' ? 'During a game' : r.context === 'friends' ? 'Friends list' : r.context}</span></div>
+        <div class="report-reason">${r.reason}</div>
+        <div class="report-actions">
+          ${isResolved
+            ? '<div class="resolved-label">✓ Resolved</div>'
+            : `<button class="resolve-btn" onclick="markResolved('${r.id}')">Mark Resolved</button>`}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function markResolved(id) {
+  try {
+    await db.ref('sq_reports/' + id + '/status').set('resolved');
+    await load();
+  } catch (e) {
+    alert('Could not update: ' + e.message);
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>
