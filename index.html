@@ -315,6 +315,17 @@
   .friends-icon-btn.challenge svg { stroke: white; }
   .friends-icon-btn.add-suggested { background: linear-gradient(180deg, #4a5fe8, #1a2080); box-shadow: 0 3px 8px -2px rgba(26,32,128,0.45), inset 0 1px 0 rgba(255,255,255,0.25); }
   .friends-icon-btn.add-suggested svg { stroke: white; }
+  .friends-icon-btn.more-options { background: rgba(0,0,0,0.045); border: 1px solid rgba(0,0,0,0.08); width: 28px; height: 28px; }
+  .friends-icon-btn.more-options svg { color: #5c6089; width: 15px; height: 15px; }
+
+  .report-reason-btn {
+    display: block; width: 100%; text-align: left; padding: 12px 14px; margin-bottom: 8px;
+    background: white; border: 1.5px solid #D0D5E8; border-radius: 10px;
+    font-family: 'EB Garamond', serif; font-size: 0.92rem; color: #1a1a3a; cursor: pointer;
+  }
+  .report-reason-btn:active { background: #f0f1f8; }
+  .blocked-user-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #edeef7; }
+  .blocked-user-row:last-child { border-bottom: none; }
 
   .friends-add-row { display: flex; gap: 8px; }
   .friends-input {
@@ -3601,6 +3612,9 @@
         <div class="friends-card">
           <div id="friends-list"></div>
         </div>
+        <div style="text-align:center;margin-top:8px">
+          <button class="friends-tab" style="background:none;font-size:0.72rem;color:#8890c0" onclick="openBlockedUsersView()">Blocked Users</button>
+        </div>
       </div>
 
       <div id="groups-tab-panel" style="display:none">
@@ -3670,6 +3684,39 @@
       <button class="btn btn-secondary" style="flex:1;width:auto" onclick="resolveConfirmModal(false)">Cancel</button>
       <button class="btn btn-danger" style="flex:1;width:auto" id="confirm-modal-confirm-btn" onclick="resolveConfirmModal(true)">Confirm</button>
     </div>
+  </div>
+</div>
+
+<!-- Report/Block entry point - reusable from anywhere a username is shown
+     (Friends list now, in-game player list next), not hard-coded to one
+     screen. Report and Block stay two clearly separate actions here, on
+     purpose - someone might want one without the other. -->
+<div id="action-menu-modal" class="htp-backdrop" style="display:none;z-index:1300">
+  <div class="htp-modal" style="max-width:300px;padding:24px 22px;text-align:center">
+    <div id="action-menu-username" style="font-family:'Cinzel',serif;font-size:0.95rem;font-weight:700;color:#1a1a3a;margin-bottom:16px"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-bottom:8px" onclick="openReportReasonView()">Report</button>
+    <button class="btn btn-danger" style="width:100%;margin-bottom:8px" onclick="handleBlockFromMenu()">Block</button>
+    <button class="friends-tab" style="background:none" onclick="closeActionMenu()">Cancel</button>
+  </div>
+</div>
+
+<!-- Preset reasons only, not free text - same reasoning as the app's
+     existing chat presets: simpler, and a report can't itself become a
+     vector for abusive text. Tapping a reason submits immediately -
+     no separate confirm step, to keep this to one tap. -->
+<div id="report-reason-modal" class="htp-backdrop" style="display:none;z-index:1300">
+  <div class="htp-modal" style="max-width:320px;padding:24px 22px">
+    <div style="font-family:'Cinzel',serif;font-size:0.95rem;font-weight:700;color:#1a1a3a;margin-bottom:14px;text-align:center">Report <span id="report-reason-username"></span></div>
+    <div id="report-reason-options"></div>
+    <button class="friends-tab" style="background:none;margin-top:6px" onclick="closeReportReasonView()">Cancel</button>
+  </div>
+</div>
+
+<div id="blocked-users-view" class="htp-backdrop" style="display:none;z-index:1300">
+  <div class="htp-modal" style="max-width:320px;padding:24px 22px">
+    <div style="font-family:'Cinzel',serif;font-size:0.95rem;font-weight:700;color:#1a1a3a;margin-bottom:14px;text-align:center">Blocked Users</div>
+    <div id="blocked-users-list"></div>
+    <button class="friends-tab" style="background:none;margin-top:10px" onclick="closeBlockedUsersView()">Back</button>
   </div>
 </div>
 
@@ -6818,6 +6865,98 @@ function resolveConfirmModal(result) {
   }
 }
 
+// ── Report/Block action menu ────────────────────────────────────────
+//
+// Reusable from anywhere a username is actionable - Friends list now, the
+// in-game player list next. actionMenuTarget/Context are shared module
+// state rather than passed through every subsequent function call, since
+// the menu -> report reasons flow is a genuine multi-step sequence.
+let actionMenuTarget = null;
+let actionMenuContext = null;
+
+const REPORT_REASONS = [
+  'Offensive username or profile',
+  'Harassment or abusive behavior',
+  'Cheating or unsporting play',
+  'Spam',
+  'Other',
+];
+
+function openActionMenu(username, context) {
+  actionMenuTarget = username;
+  actionMenuContext = context;
+  document.getElementById('action-menu-username').textContent = username;
+  document.getElementById('action-menu-modal').style.display = 'flex';
+}
+
+function closeActionMenu() {
+  document.getElementById('action-menu-modal').style.display = 'none';
+}
+
+async function handleBlockFromMenu() {
+  const target = actionMenuTarget;
+  const context = actionMenuContext;
+  closeActionMenu();
+  const confirmed = await confirmAction(`Block ${target}? They won't be able to send you requests, challenges, or add you to groups.`, 'Block');
+  if (!confirmed) return;
+  const r = await blockUser(target);
+  if (!r.ok) { toast(r.reason); return; }
+  toast(`${target} has been blocked.`);
+  if (context === 'friends') await renderFriendsList();
+}
+
+function openReportReasonView() {
+  closeActionMenu();
+  document.getElementById('report-reason-username').textContent = actionMenuTarget;
+  document.getElementById('report-reason-options').innerHTML = REPORT_REASONS.map(reason => `
+    <button class="report-reason-btn" onclick="handleSubmitReport('${escapeHtml(reason)}')">${escapeHtml(reason)}</button>
+  `).join('');
+  document.getElementById('report-reason-modal').style.display = 'flex';
+}
+
+function closeReportReasonView() {
+  document.getElementById('report-reason-modal').style.display = 'none';
+}
+
+async function handleSubmitReport(reason) {
+  const target = actionMenuTarget;
+  const context = actionMenuContext;
+  closeReportReasonView();
+  const r = await reportUser(target, reason, context);
+  if (!r.ok) { toast(r.reason); return; }
+  toast('Report submitted. Thank you.');
+}
+
+// ── Blocked Users management ────────────────────────────────────────
+async function openBlockedUsersView() {
+  document.getElementById('blocked-users-view').style.display = 'flex';
+  await renderBlockedUsersList();
+}
+
+function closeBlockedUsersView() {
+  document.getElementById('blocked-users-view').style.display = 'none';
+}
+
+async function renderBlockedUsersList() {
+  const blocked = await getMyBlockedUsers();
+  const listEl = document.getElementById('blocked-users-list');
+  if (!blocked.length) { listEl.innerHTML = '<div class="friends-empty-note">You haven\'t blocked anyone.</div>'; return; }
+  listEl.innerHTML = blocked.map(u => `
+    <div class="blocked-user-row">
+      <div class="friends-avatar ${avatarColorClass(u)}">${escapeHtml(u.charAt(0).toUpperCase())}</div>
+      <div class="friend-row-name">${escapeHtml(u)}</div>
+      <button class="btn btn-secondary" style="width:auto;padding:7px 14px;font-size:0.8rem" onclick="handleUnblockUser('${escapeHtml(u)}')">Unblock</button>
+    </div>`).join('');
+}
+
+async function handleUnblockUser(username) {
+  const r = await unblockUser(username);
+  if (!r.ok) { toast(r.reason); return; }
+  toast(`${username} has been unblocked.`);
+  await renderBlockedUsersList();
+  await renderFriendsList(); // the challenge button may now correctly reappear if they're still a friend
+}
+
 // Active presence subscriptions for whatever friends list is currently
 // rendered - cleaned up before every re-render and on modal close, so
 // re-opening the modal (or re-rendering after an action) never leaks
@@ -6862,6 +7001,7 @@ const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg>';
 const ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8V4z" fill="white" stroke="none"/></svg>';
 const ICON_PLUS = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
+const ICON_MORE = '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.8" fill="currentColor" stroke="none"/></svg>';
 
 async function renderFriendRequests() {
   const usernames = await getMyPendingFriendRequests();
@@ -6970,7 +7110,8 @@ async function handleSendFriendRequest() {
 
 async function renderFriendsList() {
   clearFriendsListPresenceSubs();
-  const friends = await getMyFriends();
+  const [friends, blocked] = await Promise.all([getMyFriends(), getMyBlockedUsers()]);
+  const blockedSet = new Set(blocked);
   const listEl = document.getElementById('friends-list');
   if (!friends.length) { listEl.innerHTML = '<div class="friends-empty-note">No friends yet — add one above.</div>'; return; }
 
@@ -6981,14 +7122,17 @@ async function renderFriendsList() {
         <span class="presence-dot offline" id="presence-dot-${escapeHtml(u)}"></span>
       </div>
       <div class="friend-row-name">${escapeHtml(u)}</div>
-      <button class="friends-icon-btn challenge" id="challenge-btn-${escapeHtml(u)}" style="display:none" onclick="handleChallengeFriend('${escapeHtml(u)}')" title="Challenge to a game">${ICON_PLAY}</button>
+      ${blockedSet.has(u) ? '' : `<button class="friends-icon-btn challenge" id="challenge-btn-${escapeHtml(u)}" style="display:none" onclick="handleChallengeFriend('${escapeHtml(u)}')" title="Challenge to a game">${ICON_PLAY}</button>`}
+      <button class="friends-icon-btn more-options" onclick="openActionMenu('${escapeHtml(u)}', 'friends')" title="More options">${ICON_MORE}</button>
       <button class="friends-icon-btn remove" onclick="handleRemoveFriend('${escapeHtml(u)}')" title="Remove friend">${ICON_X}</button>
     </div>`).join('');
 
   // Live presence per friend - each row's dot and challenge button update
   // in real time for as long as this list stays rendered, not just a
   // one-time snapshot of who happened to be online when the modal opened.
-  friends.forEach(u => {
+  // Skipped entirely for a blocked friend, since there's no challenge
+  // button there to update in the first place.
+  friends.filter(u => !blockedSet.has(u)).forEach(u => {
     const unsub = subscribeToPresence(u, (online) => {
       const dot = document.getElementById('presence-dot-' + u);
       const btn = document.getElementById('challenge-btn-' + u);
@@ -7474,16 +7618,19 @@ async function getSuggestedFriends(limit) {
     // EITHER direction - if I already sent them one, re-suggesting is
     // redundant (sendFriendRequest itself would just reject a duplicate
     // anyway); if they already sent ME one, they belong in Requests, not
-    // duplicated here too. Suggestion lists are short by nature, so this
-    // fan-out is fine at this scale, same reasoning as Groups' own
-    // fan-out reads.
+    // duplicated here too. Also excludes anyone blocked in either
+    // direction - suggesting someone you've blocked (or who's blocked
+    // you) defeats the entire point of blocking them. Suggestion lists
+    // are short by nature, so this fan-out is fine at this scale, same
+    // reasoning as Groups' own fan-out reads.
     const checked = await Promise.all(candidates.map(async u => {
-      const [sentByMe, sentToMe] = await Promise.all([
+      const [sentByMe, sentToMe, blocked] = await Promise.all([
         withTimeout(db.ref('sq_friend_requests/' + u + '/' + me).once('value'), 8000, 'Request check').catch(() => null),
         withTimeout(db.ref('sq_friend_requests/' + me + '/' + u).once('value'), 8000, 'Request check').catch(() => null),
+        isBlockedEitherWay(me, u),
       ]);
       const hasPending = (sentByMe && sentByMe.exists()) || (sentToMe && sentToMe.exists());
-      return hasPending ? null : { username: u, ...opponents[u] };
+      return (hasPending || blocked) ? null : { username: u, ...opponents[u] };
     }));
 
     return checked
@@ -7584,6 +7731,102 @@ function relativeTimeAgo(timestamp) {
   return new Date(timestamp).toLocaleDateString();
 }
 
+// ── Block & Report ───────────────────────────────────────────────────
+//
+// Built specifically to satisfy Apple App Store Guideline 1.2 (User-
+// Generated Content), which requires apps with social/UGC features to
+// provide a mechanism to report offensive content/behavior and the
+// ability to block abusive users. This app crossed into needing this the
+// moment Friends/Groups/chat existed - it wasn't a consideration before.
+//
+// sq_blocked/{username}/{blockedUsername}: { createdAt } - one-directional
+// record (I decide to block them), but checked in BOTH directions
+// everywhere it matters, since the point is neither person should be able
+// to reach the other once either side has blocked.
+//
+// Deliberately does NOT auto-remove an existing friendship - block and
+// unfriend stay two separate actions (confirmed design decision), so
+// someone can block without also needing to separately manage their
+// friends list, or vice versa.
+
+async function blockUser(usernameToBlockRaw) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const target = usernameToBlockRaw.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (target === me) return { ok: false, reason: "You can't block yourself." };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    // Blocking also clears any pending friend request in EITHER direction -
+    // a blocked relationship shouldn't leave a lingering, now-meaningless
+    // request sitting in either inbox.
+    await withTimeout(db.ref().update({
+      ['sq_blocked/' + me + '/' + target]: { createdAt: Date.now() },
+      ['sq_friend_requests/' + me + '/' + target]: null,
+      ['sq_friend_requests/' + target + '/' + me]: null,
+    }), 8000, 'Block user');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't block — try again." }; }
+}
+
+async function unblockUser(usernameToUnblockRaw) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const target = usernameToUnblockRaw.trim().toLowerCase();
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    await withTimeout(db.ref('sq_blocked/' + currentAccount.username + '/' + target).remove(), 8000, 'Unblock user');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't unblock — try again." }; }
+}
+
+// Checked before every meaningful point of contact (friend requests,
+// challenges, group invites/additions) - true if EITHER person has
+// blocked the other, not just a one-way check, since the safety
+// guarantee needs to hold regardless of who initiated the block.
+async function isBlockedEitherWay(usernameA, usernameB) {
+  if (!fbInit() || !db) return false; // fail open on connectivity issues - a block check failing shouldn't be what silently breaks core functionality
+  try {
+    const [aBlockedB, bBlockedA] = await Promise.all([
+      withTimeout(db.ref('sq_blocked/' + usernameA + '/' + usernameB).once('value'), 8000, 'Block check'),
+      withTimeout(db.ref('sq_blocked/' + usernameB + '/' + usernameA).once('value'), 8000, 'Block check'),
+    ]);
+    return aBlockedB.exists() || bBlockedA.exists();
+  } catch(e) { return false; }
+}
+
+async function getMyBlockedUsers() {
+  if (!currentAccount || !fbInit() || !db) return [];
+  try {
+    const snap = await withTimeout(db.ref('sq_blocked/' + currentAccount.username).once('value'), 8000, 'Blocked users');
+    return Object.keys(snap.val() || {});
+  } catch(e) { return []; }
+}
+
+// Preset reasons, not free text - consistent with the app's existing chat
+// preset pattern, and avoids a report itself becoming a vector for
+// abusive text. context distinguishes where the report was filed from
+// (friends list vs. an active game), useful for review even without a
+// full moderation UI - Zeeshan can act on these directly via the Firebase
+// console, which is the actual "timely response" mechanism for now.
+async function reportUser(reportedUsernameRaw, reason, context) {
+  if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  const reported = reportedUsernameRaw.trim().toLowerCase();
+  const me = currentAccount.username;
+  if (reported === me) return { ok: false, reason: "You can't report yourself." };
+  if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
+  try {
+    const reportId = 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    await withTimeout(db.ref('sq_reports/' + reportId).set({
+      reportedUsername: reported,
+      reportedByUsername: me,
+      reason,
+      context: context || 'unknown',
+      createdAt: Date.now(),
+      status: 'pending',
+    }), 8000, 'Report user');
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't submit report — try again." }; }
+}
+
 // ── Friends ──────────────────────────────────────────────────────────
 //
 // Schema, deliberately NOT the sorted-pair-key pattern h2hKey uses above —
@@ -7616,6 +7859,11 @@ async function sendFriendRequest(targetUsernameRaw) {
   try {
     const targetSnap = await withTimeout(db.ref('sq_accounts/' + target).once('value'), 8000, 'Friend lookup');
     if (!targetSnap.exists()) return { ok: false, reason: 'No account found with that username.' };
+
+    // Generic error, not "you're blocked" - deliberately doesn't confirm a
+    // block to the person who was blocked, since that confirmation itself
+    // can be used to escalate harassment rather than just quietly failing.
+    if (await isBlockedEitherWay(me, target)) return { ok: false, reason: "Couldn't send request — try again." };
 
     const alreadyFriendsSnap = await withTimeout(db.ref('sq_friends/' + me + '/' + target).once('value'), 8000, 'Friend check');
     if (alreadyFriendsSnap.exists()) return { ok: false, reason: 'Already friends.' };
@@ -7839,6 +8087,8 @@ async function addGroupMember(groupId, usernameToAddRaw) {
     const friendsSnap = await withTimeout(db.ref('sq_friends/' + me + '/' + usernameToAdd).once('value'), 8000, 'Friends check');
     if (!friendsSnap.exists()) return { ok: false, reason: 'You can only add friends to a group.' };
 
+    if (await isBlockedEitherWay(me, usernameToAdd)) return { ok: false, reason: "Couldn't add member — try again." };
+
     await withTimeout(db.ref().update({
       ['sq_groups/' + groupId + '/members/' + usernameToAdd]: true,
       ['sq_user_groups/' + usernameToAdd + '/' + groupId]: true,
@@ -7958,6 +8208,11 @@ async function sendGameInvite(targetUsernameRaw) {
     const friendSnap = await withTimeout(db.ref('sq_friends/' + me + '/' + target).once('value'), 8000, 'Friend check');
     if (!friendSnap.exists()) return { ok: false, reason: 'You can only challenge friends.' };
 
+    // Someone can still technically be a "friend" here (block and unfriend
+    // are deliberately separate actions), so this needs its own check
+    // rather than assuming being friends means not blocked.
+    if (await isBlockedEitherWay(me, target)) return { ok: false, reason: "Couldn't send challenge — try again." };
+
     const presenceSnap = await withTimeout(db.ref('sq_presence/' + target).once('value'), 8000, 'Presence check');
     if (presenceSnap.val() !== true) return { ok: false, reason: "They're not online right now." };
 
@@ -7992,7 +8247,14 @@ async function sendGroupGameInvite(groupId) {
     const groupSnap = await withTimeout(db.ref('sq_groups/' + groupId).once('value'), 8000, 'Group lookup');
     if (!groupSnap.exists()) return { ok: false, reason: 'Group not found.' };
     const group = groupSnap.val();
-    const otherMembers = Object.keys(group.members || {}).filter(u => u !== me);
+    const allOtherMembers = Object.keys(group.members || {}).filter(u => u !== me);
+
+    // A blocked relationship silently skips that one person rather than
+    // blocking the whole group-start - the group itself may have formed
+    // before either side blocked the other (block/unfriend/leave are all
+    // separate actions), so this shouldn't stop everyone else from playing.
+    const blockChecks = await Promise.all(allOtherMembers.map(u => isBlockedEitherWay(me, u)));
+    const otherMembers = allOtherMembers.filter((u, i) => !blockChecks[i]);
 
     const teamCount = Math.min(Math.max(otherMembers.length + 1, 2), 3); // this app supports 2 or 3 teams
     numTeams = teamCount;
