@@ -5056,6 +5056,32 @@ let chatDetectionLog = [];
 let chatFireLog = [];
 let aiSeriesPressureCommented = false; // series-pressure reaction fires at most once per game
 
+// Single source of truth for "what does a fresh game's AI chatter state
+// look like" - replaces two separate, duplicated inline reset blocks (in
+// startVsAI() and requestRematch()), both of which had drifted to be
+// missing chatBubbleTimers specifically. That's not just a naming gap:
+// without explicitly clearTimeout()-ing any still-pending handle (not
+// just reassigning the tracking object to {}), a bubble timer mid-flight
+// when a new game starts would still fire its original callback in the
+// NEW game's context - and that callback checks pendingGuaranteedChats
+// and fires the next queued message immediately, completely bypassing
+// the new game's own cooldown and sequencing the moment it starts.
+function resetAIChatterState() {
+  Object.values(chatBubbleTimers).forEach(timerId => clearTimeout(timerId));
+  chatBubbleTimers = {};
+  lastAIChatTime = 0;
+  jacksPlayedByTeam = [0, 0, 0];
+  jackMilestoneFired = [new Set(), new Set(), new Set()];
+  aiLastMoveType = {};
+  aiGoodHandCommented = false;
+  aiGoodHandBluffRolled = false;
+  aiSeriesPressureCommented = false;
+  usedLinesByTeamSituation = {};
+  pendingGuaranteedChats = [];
+  chatDetectionLog = [];
+  chatFireLog = [];
+}
+
 function startVsAI() {
   unlockSpeaker();
   myName = document.getElementById('player-name').value.trim();
@@ -5072,18 +5098,7 @@ function startVsAI() {
   seriesGameNum = 1;
   seriesWinnerTeam = null;
 
-  // Fresh AI chatter state for this game
-  lastAIChatTime = 0;
-  jacksPlayedByTeam = [0, 0, 0];
-  jackMilestoneFired = [new Set(), new Set(), new Set()];
-  aiLastMoveType = {};
-  aiGoodHandCommented = false;
-  aiGoodHandBluffRolled = false;
-  aiSeriesPressureCommented = false;
-  usedLinesByTeamSituation = {};
-  pendingGuaranteedChats = [];
-  chatDetectionLog = [];
-  chatFireLog = [];
+  resetAIChatterState();
 
   const tier = AI_TIER[aiDifficulty] || AI_TIER['medium'];
   if (numTeams === 3) {
@@ -6421,20 +6436,11 @@ function requestRematch() {
     document.getElementById('win-modal').classList.remove('open');
     GS = initGameState();
     fbGameStarted = true; // no-op in AI mode but keeps state consistent
-    // Fresh AI chatter state — this path bypasses startVsAI(), so without
-    // this a rematch would carry over the previous game's jack counts,
-    // milestone flags, and cooldown timing.
-    lastAIChatTime = 0;
-    jacksPlayedByTeam = [0, 0, 0];
-    jackMilestoneFired = [new Set(), new Set(), new Set()];
-    aiLastMoveType = {};
-    aiGoodHandCommented = false;
-    aiGoodHandBluffRolled = false;
-    aiSeriesPressureCommented = false;
-    usedLinesByTeamSituation = {};
-    pendingGuaranteedChats = [];
-    chatDetectionLog = [];
-    chatFireLog = [];
+    // This path bypasses startVsAI() entirely, so without its own call
+    // here a rematch would carry over the previous game's jack counts,
+    // milestone flags, cooldown timing, and (until fixed) any still-
+    // pending chat bubble timer from the game that just ended.
+    resetAIChatterState();
     showGameScreen();
     logGameStart();
     return;
