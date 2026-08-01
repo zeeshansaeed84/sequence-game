@@ -6071,6 +6071,11 @@ async function createGameRoom() {
     onRematchUpdate(snap.val());
   });
 
+  // See "Host migration" section - needed here so that if this host later
+  // disconnects and reconnects to find someone else already took over,
+  // they correctly step down instead of continuing to act as host.
+  watchHostId();
+
   showWaitingLobby();
 }
 
@@ -6190,6 +6195,10 @@ async function joinGameRoom(code) {
     else if (d.isBanner) actionBanner(d.msg, d.icon, d.kind, d.dur);
     else toast(d.msg);
   });
+
+  // See "Host migration" section above.
+  watchHostId();
+  startHostDisconnectWatchdog();
 
   showWaitingLobby();
   return { ok: true };
@@ -8754,6 +8763,121 @@ function scheduleTurnTimer() {
 
 function stopTurnTimer() {
   if (hostTurnTimerHandle) { clearTimeout(hostTurnTimerHandle); hostTurnTimerHandle = null; }
+}
+
+// ── Host migration ────────────────────────────────────────────────
+//
+// Narrow, deliberately scoped fix for one specific gap: scheduleTurnTimer()
+// and everything downstream of it (skipTurn, forfeits, broadcasting state)
+// only ever runs on the HOST's own client (see scheduleTurnTimer's
+// `if (!isHost) return` below). A non-host disconnecting already works
+// correctly today - the host's still-running timer eventually skips them.
+// But if the HOST disconnects, nobody has authority to advance the game
+// at all, and it stalls for everyone else.
+//
+// This does NOT reintroduce the pause/wait/resolve system that was
+// removed after repeated bugs - there's no pausing, no waiting state,
+// just "who currently has authority to run the timer," using presence
+// data that already exists (registerPresence()'s onDisconnect hook).
+let hostDisconnectGraceTimer = null;
+let HOST_DISCONNECT_GRACE_MS = 8000; // avoids migrating over a brief blip/tab-background cycle
+
+// Runs for EVERY client, host or not - reacts to hostId itself changing,
+// which covers BOTH directions of a migration in one place: a non-host
+// discovering their own transaction just succeeded (see
+// attemptHostMigration below), AND the original host reconnecting to find
+// someone else already took over while they were gone - needing to
+// correctly step back down rather than keep believing, purely locally,
+// that they're still in charge (disconnecting doesn't change a client's
+// own JS state; only this listener does).
+function watchHostId() {
+  if (!roomRef) return;
+  fbOn(roomRef.child('hostId'), 'value', snap => {
+    const currentHostId = snap.val();
+    if (!currentHostId) return;
+    if (currentHostId === myId && !isHost) {
+      becomeHost();
+    } else if (currentHostId !== myId && isHost) {
+      stepDownAsHost();
+    }
+  });
+}
+
+function becomeHost() {
+  isHost = true;
+  stopHostDisconnectWatchdog(); // no longer need to watch for this - I'm the one in charge now
+  scheduleTurnTimer(); // resume enforcement with a fresh deadline for whoever's turn it currently is, not an attempt to preserve exactly how much time was left
+  // Start processing moves from other players - this was previously only
+  // ever set up by the ORIGINAL host in createGameRoom(). Date.now() as
+  // the cutoff, same reasoning as that original listener: without it,
+  // child_added would immediately fire for every move ever pushed to this
+  // room since the game began (already reflected in the GS this client
+  // has been syncing the whole time as a regular player), not just new
+  // ones from this point forward.
+  const migratedHostStartTime = Date.now();
+  fbOn(roomRef.child('moves'), 'child_added', snap => {
+    const d = snap.val();
+    if (!d || d.timestamp < migratedHostStartTime) return;
+    applyMove(d.move, d.fromId);
+  });
+}
+
+function stepDownAsHost() {
+  isHost = false;
+  stopTurnTimer();
+  startHostDisconnectWatchdog(); // resume watching, in case the new host also disconnects later
+}
+
+function startHostDisconnectWatchdog() {
+  if (!roomRef || isHost) return;
+  stopHostDisconnectWatchdog(); // avoid double-registering if called more than once
+
+  const checkHostPresence = () => {
+    Promise.all([
+      roomRef.child('hostId').once('value'),
+      roomRef.child('presence').once('value'),
+    ]).then(([hostIdSnap, presenceSnap]) => {
+      const currentHostId = hostIdSnap.val();
+      if (!currentHostId || currentHostId === myId) {
+        if (hostDisconnectGraceTimer) { clearTimeout(hostDisconnectGraceTimer); hostDisconnectGraceTimer = null; }
+        return;
+      }
+      const presenceData = presenceSnap.val() || {};
+      const hostPresent = presenceData[currentHostId] === true;
+      if (hostPresent) {
+        if (hostDisconnectGraceTimer) { clearTimeout(hostDisconnectGraceTimer); hostDisconnectGraceTimer = null; }
+      } else if (!hostDisconnectGraceTimer) {
+        hostDisconnectGraceTimer = setTimeout(() => {
+          hostDisconnectGraceTimer = null;
+          attemptHostMigration(currentHostId);
+        }, HOST_DISCONNECT_GRACE_MS);
+      }
+    }).catch(() => {});
+  };
+
+  fbOn(roomRef.child('presence'), 'value', checkHostPresence);
+}
+
+function stopHostDisconnectWatchdog() {
+  if (hostDisconnectGraceTimer) { clearTimeout(hostDisconnectGraceTimer); hostDisconnectGraceTimer = null; }
+}
+
+// Race-safe by construction: if two non-host clients both notice the same
+// disconnected host and attempt this simultaneously, Firebase's
+// transaction guarantees only one of them actually commits - the second
+// sees hostId has already changed away from disconnectedHostId and
+// aborts. Deliberately doesn't call becomeHost() directly on success;
+// watchHostId()'s listener reacts to the resulting write instead, so
+// there's exactly one code path that ever promotes a client to host,
+// not two that could theoretically race with each other.
+async function attemptHostMigration(disconnectedHostId) {
+  if (isHost || !roomRef) return;
+  try {
+    await roomRef.child('hostId').transaction(currentHostId => {
+      if (currentHostId === disconnectedHostId) return myId;
+      return; // already changed - abort, someone else got there first
+    });
+  } catch(e) { /* non-fatal - the watchdog will simply try again on the next presence tick */ }
 }
 
 function skipTurn() {
