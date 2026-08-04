@@ -3211,6 +3211,7 @@
         </button>
       </div>
       <div class="status-msg" id="waiting-status">Waiting for players…</div>
+      <div class="status-msg" id="waiting-format-summary" style="font-size:0.85em;opacity:0.8"></div>
       <div class="players-list" id="waiting-players"></div>
       <div id="team-assign-area"></div>
       <div class="error-msg" id="waiting-error"></div>
@@ -4525,6 +4526,24 @@ function lighten(hex) {
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
 const TEAM_NAMES  = ['Blue','Green','Purple'];
+
+// Derives {numTeams, seqToWin} from how many people have ACTUALLY joined a
+// group-started game, recalculated on every join rather than locked in
+// once from the group's total membership. That's the actual fix for the
+// old behavior: a group of 6 where only 4 people accept used to leave the
+// room permanently unbalanced (3 teams expected, players split 2-1-1).
+// Prefers 3 teams when the total divides evenly by 3, else 2 teams when it
+// divides evenly by 2, else stays at whatever team count was already
+// active (an odd total like 5 has no clean split either way, so there's
+// nothing to switch TO - the room just sits unbalanced until the count
+// changes again, exactly like the manual lobby already requires balanced
+// teams before Start is enabled).
+function computeGroupTeamFormat(totalPlayers, fallbackNumTeams) {
+  if (totalPlayers % 3 === 0) return { numTeams: 3, seqToWin: 1 };
+  if (totalPlayers % 2 === 0) return { numTeams: 2, seqToWin: 2 };
+  const teams = fallbackNumTeams || 2;
+  return { numTeams: teams, seqToWin: teams === 3 ? 1 : 2 };
+}
 
 // Returns the human-facing name for a team: the actual player name(s) on
 // that team joined with "&" (e.g. "Zeeshan & Ali"), not the generic color
@@ -6065,6 +6084,21 @@ async function createGameRoom() {
     if (!fbGameStarted) renderWaitingPlayers();
   });
 
+  // React to the format itself changing - group games only (see
+  // joinGameRoom's group-game branch), so the host sees an updated "2v2,
+  // first to 2" the moment someone else's join recalculates it, not just
+  // their row appearing in the player list.
+  fbOn(roomRef.child('numTeams'), 'value', snap => {
+    if (snap.val() == null) return;
+    numTeams = snap.val();
+    if (!fbGameStarted) renderWaitingPlayers();
+  });
+  fbOn(roomRef.child('seqToWin'), 'value', snap => {
+    if (snap.val() == null) return;
+    seqToWin = snap.val();
+    if (!fbGameStarted) renderWaitingPlayers();
+  });
+
   // Watch toasts — previously host-only broadcast these (jack usage, turn
   // skip), never needed to RECEIVE them since it shows its own locally at
   // the same time it sends. Chat messages break that assumption: a guest
@@ -6154,6 +6188,46 @@ async function joinGameRoom(code) {
   if (returningPlayer) {
     myId = returningPlayer.id; // reuse the original id so game state reconnects correctly
     updated = existing; // player list itself doesn't change on a reconnect
+  } else if (data.groupId) {
+    // Group game - the format depends on how many people actually join,
+    // recalculated fresh on every join rather than fixed once at invite
+    // time (see computeGroupTeamFormat). Team count can genuinely change
+    // as people arrive (e.g. 3 -> 2), so this reassigns EVERYONE's team
+    // via round robin under the new count, not just the newest joiner -
+    // an existing player's old team number could reference a team that no
+    // longer exists once the count shifts. Runs as a transaction since
+    // multiple people could join within the same moment; Firebase retries
+    // the callback automatically against the latest committed value
+    // rather than risking two joins racing and corrupting the list.
+    myId = generatePlayerId();
+    const myUsername = currentAccount ? currentAccount.username : null;
+    let committedFormat = null;
+    let txResult;
+    try {
+      txResult = await roomRef.child('players').transaction(currentPlayersJson => {
+        const currentPlayers = currentPlayersJson ? JSON.parse(currentPlayersJson) : [];
+        // Defensive against this callback re-running on retry - always
+        // work from a clean base so a contested transaction can't end up
+        // adding this same joiner twice.
+        const withoutMe = currentPlayers.filter(p => p.id !== myId);
+        const newTotal = withoutMe.length + 1;
+        committedFormat = computeGroupTeamFormat(newTotal, numTeams);
+        const allPlayers = [...withoutMe, {id: myId, name: myName, team: 0, username: myUsername}];
+        return JSON.stringify(allPlayers.map((p, i) => ({...p, team: i % committedFormat.numTeams})));
+      });
+    } catch(e) {
+      return { ok: false, reason: 'Could not join: ' + e.message };
+    }
+    if (!txResult.committed) return { ok: false, reason: 'Could not join: try again.' };
+    updated = JSON.parse(txResult.snapshot.val());
+    numTeams = committedFormat.numTeams;
+    seqToWin = committedFormat.seqToWin;
+    // Keep the room's own format fields, and the group's activeGames
+    // listing, in sync with what the transaction just committed - other
+    // already-waiting clients pick this up via the numTeams/seqToWin
+    // listeners set up alongside the players listener below.
+    await roomRef.update({ numTeams: committedFormat.numTeams, seqToWin: committedFormat.seqToWin }).catch(() => {});
+    db.ref('sq_groups/' + data.groupId + '/activeGames/' + roomCode + '/teamCount').set(committedFormat.numTeams).catch(() => {});
   } else {
     myId = generatePlayerId();
     updated = [...existing, {id: myId, name: myName, team: existing.length % numTeams, username: currentAccount ? currentAccount.username : null}];
@@ -6172,6 +6246,19 @@ async function joinGameRoom(code) {
     if (!snap.val()) return;
     players = JSON.parse(snap.val());
     myIndex = players.findIndex(p => p.id === myId);
+    if (!fbGameStarted) renderWaitingPlayers();
+  });
+
+  // See createGameRoom's matching listeners - same reasoning, this client
+  // just arrived via a different path.
+  fbOn(roomRef.child('numTeams'), 'value', snap => {
+    if (snap.val() == null) return;
+    numTeams = snap.val();
+    if (!fbGameStarted) renderWaitingPlayers();
+  });
+  fbOn(roomRef.child('seqToWin'), 'value', snap => {
+    if (snap.val() == null) return;
+    seqToWin = snap.val();
     if (!fbGameStarted) renderWaitingPlayers();
   });
 
@@ -6265,6 +6352,20 @@ async function spectateGame(codeParam) {
     if (!fbGameStarted) renderWaitingPlayers();
   });
 
+  // See createGameRoom's matching listeners - keeps a spectator's view of
+  // the format accurate too, if they're watching the lobby before the
+  // game actually starts.
+  fbOn(roomRef.child('numTeams'), 'value', snap => {
+    if (snap.val() == null) return;
+    numTeams = snap.val();
+    if (!fbGameStarted) renderWaitingPlayers();
+  });
+  fbOn(roomRef.child('seqToWin'), 'value', snap => {
+    if (snap.val() == null) return;
+    seqToWin = snap.val();
+    if (!fbGameStarted) renderWaitingPlayers();
+  });
+
   // Watch game state
   fbOn(roomRef.child('gameState'), 'value', snap => {
     if (!snap.val()) return;
@@ -6291,6 +6392,16 @@ function showWaitingLobby() {
 }
 
 function renderWaitingPlayers() {
+  const summaryEl = document.getElementById('waiting-format-summary');
+  if (summaryEl) {
+    const teamSizes = {};
+    players.forEach(p => { teamSizes[p.team] = (teamSizes[p.team] || 0) + 1; });
+    const sizes = Object.values(teamSizes);
+    const balanced = sizes.length === numTeams && sizes.every(s => s === sizes[0]);
+    const seqLabel = seqToWin === 1 ? '1 sequence' : seqToWin + ' sequences';
+    summaryEl.textContent = numTeams + ' teams · First to ' + seqLabel + (balanced ? '' : ' · waiting for balanced teams');
+  }
+
   const list = document.getElementById('waiting-players');
   list.innerHTML = '<div class="section-label">PLAYERS</div>';
   players.forEach((p, i) => {
@@ -8376,8 +8487,13 @@ async function sendGroupGameInvite(groupId) {
     const blockChecks = await Promise.all(allOtherMembers.map(u => isBlockedEitherWay(me, u)));
     const otherMembers = allOtherMembers.filter((u, i) => !blockChecks[i]);
 
-    const teamCount = Math.min(Math.max(otherMembers.length + 1, 2), 3); // this app supports 2 or 3 teams
-    numTeams = teamCount;
+    // Just a starting point - the real team count/sequences-to-win gets
+    // recalculated dynamically as each person actually joins (see
+    // joinGameRoom's group-game branch), not fixed here from group size.
+    // That's the actual fix for the old behavior: locking this in from
+    // membership count meant a game could end up permanently unbalanced
+    // if not everyone invited actually accepted.
+    numTeams = 2;
     seqToWin = 2;
     matchFormat = 1;
     myName = currentAccount.displayName || currentAccount.displayUsername;
@@ -8392,7 +8508,7 @@ async function sendGroupGameInvite(groupId) {
     const activeGameEntry = {
       startedAt: Date.now(),
       startedBy: myName,
-      teamCount,
+      teamCount: numTeams,
     };
     await withTimeout(
       db.ref().update({
