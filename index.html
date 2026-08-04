@@ -7533,7 +7533,20 @@ function renderGroupActiveGames(group) {
   const section = document.getElementById('group-detail-active-games-section');
   const titleEl = document.getElementById('group-detail-active-games-title');
   const listEl = document.getElementById('group-detail-active-games-list');
-  const games = Object.entries(group.activeGames || {});
+  const now = Date.now();
+  const allEntries = Object.entries(group.activeGames || {});
+  const games = allEntries.filter(([, info]) => now - (info.startedAt || 0) < STALE_GROUP_GAME_MS);
+
+  // Clean up anything stale as a side effect of rendering, same lazy
+  // pattern as expired invites - simpler than a background job, and this
+  // is the exact moment someone would otherwise be looking straight at
+  // a dead "game in progress" entry with no way to tell it's not real.
+  const staleEntries = allEntries.filter(([, info]) => now - (info.startedAt || 0) >= STALE_GROUP_GAME_MS);
+  if (staleEntries.length && group.id) {
+    staleEntries.forEach(([code]) => {
+      db.ref('sq_groups/' + group.id + '/activeGames/' + code).remove().catch(() => {});
+    });
+  }
 
   if (!games.length) { section.style.display = 'none'; return; }
 
@@ -7557,8 +7570,7 @@ function renderGroupActiveGames(group) {
 // as manually typing in a room code, just triggered from a tap instead.
 function handleSpectateGroupGame(code) {
   closeGroupDetailView();
-  const friendsBackdrop = document.getElementById('friends-backdrop');
-  if (friendsBackdrop) friendsBackdrop.style.display = 'none';
+  closeFriendsModal(); // the actual modal element is 'friends-modal' - an earlier guess at 'friends-backdrop' silently did nothing, since getElementById on a nonexistent id just returns null
   spectateGame(code);
 }
 
@@ -8555,6 +8567,14 @@ async function sendGroupGameInvite(groupId) {
 // extra writes/races, and naturally covers acceptGameInvite's own re-check
 // below for an invite that's gone stale between being shown and being acted on.
 const INVITE_EXPIRY_MS = 30 * 60 * 1000;
+
+// A group's activeGames entry gets removed when a game actually finishes
+// (hostAdvanceAndBroadcast) or the host explicitly leaves (leaveGame) -
+// but neither fires if a game gets abandoned before either of those ever
+// happens (e.g. it never started and everyone just closed the app). 12
+// hours is deliberately generous - a real Sequence game is well under it,
+// so this only ever catches genuinely dead entries, never an active one.
+const STALE_GROUP_GAME_MS = 12 * 60 * 60 * 1000;
 
 // Single source of truth for "is this client already mid-game" - covers
 // VS AI as well as multiplayer, since both occupy the same in-memory GS/
