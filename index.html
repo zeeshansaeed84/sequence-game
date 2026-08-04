@@ -7472,9 +7472,12 @@ function renderInviteBanner(invites) {
   // a simple banner rather than a stacked list - a rare edge case (more
   // than one pending challenge at once) for a first functional pass.
   const invite = invites.sort((a, b) => b.createdAt - a.createdAt)[0];
+  const acceptBtn = isCurrentlyInGame()
+    ? '' // mid-game - only decline is offered; see acceptGameInvite for the actual enforcement
+    : `<button class="friends-icon-btn accept" onclick="handleAcceptInvite('${escapeHtml(invite.fromUsername)}')" title="Accept">${ICON_CHECK}</button>`;
   bannerEl.innerHTML = `
     <span class="invite-banner-text"><strong>${escapeHtml(invite.fromDisplayName)}</strong> challenged you to a game!</span>
-    <button class="friends-icon-btn accept" onclick="handleAcceptInvite('${escapeHtml(invite.fromUsername)}')" title="Accept">${ICON_CHECK}</button>
+    ${acceptBtn}
     <button class="friends-icon-btn decline" onclick="handleDeclineInvite('${escapeHtml(invite.fromUsername)}')" title="Decline">${ICON_X}</button>`;
   bannerEl.style.display = 'flex';
 }
@@ -8336,12 +8339,34 @@ async function sendGroupGameInvite(groupId) {
 // than one-time fetches: a challenge is only actually useful if it shows
 // up the moment it arrives, not whenever the recipient next happens to
 // manually refresh the Friends screen.
+// 30 minutes - a game challenge is a "want to play right now" thing, not
+// something that should still be sitting there hours later. Filtered on
+// read here rather than actively deleted from Firebase - simpler, avoids
+// extra writes/races, and naturally covers acceptGameInvite's own re-check
+// below for an invite that's gone stale between being shown and being acted on.
+const INVITE_EXPIRY_MS = 30 * 60 * 1000;
+
+// Single source of truth for "is this client already mid-game" - covers
+// VS AI as well as multiplayer, since both occupy the same in-memory GS/
+// players/board state. Deliberately NOT based on fbGameStarted alone,
+// which only ever gets set for the multiplayer path (startVsAI() never
+// touches it) and would incorrectly allow accepting a new invite over an
+// active AI game.
+function isCurrentlyInGame() {
+  return !!(GS && GS.phase === 'play');
+}
+
 function subscribeToGameInvites(callback) {
   if (!currentAccount || !fbInit() || !db) { callback([]); return () => {}; }
   const ref = db.ref('sq_invites/' + currentAccount.username);
   const handler = (snap) => {
     const val = snap.val() || {};
-    callback(Object.entries(val).map(([fromUsername, data]) => ({ fromUsername, ...data })));
+    const now = Date.now();
+    callback(
+      Object.entries(val)
+        .map(([fromUsername, data]) => ({ fromUsername, ...data }))
+        .filter(inv => now - (inv.createdAt || 0) < INVITE_EXPIRY_MS)
+    );
   };
   ref.on('value', handler);
   return () => ref.off('value', handler);
@@ -8349,12 +8374,17 @@ function subscribeToGameInvites(callback) {
 
 async function acceptGameInvite(fromUsername) {
   if (!currentAccount) return { ok: false, reason: 'You need an account for this.' };
+  if (isCurrentlyInGame()) return { ok: false, reason: "Finish or quit your current game first." };
   const me = currentAccount.username;
   if (!fbInit() || !db) return { ok: false, reason: "Can't connect right now — check your connection and try again." };
   try {
     const inviteSnap = await withTimeout(db.ref('sq_invites/' + me + '/' + fromUsername).once('value'), 8000, 'Invite lookup');
     if (!inviteSnap.exists()) return { ok: false, reason: 'That invite is no longer available.' };
     const invite = inviteSnap.val();
+    if (Date.now() - (invite.createdAt || 0) >= INVITE_EXPIRY_MS) {
+      db.ref('sq_invites/' + me + '/' + fromUsername).remove().catch(() => {});
+      return { ok: false, reason: 'That invite has expired.' };
+    }
 
     myName = currentAccount.displayName || currentAccount.displayUsername;
     const joinResult = await joinGameRoom(invite.roomCode);
