@@ -6195,38 +6195,55 @@ async function joinGameRoom(code) {
     // as people arrive (e.g. 3 -> 2), so this reassigns EVERYONE's team
     // via round robin under the new count, not just the newest joiner -
     // an existing player's old team number could reference a team that no
-    // longer exists once the count shifts. Runs as a transaction since
-    // multiple people could join within the same moment; Firebase retries
-    // the callback automatically against the latest committed value
-    // rather than risking two joins racing and corrupting the list.
+    // longer exists once the count shifts.
+    //
+    // Transacts on the WHOLE room object, not just the players child -
+    // players, numTeams, and seqToWin have to commit together as one
+    // atomic write. Writing them as two separate operations (a players
+    // transaction, then a follow-up numTeams/seqToWin update) let a
+    // client's listeners observe them out of order: numTeams could arrive
+    // showing 3 teams while that same client's players list still only
+    // had 2 people, making the third team look empty and incorrectly
+    // disabling Start with no way to recover until an unrelated update
+    // happened to re-sync it. A single transaction on the room itself
+    // means every listener always sees a matched, consistent set - and
+    // still race-safe the same way a narrower transaction would be, since
+    // Firebase retries the whole callback against the latest committed
+    // room state on contention.
     myId = generatePlayerId();
     const myUsername = currentAccount ? currentAccount.username : null;
     let committedFormat = null;
     let txResult;
     try {
-      txResult = await roomRef.child('players').transaction(currentPlayersJson => {
-        const currentPlayers = currentPlayersJson ? JSON.parse(currentPlayersJson) : [];
+      txResult = await roomRef.transaction(currentRoom => {
+        if (!currentRoom) return currentRoom; // room vanished mid-transaction (e.g. abandoned) - abort, nothing sensible to join
+        const currentPlayers = currentRoom.players ? JSON.parse(currentRoom.players) : [];
         // Defensive against this callback re-running on retry - always
         // work from a clean base so a contested transaction can't end up
         // adding this same joiner twice.
         const withoutMe = currentPlayers.filter(p => p.id !== myId);
         const newTotal = withoutMe.length + 1;
-        committedFormat = computeGroupTeamFormat(newTotal, numTeams);
+        committedFormat = computeGroupTeamFormat(newTotal, currentRoom.numTeams || numTeams);
         const allPlayers = [...withoutMe, {id: myId, name: myName, team: 0, username: myUsername}];
-        return JSON.stringify(allPlayers.map((p, i) => ({...p, team: i % committedFormat.numTeams})));
+        return {
+          ...currentRoom,
+          players: JSON.stringify(allPlayers.map((p, i) => ({...p, team: i % committedFormat.numTeams}))),
+          numTeams: committedFormat.numTeams,
+          seqToWin: committedFormat.seqToWin,
+        };
       });
     } catch(e) {
       return { ok: false, reason: 'Could not join: ' + e.message };
     }
-    if (!txResult.committed) return { ok: false, reason: 'Could not join: try again.' };
-    updated = JSON.parse(txResult.snapshot.val());
-    numTeams = committedFormat.numTeams;
-    seqToWin = committedFormat.seqToWin;
-    // Keep the room's own format fields, and the group's activeGames
-    // listing, in sync with what the transaction just committed - other
-    // already-waiting clients pick this up via the numTeams/seqToWin
-    // listeners set up alongside the players listener below.
-    await roomRef.update({ numTeams: committedFormat.numTeams, seqToWin: committedFormat.seqToWin }).catch(() => {});
+    if (!txResult.committed || !txResult.snapshot.val()) return { ok: false, reason: 'Could not join: try again.' };
+    const committedRoom = txResult.snapshot.val();
+    updated = JSON.parse(committedRoom.players);
+    numTeams = committedRoom.numTeams;
+    seqToWin = committedRoom.seqToWin;
+    // The group's activeGames listing is a separate, secondary display
+    // concern (not read by any join/start logic), so keeping it in sync
+    // as its own write afterward is fine - no consistency requirement
+    // with the room state itself.
     db.ref('sq_groups/' + data.groupId + '/activeGames/' + roomCode + '/teamCount').set(committedFormat.numTeams).catch(() => {});
   } else {
     myId = generatePlayerId();
