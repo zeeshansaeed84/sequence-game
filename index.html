@@ -3656,6 +3656,11 @@
               <button class="friends-btn-primary" style="width:auto;padding:9px 16px" onclick="handleRenameGroup()">Save Name</button>
             </div>
 
+            <div id="group-detail-active-games-section" style="display:none;margin-bottom:14px">
+              <div class="friends-section-title" style="margin-top:0" id="group-detail-active-games-title"></div>
+              <div id="group-detail-active-games-list"></div>
+            </div>
+
             <div class="friends-section-title" style="margin-top:0">Members</div>
             <div id="group-detail-members-list"></div>
             <div class="friends-field-feedback" id="group-detail-feedback"></div>
@@ -4344,6 +4349,14 @@ let myName = '';
 let isHost = false;
 let isSpectator = false;
 let roomCode = '';
+// Which group (if any) started the current room - null for a plain
+// room-code game. Populated both by the client that originally starts a
+// group game AND by watchHostId()'s becomeHost() for a migrated-in host
+// (read from the room's own Firebase data, not just kept locally), since
+// host migration means a completely different client could be the one
+// responsible for cleaning up the group's activeGames entry when the
+// game actually ends.
+let currentGroupId = null;
 let players = [];     // [{id, name, team}]
 let myIndex = -1;
 let numTeams = 2;
@@ -6204,8 +6217,8 @@ async function joinGameRoom(code) {
   return { ok: true };
 }
 
-async function spectateGame() {
-  const code = document.getElementById('join-code').value.trim().toUpperCase();
+async function spectateGame(codeParam) {
+  const code = (codeParam || document.getElementById('join-code').value.trim()).toUpperCase();
   if (code.length !== 6) { setError('join-error','Enter a valid 6-character room code.'); return; }
   if (!fbInit()) { setError('join-error','Firebase not configured.'); return; }
   setError('join-error','');
@@ -6627,6 +6640,9 @@ function leaveGame() {
   }
   fbOff();
   if (roomRef && isHost) roomRef.child('phase').set('abandoned').catch(() => {});
+  if (isHost && currentGroupId && roomCode) {
+    db.ref('sq_groups/' + currentGroupId + '/activeGames/' + roomCode).remove().catch(() => {});
+  }
   roomRef = null;
   fbGameStarted = false;
   players = [];
@@ -6634,6 +6650,7 @@ function leaveGame() {
   isHost = false;
   isSpectator = false;
   aiMode = false;
+  currentGroupId = null;
   // Reset lobby UI — lobby-main relies on display:flex for its gap-based
   // section spacing, so restoring it as 'block' here previously collapsed
   // all the spacing between Player Setup / Game Rules / Difficulty etc.
@@ -7373,7 +7390,48 @@ async function openGroupDetailView(groupId) {
 
   document.getElementById('group-detail-danger-btn').textContent = isOwner ? 'Delete Group' : 'Leave Group';
 
+  renderGroupActiveGames(group);
   renderGroupDetailMembers(group, isOwner);
+}
+
+// Shows "N games in progress" with a list, each tappable to spectate -
+// discoverable regardless of whether this member ever received the
+// original invite, since it reads straight from the group's own
+// activeGames map rather than depending on sq_invites. Entries are
+// written by sendGroupGameInvite and removed by hostAdvanceAndBroadcast
+// (on a real finish) or leaveGame (if the host abandons it) - see either
+// for the corresponding cleanup logic.
+function renderGroupActiveGames(group) {
+  const section = document.getElementById('group-detail-active-games-section');
+  const titleEl = document.getElementById('group-detail-active-games-title');
+  const listEl = document.getElementById('group-detail-active-games-list');
+  const games = Object.entries(group.activeGames || {});
+
+  if (!games.length) { section.style.display = 'none'; return; }
+
+  section.style.display = 'block';
+  titleEl.textContent = games.length === 1 ? '1 game in progress' : games.length + ' games in progress';
+  listEl.innerHTML = games.map(([code, info]) => {
+    const startedAgo = relativeTimeAgo(info.startedAt);
+    return `
+      <div class="group-detail-member-row" style="cursor:pointer" onclick="handleSpectateGroupGame('${escapeHtml(code)}')">
+        <div class="friends-avatar ${avatarColorClass(info.startedBy || '?')}">👁</div>
+        <div class="friend-row-name">
+          Started by ${escapeHtml(info.startedBy || 'someone')}
+          <div class="friend-row-sub">${escapeHtml(startedAgo)} · ${info.teamCount || 2} teams</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// Closes the group/friends overlay and hands off directly to the
+// existing spectateGame() flow - same underlying join-as-spectator path
+// as manually typing in a room code, just triggered from a tap instead.
+function handleSpectateGroupGame(code) {
+  closeGroupDetailView();
+  const friendsBackdrop = document.getElementById('friends-backdrop');
+  if (friendsBackdrop) friendsBackdrop.style.display = 'none';
+  spectateGame(code);
 }
 
 function renderGroupDetailMembers(group, isOwner) {
@@ -8325,6 +8383,25 @@ async function sendGroupGameInvite(groupId) {
     myName = currentAccount.displayName || currentAccount.displayUsername;
     await createGameRoom();
 
+    // Record which group this room belongs to (on the room itself, not
+    // just held locally) and register it in the group's activeGames map
+    // so other members can discover and spectate it without ever having
+    // received the invite themselves. See hostAdvanceAndBroadcast() and
+    // leaveGame() for where this entry gets removed again.
+    currentGroupId = groupId;
+    const activeGameEntry = {
+      startedAt: Date.now(),
+      startedBy: myName,
+      teamCount,
+    };
+    await withTimeout(
+      db.ref().update({
+        ['sq_rooms/' + roomCode + '/groupId']: groupId,
+        ['sq_groups/' + groupId + '/activeGames/' + roomCode]: activeGameEntry,
+      }),
+      8000, 'Register active game'
+    ).catch(() => {}); // non-fatal - worst case this game just won't show up in the group's spectate list
+
     const updates = {};
     otherMembers.forEach(u => {
       updates['sq_invites/' + u + '/' + me] = { fromDisplayName: myName, roomCode, createdAt: Date.now(), groupName: group.name };
@@ -8837,6 +8914,15 @@ function becomeHost() {
   isHost = true;
   stopHostDisconnectWatchdog(); // no longer need to watch for this - I'm the one in charge now
   scheduleTurnTimer(); // resume enforcement with a fresh deadline for whoever's turn it currently is, not an attempt to preserve exactly how much time was left
+  // A migrated-in host never set currentGroupId itself (only the client
+  // that originally called sendGroupGameInvite does that locally) - read
+  // it from the room's own data instead, so this client can still clean
+  // up the group's activeGames entry correctly if the game ends on its watch.
+  if (roomRef) {
+    roomRef.child('groupId').once('value').then(snap => {
+      currentGroupId = snap.val() || null;
+    }).catch(() => {});
+  }
   // Start processing moves from other players - this was previously only
   // ever set up by the ORIGINAL host in createGameRoom(). Date.now() as
   // the cutoff, same reasoning as that original listener: without it,
@@ -8960,7 +9046,18 @@ function skipTurn() {
 }
 
 function hostAdvanceAndBroadcast() {
-  if (GS.phase !== 'done') scheduleTurnTimer(); else stopTurnTimer();
+  if (GS.phase !== 'done') {
+    scheduleTurnTimer();
+  } else {
+    stopTurnTimer();
+    // Idempotent - a harmless no-op if this already got removed (e.g. a
+    // stale re-entry into this function after the game already ended), or
+    // if currentGroupId is null because this was never a group game to
+    // begin with.
+    if (currentGroupId && roomCode) {
+      db.ref('sq_groups/' + currentGroupId + '/activeGames/' + roomCode).remove().catch(() => {});
+    }
+  }
   broadcastGameState();
 }
 
