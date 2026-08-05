@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sequence — Debug Log Viewer</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+  :root {
+    --navy-dark: #0b0e2e; --navy-mid: #141a44; --gold: #d4b830; --gold-light: #f0dc90;
+    --cream: #f5f0e8; --red: #c0202a; --green: #2a8a4a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: radial-gradient(ellipse at top, var(--navy-mid), var(--navy-dark));
+    color: var(--cream); min-height: 100vh; padding: 20px;
+  }
+  h1 { font-size: 1.4em; margin: 0 0 4px; color: var(--gold-light); }
+  .sub { opacity: 0.7; font-size: 0.85em; margin-bottom: 20px; }
+  .search-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  input[type=text] {
+    flex: 1; min-width: 200px; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08); color: var(--cream); font-size: 1em; letter-spacing: 1px;
+  }
+  input[type=text]::placeholder { color: rgba(245,240,232,0.4); }
+  button {
+    padding: 12px 20px; border-radius: 10px; border: none; background: var(--gold); color: var(--navy-dark);
+    font-weight: 700; cursor: pointer; font-size: 0.95em;
+  }
+  button:hover { background: var(--gold-light); }
+  .status { opacity: 0.7; font-size: 0.9em; margin-bottom: 12px; }
+  .client-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .client-chip {
+    padding: 4px 10px; border-radius: 20px; font-size: 0.8em; font-weight: 600;
+    border: 1px solid currentColor;
+  }
+  .timeline { display: flex; flex-direction: column; gap: 6px; }
+  .event-row {
+    background: rgba(255,255,255,0.05); border-radius: 10px; padding: 10px 14px;
+    border-left: 4px solid var(--gold); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+  }
+  .event-row.host-event { border-left-color: var(--green); }
+  .event-row.warn-event { border-left-color: var(--red); }
+  .ts { font-size: 0.78em; opacity: 0.6; white-space: nowrap; min-width: 130px; }
+  .client-badge { font-size: 0.78em; font-weight: 700; padding: 2px 8px; border-radius: 12px; white-space: nowrap; }
+  .event-name { font-weight: 700; font-size: 0.92em; }
+  .details { font-size: 0.82em; opacity: 0.75; font-family: 'SF Mono', Consolas, monospace; word-break: break-all; }
+  .host-tag { font-size: 0.7em; background: var(--green); color: white; padding: 1px 6px; border-radius: 8px; }
+  .empty { text-align: center; padding: 60px 20px; opacity: 0.6; }
+</style>
+</head>
+<body>
+
+<h1>Sequence — Multiplayer Debug Log</h1>
+<div class="sub">Enter a room code to see the full, chronological, multi-device event timeline for that game.</div>
+
+<div class="search-row">
+  <input type="text" id="room-code-input" placeholder="ROOM CODE (e.g. GE9SLV)" maxlength="6" autocapitalize="characters">
+  <button onclick="loadLog()">Load</button>
+</div>
+
+<div id="status" class="status"></div>
+<div id="legend" class="client-legend"></div>
+<div id="timeline" class="timeline"></div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDNTc973eY-dt1UQSJqs0kCTLAZF14xuG4",
+  databaseURL: "https://sequence-game-5a793-default-rtdb.asia-southeast1.firebasedatabase.app"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const CLIENT_COLORS = ['#d4b830', '#61AF41', '#AE42D0', '#1E90FF', '#e07840', '#40c0c0'];
+const clientColorMap = {};
+function colorFor(clientKey) {
+  if (!clientColorMap[clientKey]) {
+    clientColorMap[clientKey] = CLIENT_COLORS[Object.keys(clientColorMap).length % CLIENT_COLORS.length];
+  }
+  return clientColorMap[clientKey];
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+}
+
+const WARN_EVENTS = new Set(['turn_timer_fired_stale', 'host_migration_threw', 'rematch_cancelled']);
+const HOST_EVENTS = new Set(['became_host', 'stepped_down_as_host', 'host_migration_attempted', 'host_migration_result', 'hostid_observed']);
+
+async function loadLog() {
+  const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+  const statusEl = document.getElementById('status');
+  const timelineEl = document.getElementById('timeline');
+  const legendEl = document.getElementById('legend');
+  timelineEl.innerHTML = '';
+  legendEl.innerHTML = '';
+  Object.keys(clientColorMap).forEach(k => delete clientColorMap[k]);
+
+  if (code.length !== 6) { statusEl.textContent = 'Enter a valid 6-character room code.'; return; }
+  statusEl.textContent = 'Loading…';
+
+  try {
+    const snap = await db.ref('sq_debug_log/' + code).once('value');
+    const val = snap.val();
+    if (!val) {
+      statusEl.textContent = 'No debug log found for this room code.';
+      timelineEl.innerHTML = '<div class="empty">Nothing logged for this room yet — or the room code doesn\'t match a game that used the diagnostic log.</div>';
+      return;
+    }
+
+    const events = Object.values(val).sort((a, b) => a.ts - b.ts);
+    statusEl.textContent = events.length + ' events · room ' + code;
+
+    // Legend of which client is which color, keyed by name (falls back to id)
+    const seenClients = new Set();
+    events.forEach(e => seenClients.add((e.myName || e.myId || 'unknown')));
+    legendEl.innerHTML = Array.from(seenClients).map(name => {
+      const c = colorFor(name);
+      return `<span class="client-chip" style="color:${c}">${escapeHtml(name)}</span>`;
+    }).join('');
+
+    const startTs = events[0].ts;
+    timelineEl.innerHTML = events.map(e => {
+      const clientKey = e.myName || e.myId || 'unknown';
+      const color = colorFor(clientKey);
+      const rowClass = WARN_EVENTS.has(e.event) ? 'warn-event' : (HOST_EVENTS.has(e.event) ? 'host-event' : '');
+      const relMs = e.ts - startTs;
+      const detailsStr = e.details && Object.keys(e.details).length
+        ? JSON.stringify(e.details)
+        : '';
+      return `
+        <div class="event-row ${rowClass}">
+          <span class="ts">${fmtTime(e.ts)} <span style="opacity:0.5">(+${relMs}ms)</span></span>
+          <span class="client-badge" style="background:${color}22;color:${color};border:1px solid ${color}">${escapeHtml(clientKey)}</span>
+          ${e.isHost ? '<span class="host-tag">HOST</span>' : ''}
+          <span class="event-name">${escapeHtml(e.event)}</span>
+          <span class="details">${escapeHtml(detailsStr)}</span>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    statusEl.textContent = 'Error loading log: ' + err.message;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById('room-code-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadLog();
+});
+</script>
+
+</body>
+</html>
