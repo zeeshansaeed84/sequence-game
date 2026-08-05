@@ -6284,6 +6284,11 @@ async function joinGameRoom(code) {
     if (!snap.val()) return;
     const newGS = JSON.parse(snap.val());
     const isFreshGame = newGS.moveSeq === 1 && GS && GS.phase === 'done';
+    const fbGameStartedBefore = fbGameStarted;
+    logDebugEvent('gamestate_received', {
+      incomingMoveSeq: newGS.moveSeq, incomingPhase: newGS.phase, incomingCurrentTurn: newGS.currentTurn,
+      localPhaseBefore: GS ? GS.phase : null, fbGameStartedBefore, isFreshGame,
+    });
     GS = newGS;
     if (GS.moveSeq === 1) GS.lastRemoved = null;
     if (!fbGameStarted || isFreshGame) {
@@ -6388,6 +6393,10 @@ async function spectateGame(codeParam) {
     if (!snap.val()) return;
     const newGS = JSON.parse(snap.val());
     const isFreshGame = newGS.moveSeq === 1 && GS && GS.phase === 'done';
+    logDebugEvent('gamestate_received_spectator', {
+      incomingMoveSeq: newGS.moveSeq, incomingPhase: newGS.phase, incomingCurrentTurn: newGS.currentTurn,
+      localPhaseBefore: GS ? GS.phase : null, fbGameStartedBefore: fbGameStarted, isFreshGame,
+    });
     GS = newGS;
     if (GS.moveSeq === 1) GS.lastRemoved = null;
     if (!fbGameStarted || isFreshGame) {
@@ -6599,6 +6608,7 @@ function requestRematch() {
 
   const shuffleTeams = document.getElementById('shuffle-teams-checkbox')?.checked || false;
   const responses = {}; responses[myId] = true; // host implicitly accepts
+  logDebugEvent('rematch_requested', { shuffleTeams, numPlayers: players.length });
 
   document.getElementById('win-actions').style.display = 'none';
   document.getElementById('rematch-waiting').style.display = 'block';
@@ -6615,6 +6625,7 @@ function requestRematch() {
 
 function respondRematch(accepted) {
   if (!roomRef) return;
+  logDebugEvent('rematch_response', { accepted });
   document.getElementById('rematch-prompt').style.display = 'none';
   document.getElementById('rematch-waiting').style.display = 'block';
   document.getElementById('rematch-waiting-text').textContent =
@@ -6624,6 +6635,7 @@ function respondRematch(accepted) {
 
 function cancelRematch() {
   if (isHost && roomRef) {
+    logDebugEvent('rematch_cancelled', {});
     roomRef.child('rematch').set(null).catch(() => {});
   }
   resetRematchUI();
@@ -6637,6 +6649,7 @@ function checkRematchResponses(rematchData) {
   if (!allResponded) return;
 
   const allAccepted = players.every(p => responses[p.id] === true);
+  logDebugEvent('rematch_all_responded', { allAccepted, responses });
   if (allAccepted) {
     startRematchGame(rematchData.shuffleTeams);
   } else {
@@ -6662,6 +6675,7 @@ function startRematchGame(shuffleTeams) {
 
   GS = initGameState();
   fbGameStarted = true;
+  logDebugEvent('rematch_game_starting', { newMoveSeq: GS.moveSeq, shuffleTeams, seriesGameNum });
 
   roomRef.update({
     phase: 'playing',
@@ -6674,6 +6688,7 @@ function startRematchGame(shuffleTeams) {
   document.getElementById('win-modal').classList.remove('open');
   resetRematchUI();
   showGameScreen();
+  registerPresence(); // re-register for the new game - a rematch never used to need this since presence was purely informational, but host migration now genuinely depends on it staying current
   scheduleTurnTimer();
   logGameStart();
 }
@@ -8918,6 +8933,36 @@ async function logGameAbandoned() {
     });
   } catch(e) {}
 }
+
+// ── Multiplayer diagnostic event log ────────────────────────────────
+//
+// A lightweight, always-on (for this testing/hardening phase) event
+// trail for multiplayer-specific state transitions - turn timer
+// scheduling/firing, host migration, rematch lifecycle, and how each
+// client's gameState listener classified an incoming update (fresh game
+// vs. an ordinary move). Built because verbally reconstructing a live,
+// multi-device bug after the fact is slow and loses detail - this gives
+// an actual per-client, chronological record to check instead. sq_analytics
+// records the OUTCOME of a game; this records what actually happened
+// along the way, from every device's own point of view.
+//
+// Multiplayer only (no value for VS AI - single device, nothing to
+// desync between clients). Fire-and-forget: a logging failure must never
+// affect gameplay, so every call is wrapped and errors are swallowed.
+function logDebugEvent(event, details) {
+  if (aiMode || !roomCode || !fbInit() || !db) return;
+  try {
+    db.ref('sq_debug_log/' + roomCode).push({
+      ts: Date.now(),
+      event,
+      myId: myId || null,
+      myName: myName || null,
+      isHost,
+      details: details || {},
+    }).catch(() => {});
+  } catch(e) {}
+}
+
 function initGameState() {
   const deck = shuffle([...makeDeck(), ...makeDeck()]); // two decks
   const hands = {};
@@ -9014,9 +9059,12 @@ function scheduleTurnTimer() {
 
   GS.turnDeadline = Date.now() + TURN_SECONDS * 1000;
   const turnAtSchedule = GS.currentTurn;
+  const moveSeqAtSchedule = GS.moveSeq;
+  logDebugEvent('turn_timer_scheduled', { turnAtSchedule, moveSeqAtSchedule, deadline: GS.turnDeadline });
   hostTurnTimerHandle = setTimeout(() => {
-    if (!GS || GS.phase === 'done') return;
-    if (GS.currentTurn !== turnAtSchedule) return; // already moved on, stale timer
+    if (!GS || GS.phase === 'done') { logDebugEvent('turn_timer_fired_noop', { reason: 'phase done or GS missing', turnAtSchedule }); return; }
+    if (GS.currentTurn !== turnAtSchedule) { logDebugEvent('turn_timer_fired_stale', { turnAtSchedule, currentTurnNow: GS.currentTurn }); return; }
+    logDebugEvent('turn_timer_fired_skip', { turnAtSchedule, moveSeqAtSchedule, currentMoveSeqNow: GS.moveSeq });
     skipTurn();
   }, TURN_SECONDS * 1000);
 }
@@ -9055,6 +9103,7 @@ function watchHostId() {
   fbOn(roomRef.child('hostId'), 'value', snap => {
     const currentHostId = snap.val();
     if (!currentHostId) return;
+    logDebugEvent('hostid_observed', { currentHostId, myIdWasHostBefore: isHost });
     if (currentHostId === myId && !isHost) {
       becomeHost();
     } else if (currentHostId !== myId && isHost) {
@@ -9064,6 +9113,7 @@ function watchHostId() {
 }
 
 function becomeHost() {
+  logDebugEvent('became_host', {});
   isHost = true;
   stopHostDisconnectWatchdog(); // no longer need to watch for this - I'm the one in charge now
   scheduleTurnTimer(); // resume enforcement with a fresh deadline for whoever's turn it currently is, not an attempt to preserve exactly how much time was left
@@ -9092,6 +9142,7 @@ function becomeHost() {
 }
 
 function stepDownAsHost() {
+  logDebugEvent('stepped_down_as_host', {});
   isHost = false;
   stopTurnTimer();
   startHostDisconnectWatchdog(); // resume watching, in case the new host also disconnects later
@@ -9141,12 +9192,14 @@ function stopHostDisconnectWatchdog() {
 // not two that could theoretically race with each other.
 async function attemptHostMigration(disconnectedHostId) {
   if (isHost || !roomRef) return;
+  logDebugEvent('host_migration_attempted', { disconnectedHostId });
   try {
-    await roomRef.child('hostId').transaction(currentHostId => {
+    const result = await roomRef.child('hostId').transaction(currentHostId => {
       if (currentHostId === disconnectedHostId) return myId;
       return; // already changed - abort, someone else got there first
     });
-  } catch(e) { /* non-fatal - the watchdog will simply try again on the next presence tick */ }
+    logDebugEvent('host_migration_result', { committed: result.committed, resultingHostId: result.snapshot?.val ? result.snapshot.val() : null });
+  } catch(e) { logDebugEvent('host_migration_threw', { error: e.message }); /* non-fatal - the watchdog will simply try again on the next presence tick */ }
 }
 
 function skipTurn() {
