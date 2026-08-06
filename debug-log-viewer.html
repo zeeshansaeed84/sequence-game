@@ -49,6 +49,14 @@
   .details { font-size: 0.82em; opacity: 0.75; font-family: 'SF Mono', Consolas, monospace; word-break: break-all; }
   .host-tag { font-size: 0.7em; background: var(--green); color: white; padding: 1px 6px; border-radius: 8px; }
   .empty { text-align: center; padding: 60px 20px; opacity: 0.6; }
+  .actions-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .actions-row button { background: rgba(255,255,255,0.12); color: var(--cream); }
+  .actions-row button:hover { background: rgba(255,255,255,0.2); }
+  #copy-fallback {
+    display: none; width: 100%; height: 200px; margin-top: 10px; padding: 10px;
+    background: rgba(0,0,0,0.3); color: var(--cream); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 10px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.78em;
+  }
 </style>
 </head>
 <body>
@@ -62,6 +70,10 @@
 </div>
 
 <div id="status" class="status"></div>
+<div id="actions-row" class="actions-row" style="display:none">
+  <button id="copy-btn" onclick="copyAsText()">📋 Copy as Text (paste into chat)</button>
+</div>
+<textarea id="copy-fallback" readonly></textarea>
 <div id="legend" class="client-legend"></div>
 <div id="timeline" class="timeline"></div>
 
@@ -72,6 +84,9 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+
+let loadedEvents = [];
+let loadedRoomCode = '';
 
 const CLIENT_COLORS = ['#d4b830', '#61AF41', '#AE42D0', '#1E90FF', '#e07840', '#40c0c0'];
 const clientColorMap = {};
@@ -95,9 +110,14 @@ async function loadLog() {
   const statusEl = document.getElementById('status');
   const timelineEl = document.getElementById('timeline');
   const legendEl = document.getElementById('legend');
+  const actionsEl = document.getElementById('actions-row');
   timelineEl.innerHTML = '';
   legendEl.innerHTML = '';
+  actionsEl.style.display = 'none';
+  document.getElementById('copy-fallback').style.display = 'none';
   Object.keys(clientColorMap).forEach(k => delete clientColorMap[k]);
+  loadedEvents = [];
+  loadedRoomCode = code;
 
   if (code.length !== 6) { statusEl.textContent = 'Enter a valid 6-character room code.'; return; }
   statusEl.textContent = 'Loading…';
@@ -112,7 +132,9 @@ async function loadLog() {
     }
 
     const events = Object.values(val).sort((a, b) => a.ts - b.ts);
+    loadedEvents = events;
     statusEl.textContent = events.length + ' events · room ' + code;
+    actionsEl.style.display = 'flex';
 
     // Legend of which client is which color, keyed by name (falls back to id)
     const seenClients = new Set();
@@ -142,6 +164,54 @@ async function loadLog() {
     }).join('');
   } catch (err) {
     statusEl.textContent = 'Error loading log: ' + err.message;
+  }
+}
+
+// Builds a clean, plain-text chronological dump - designed to be pasted
+// directly into a chat conversation, not just read on-screen. One event
+// per line, fixed-width-ish fields, full details included (nothing
+// truncated the way a screenshot's off-screen content would be).
+function buildTextExport() {
+  if (!loadedEvents.length) return '';
+  const startTs = loadedEvents[0].ts;
+  const lines = [
+    'SEQUENCE DEBUG LOG — Room ' + loadedRoomCode + ' — ' + loadedEvents.length + ' events',
+    'Generated ' + new Date().toLocaleString(),
+    '',
+  ];
+  loadedEvents.forEach(e => {
+    const clientKey = e.myName || e.myId || 'unknown';
+    const relMs = e.ts - startTs;
+    const detailsStr = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '{}';
+    const hostTag = e.isHost ? '[HOST]' : '      ';
+    lines.push(
+      '+' + String(relMs).padStart(7, ' ') + 'ms  ' +
+      fmtTime(e.ts) + '  ' +
+      hostTag + '  ' +
+      clientKey.padEnd(12, ' ') + '  ' +
+      e.event.padEnd(28, ' ') + '  ' +
+      detailsStr
+    );
+  });
+  return lines.join('\n');
+}
+
+async function copyAsText() {
+  const text = buildTextExport();
+  const btn = document.getElementById('copy-btn');
+  const fallback = document.getElementById('copy-fallback');
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✓ Copied — paste into chat now';
+    setTimeout(() => { btn.textContent = '📋 Copy as Text (paste into chat)'; }, 3000);
+  } catch (err) {
+    // Clipboard API unavailable in this context - show a selected textarea instead,
+    // so the text can still be copied manually (Cmd/Ctrl+C, or long-press on mobile)
+    fallback.style.display = 'block';
+    fallback.value = text;
+    fallback.focus();
+    fallback.select();
+    btn.textContent = '↓ Select the text below and copy it manually';
   }
 }
 
