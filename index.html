@@ -4086,7 +4086,14 @@ function unlockSpeaker() {
   }
 }
 
+const pageLoadTime = Date.now(); // captured once at script start - if this context is a resumed/frozen tab rather than a fresh load, this timestamp is stale, which is itself a useful signal when cross-referenced with when a sound actually fires
+
 function playSound(name) {
+  logSoundEvent('play_sound_called', {
+    name, soundEnabled, elExists: !!audioEls[name],
+    msSincePageLoad: Date.now() - pageLoadTime,
+    visibilityState: document.visibilityState, hidden: document.hidden,
+  });
   if (!soundEnabled) return;
   const el = audioEls[name];
   if (!el) return;
@@ -4110,7 +4117,7 @@ function playSound(name) {
 // writing this fix, not fixed on theory alone.
 let lastPrimeTime = 0;
 const primingInFlight = new Set();
-function primeTimerSounds() {
+function primeTimerSounds(trigger) {
   const now = Date.now();
   if (now - lastPrimeTime < 1000) return; // already primed within the last second - no need on every single tap
   lastPrimeTime = now;
@@ -4119,13 +4126,18 @@ function primeTimerSounds() {
     const el = audioEls[name];
     if (!el) return;
     primingInFlight.add(name);
+    logSoundEvent('sound_priming_started', { name, trigger: trigger || 'unknown', msSincePageLoad: Date.now() - pageLoadTime });
+    const originalVolume = el.volume;
     el.muted = true;
+    el.volume = 0; // belt-and-suspenders alongside muted - the mute property isn't strictly guaranteed to apply before playback output begins on every browser, this closes that gap independently
     el.currentTime = 0;
     el.play().then(() => {
       el.pause();
       el.muted = false;
+      el.volume = originalVolume;
       el.currentTime = 0;
-    }).catch(() => { el.muted = false; }).finally(() => { primingInFlight.delete(name); });
+      logSoundEvent('sound_priming_completed', { name, trigger: trigger || 'unknown', msSincePageLoad: Date.now() - pageLoadTime });
+    }).catch(() => { el.muted = false; el.volume = originalVolume; logSoundEvent('sound_priming_rejected', { name, trigger: trigger || 'unknown' }); }).finally(() => { primingInFlight.delete(name); });
   });
 }
 
@@ -4312,7 +4324,7 @@ document.addEventListener('visibilitychange', () => {
     // (arriving via Firebase, with no gesture of this player's own
     // attached at all) would otherwise have no way to recover once the
     // permission lapses during a long wait for their turn.
-    if (typeof primeTimerSounds === 'function') primeTimerSounds();
+    if (typeof primeTimerSounds === 'function') primeTimerSounds('visibilitychange');
   }
 });
 
@@ -4325,7 +4337,7 @@ document.addEventListener('visibilitychange', () => {
 // this is what was actually behind sound going quiet mid-game, especially
 // in human vs human games where waits between turns run longer.
 document.addEventListener('pointerdown', () => {
-  if (typeof primeTimerSounds === 'function') primeTimerSounds();
+  if (typeof primeTimerSounds === 'function') primeTimerSounds('pointerdown');
 }, { passive: true });
 
 // Fires whenever Firebase's own connection state flips — most relevant right
@@ -6067,6 +6079,16 @@ async function createGameRoom() {
     setError('lobby-error', 'Could not create room: ' + e.message);
     throw e; // let the caller (createGame's UI path, or sendGameInvite) know it failed
   }
+  // Register presence immediately, not only later when Start is pressed -
+  // confirmed via the debug log as the actual root cause of repeated,
+  // spurious host migration during the lobby wait. Other players' own
+  // disconnect watchdogs start checking the host's presence the moment
+  // THEY join (see joinGameRoom's startHostDisconnectWatchdog call), which
+  // is very likely to happen before the host ever presses Start. Without
+  // this, the host's presence flag was simply never set during that whole
+  // window - indistinguishable from "gone" to anyone checking it, not
+  // because they'd actually disconnected.
+  registerPresence();
 
   // Host: process incoming moves
   const hostStartTime = Date.now();
@@ -6321,6 +6343,12 @@ async function joinGameRoom(code) {
   // See "Host migration" section above.
   watchHostId();
   startHostDisconnectWatchdog();
+  // Register immediately, not deferred until gameState exists (same fix
+  // as createGameRoom, same underlying reason) - this player could later
+  // end up migrated into the host role themselves while still in the
+  // lobby, and their own presence needs to be accurate from the moment
+  // they're actually in the room, not just once the game has started.
+  registerPresence();
 
   showWaitingLobby();
   return { ok: true };
@@ -8963,6 +8991,30 @@ function logDebugEvent(event, details) {
   } catch(e) {}
 }
 
+// Sound-specific logging - deliberately NOT gated on roomCode or aiMode
+// like logDebugEvent above. A phantom/misfired sound can happen purely at
+// the app-open or lobby level, before any room exists at all (e.g. the
+// audio-priming cycle, which runs on visibilitychange regardless of
+// whether a game is even in progress) - gating this on roomCode would
+// have silently discarded exactly the events needed to diagnose that.
+// Falls back to a per-device path when there's no active room so this
+// data still lands somewhere findable instead of being dropped.
+function logSoundEvent(event, details) {
+  if (!fbInit() || !db) return;
+  try {
+    const path = roomCode ? ('sq_debug_log/' + roomCode) : ('sq_debug_log_lobby/' + getDeviceId());
+    db.ref(path).push({
+      ts: Date.now(),
+      event,
+      myId: myId || null,
+      myName: myName || null,
+      isHost: !!isHost,
+      inRoom: !!roomCode,
+      details: details || {},
+    }).catch(() => {});
+  } catch(e) {}
+}
+
 function initGameState() {
   const deck = shuffle([...makeDeck(), ...makeDeck()]); // two decks
   const hands = {};
@@ -10772,8 +10824,17 @@ function deadCardRevealKey(idx, card) {
 function showGameScreen() {
   showScreen('game-screen');
   setVh();
-  lastAnimatedSeq = 0;
-  lastBlinkSeq    = 0;
+  // Match the CURRENT state rather than always zeroing - zeroing
+  // unconditionally was the actual root cause of phantom win/lose/sequence
+  // sounds on reconnect: this runs any time a client connects OR
+  // reconnects to a room, including one whose game already progressed or
+  // already ended. Resetting to 0 while the real moveSeq was already, say,
+  // 40 made renderGame() think move 40 (whatever it was - a win, a loss,
+  // a sequence) was brand new and worth a sound, purely because THIS
+  // client just showed up. Matching current state means catching up is
+  // silent, while a genuine subsequent move still gets detected correctly.
+  lastAnimatedSeq = GS ? GS.moveSeq : 0;
+  lastBlinkSeq    = GS ? (GS.newSeqMoveSeq || 0) : 0;
   selectedCardIdx = -1;
   jackMode = null;
   revealedDeadCardKeys.clear();
@@ -10896,7 +10957,7 @@ function renderGame() {
     }
 
     if (GS.phase === 'done' && !GS.newSeqCells?.length) {
-      showWinModal();
+      showWinModal(isNewMove);
     }
   } catch(e) {
     console.error('renderGame error:', e);
@@ -12111,7 +12172,7 @@ function renderSeriesBox() {
   box.style.display = 'block';
 }
 
-function showWinModal() {
+function showWinModal(playSoundEffect = true) {
   const w = GS.winner;
   let title, msg;
   stopTickSound();
@@ -12248,11 +12309,15 @@ function showWinModal() {
   const showModal = (aiMode && !iWon) ? () => waitForChatIdleThenShowModal(rawShowModal) : rawShowModal;
 
   if (iWon) {
-    playWinMusic(showModal);
+    if (playSoundEffect) playWinMusic(showModal); else showModal();
   } else {
-    playSound('Lose');
-    const loseDuration = (audioEls['Lose']?.duration || 2) * 1000;
-    setTimeout(showModal, loseDuration + 200);
+    if (playSoundEffect) {
+      playSound('Lose');
+      const loseDuration = (audioEls['Lose']?.duration || 2) * 1000;
+      setTimeout(showModal, loseDuration + 200);
+    } else {
+      showModal();
+    }
   }
 }
 

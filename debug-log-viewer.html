@@ -68,8 +68,12 @@
   <input type="text" id="room-code-input" placeholder="ROOM CODE (e.g. GE9SLV)" maxlength="6" autocapitalize="characters">
   <button onclick="loadLog()">Load</button>
 </div>
+<div class="sub" style="margin-top:-12px">
+  Heard a sound with no game open? <a href="#" onclick="browseLobbyDevices(); return false;" style="color:var(--gold-light)">Browse recent activity instead</a> — no room code needed.
+</div>
 
 <div id="status" class="status"></div>
+<div id="device-list" class="timeline" style="margin-bottom:16px"></div>
 <div id="actions-row" class="actions-row" style="display:none">
   <button id="copy-btn" onclick="copyAsText()">📋 Copy as Text (paste into chat)</button>
 </div>
@@ -86,7 +90,7 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 let loadedEvents = [];
-let loadedRoomCode = '';
+let loadedSourceLabel = '';
 
 const CLIENT_COLORS = ['#d4b830', '#61AF41', '#AE42D0', '#1E90FF', '#e07840', '#40c0c0'];
 const clientColorMap = {};
@@ -102,22 +106,71 @@ function fmtTime(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
 }
 
-const WARN_EVENTS = new Set(['turn_timer_fired_stale', 'host_migration_threw', 'rematch_cancelled']);
+const WARN_EVENTS = new Set(['turn_timer_fired_stale', 'host_migration_threw', 'rematch_cancelled', 'sound_priming_rejected']);
 const HOST_EVENTS = new Set(['became_host', 'stepped_down_as_host', 'host_migration_attempted', 'host_migration_result', 'hostid_observed']);
+const SOUND_EVENTS = new Set(['play_sound_called', 'sound_priming_started', 'sound_priming_completed', 'sound_priming_rejected']);
 
-async function loadLog() {
-  const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+// Shared rendering for both a room's log and a device's lobby-level log -
+// same timeline format either way, just a different data source and header.
+function renderEvents(events, sourceLabel) {
   const statusEl = document.getElementById('status');
   const timelineEl = document.getElementById('timeline');
   const legendEl = document.getElementById('legend');
   const actionsEl = document.getElementById('actions-row');
-  timelineEl.innerHTML = '';
-  legendEl.innerHTML = '';
-  actionsEl.style.display = 'none';
+
+  loadedEvents = events;
+  loadedSourceLabel = sourceLabel;
+
+  if (!events.length) {
+    statusEl.textContent = 'No events found.';
+    timelineEl.innerHTML = '<div class="empty">Nothing logged here yet.</div>';
+    actionsEl.style.display = 'none';
+    return;
+  }
+
+  statusEl.textContent = events.length + ' events · ' + sourceLabel;
+  actionsEl.style.display = 'flex';
+
+  const seenClients = new Set();
+  events.forEach(e => seenClients.add((e.myName || e.myId || 'unknown')));
+  legendEl.innerHTML = Array.from(seenClients).map(name => {
+    const c = colorFor(name);
+    return `<span class="client-chip" style="color:${c}">${escapeHtml(name)}</span>`;
+  }).join('');
+
+  const startTs = events[0].ts;
+  timelineEl.innerHTML = events.map(e => {
+    const clientKey = e.myName || e.myId || 'unknown';
+    const color = colorFor(clientKey);
+    const rowClass = WARN_EVENTS.has(e.event) ? 'warn-event' : (HOST_EVENTS.has(e.event) || SOUND_EVENTS.has(e.event) ? 'host-event' : '');
+    const relMs = e.ts - startTs;
+    const detailsStr = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '';
+    return `
+      <div class="event-row ${rowClass}">
+        <span class="ts">${fmtTime(e.ts)} <span style="opacity:0.5">(+${relMs}ms)</span></span>
+        <span class="client-badge" style="background:${color}22;color:${color};border:1px solid ${color}">${escapeHtml(clientKey)}</span>
+        ${e.isHost ? '<span class="host-tag">HOST</span>' : ''}
+        ${e.inRoom === false ? '<span class="host-tag" style="background:#555">NO ROOM</span>' : ''}
+        <span class="event-name">${escapeHtml(e.event)}</span>
+        <span class="details">${escapeHtml(detailsStr)}</span>
+      </div>`;
+  }).join('');
+}
+
+function resetView() {
+  document.getElementById('timeline').innerHTML = '';
+  document.getElementById('legend').innerHTML = '';
+  document.getElementById('device-list').innerHTML = '';
+  document.getElementById('actions-row').style.display = 'none';
   document.getElementById('copy-fallback').style.display = 'none';
   Object.keys(clientColorMap).forEach(k => delete clientColorMap[k]);
   loadedEvents = [];
-  loadedRoomCode = code;
+}
+
+async function loadLog() {
+  const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+  const statusEl = document.getElementById('status');
+  resetView();
 
   if (code.length !== 6) { statusEl.textContent = 'Enter a valid 6-character room code.'; return; }
   statusEl.textContent = 'Loading…';
@@ -127,41 +180,61 @@ async function loadLog() {
     const val = snap.val();
     if (!val) {
       statusEl.textContent = 'No debug log found for this room code.';
-      timelineEl.innerHTML = '<div class="empty">Nothing logged for this room yet — or the room code doesn\'t match a game that used the diagnostic log.</div>';
+      document.getElementById('timeline').innerHTML = '<div class="empty">Nothing logged for this room yet — or the room code doesn\'t match a game that used the diagnostic log.</div>';
       return;
     }
-
     const events = Object.values(val).sort((a, b) => a.ts - b.ts);
-    loadedEvents = events;
-    statusEl.textContent = events.length + ' events · room ' + code;
-    actionsEl.style.display = 'flex';
+    renderEvents(events, 'room ' + code);
+  } catch (err) {
+    statusEl.textContent = 'Error loading log: ' + err.message;
+  }
+}
 
-    // Legend of which client is which color, keyed by name (falls back to id)
-    const seenClients = new Set();
-    events.forEach(e => seenClients.add((e.myName || e.myId || 'unknown')));
-    legendEl.innerHTML = Array.from(seenClients).map(name => {
-      const c = colorFor(name);
-      return `<span class="client-chip" style="color:${c}">${escapeHtml(name)}</span>`;
-    }).join('');
+// Lists devices that have logged something outside any room (e.g. the
+// audio-priming cycle, which can fire purely from opening the app) -
+// sorted most-recently-active first, since there are typically only a
+// handful of devices being tested with at any given time.
+async function browseLobbyDevices() {
+  const statusEl = document.getElementById('status');
+  const deviceListEl = document.getElementById('device-list');
+  resetView();
+  statusEl.textContent = 'Loading recent activity…';
 
-    const startTs = events[0].ts;
-    timelineEl.innerHTML = events.map(e => {
-      const clientKey = e.myName || e.myId || 'unknown';
-      const color = colorFor(clientKey);
-      const rowClass = WARN_EVENTS.has(e.event) ? 'warn-event' : (HOST_EVENTS.has(e.event) ? 'host-event' : '');
-      const relMs = e.ts - startTs;
-      const detailsStr = e.details && Object.keys(e.details).length
-        ? JSON.stringify(e.details)
-        : '';
-      return `
-        <div class="event-row ${rowClass}">
-          <span class="ts">${fmtTime(e.ts)} <span style="opacity:0.5">(+${relMs}ms)</span></span>
-          <span class="client-badge" style="background:${color}22;color:${color};border:1px solid ${color}">${escapeHtml(clientKey)}</span>
-          ${e.isHost ? '<span class="host-tag">HOST</span>' : ''}
-          <span class="event-name">${escapeHtml(e.event)}</span>
-          <span class="details">${escapeHtml(detailsStr)}</span>
-        </div>`;
-    }).join('');
+  try {
+    const snap = await db.ref('sq_debug_log_lobby').once('value');
+    const val = snap.val();
+    if (!val) {
+      statusEl.textContent = 'No lobby-level activity logged yet.';
+      return;
+    }
+    const devices = Object.entries(val).map(([deviceId, events]) => {
+      const list = Object.values(events);
+      const latest = list.reduce((max, e) => Math.max(max, e.ts || 0), 0);
+      const name = list.slice().sort((a,b) => b.ts - a.ts)[0]?.myName || deviceId;
+      return { deviceId, count: list.length, latest, name };
+    }).sort((a, b) => b.latest - a.latest);
+
+    statusEl.textContent = devices.length + ' device(s) with lobby-level activity';
+    deviceListEl.innerHTML = devices.map(d => `
+      <div class="event-row" style="cursor:pointer" onclick="loadLobbyDeviceLog('${escapeHtml(d.deviceId)}')">
+        <span class="event-name">${escapeHtml(d.name)}</span>
+        <span class="details">${d.count} events · last activity ${fmtTime(d.latest)}</span>
+      </div>`).join('');
+  } catch (err) {
+    statusEl.textContent = 'Error loading devices: ' + err.message;
+  }
+}
+
+async function loadLobbyDeviceLog(deviceId) {
+  const statusEl = document.getElementById('status');
+  resetView();
+  statusEl.textContent = 'Loading…';
+  try {
+    const snap = await db.ref('sq_debug_log_lobby/' + deviceId).once('value');
+    const val = snap.val();
+    if (!val) { statusEl.textContent = 'No events found for this device.'; return; }
+    const events = Object.values(val).sort((a, b) => a.ts - b.ts);
+    renderEvents(events, 'device ' + deviceId + ' (no room)');
   } catch (err) {
     statusEl.textContent = 'Error loading log: ' + err.message;
   }
@@ -175,7 +248,7 @@ function buildTextExport() {
   if (!loadedEvents.length) return '';
   const startTs = loadedEvents[0].ts;
   const lines = [
-    'SEQUENCE DEBUG LOG — Room ' + loadedRoomCode + ' — ' + loadedEvents.length + ' events',
+    'SEQUENCE DEBUG LOG — ' + loadedSourceLabel + ' — ' + loadedEvents.length + ' events',
     'Generated ' + new Date().toLocaleString(),
     '',
   ];
