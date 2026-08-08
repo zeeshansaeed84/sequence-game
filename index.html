@@ -6267,27 +6267,41 @@ async function joinGameRoom(code) {
     let committedFormat = null;
     let txResult;
     try {
-      txResult = await roomRef.transaction(currentRoom => {
-        if (!currentRoom) return currentRoom; // room vanished mid-transaction (e.g. abandoned) - abort, nothing sensible to join
-        const currentPlayers = currentRoom.players ? JSON.parse(currentRoom.players) : [];
-        // Defensive against this callback re-running on retry - always
-        // work from a clean base so a contested transaction can't end up
-        // adding this same joiner twice.
-        const withoutMe = currentPlayers.filter(p => p.id !== myId);
-        const newTotal = withoutMe.length + 1;
-        committedFormat = computeGroupTeamFormat(newTotal, currentRoom.numTeams || numTeams);
-        const allPlayers = [...withoutMe, {id: myId, name: myName, team: 0, username: myUsername}];
-        return {
-          ...currentRoom,
-          players: JSON.stringify(allPlayers.map((p, i) => ({...p, team: i % committedFormat.numTeams}))),
-          numTeams: committedFormat.numTeams,
-          seqToWin: committedFormat.seqToWin,
-        };
+      // applyLocally=false for the same reason as attemptHostMigration -
+      // by default a transaction's result is applied to the local cache
+      // and fires listeners BEFORE the server confirms, so a contested
+      // join would briefly show this client an optimistic player list and
+      // team format that may never actually commit. Only server-confirmed
+      // state should ever reach the listeners.
+      txResult = await new Promise((resolve, reject) => {
+        roomRef.transaction(
+          currentRoom => {
+            if (!currentRoom) return currentRoom; // room vanished mid-transaction (e.g. abandoned) - abort, nothing sensible to join
+            const currentPlayers = currentRoom.players ? JSON.parse(currentRoom.players) : [];
+            // Defensive against this callback re-running on retry - always
+            // work from a clean base so a contested transaction can't end up
+            // adding this same joiner twice.
+            const withoutMe = currentPlayers.filter(p => p.id !== myId);
+            const newTotal = withoutMe.length + 1;
+            committedFormat = computeGroupTeamFormat(newTotal, currentRoom.numTeams || numTeams);
+            const allPlayers = [...withoutMe, {id: myId, name: myName, team: 0, username: myUsername}];
+            return {
+              ...currentRoom,
+              players: JSON.stringify(allPlayers.map((p, i) => ({...p, team: i % committedFormat.numTeams}))),
+              numTeams: committedFormat.numTeams,
+              seqToWin: committedFormat.seqToWin,
+            };
+          },
+          (error, committed, snapshot) => {
+            if (error) reject(error); else resolve({ committed, snapshot });
+          },
+          false // applyLocally - see comment above
+        );
       });
     } catch(e) {
       return { ok: false, reason: 'Could not join: ' + e.message };
     }
-    if (!txResult.committed || !txResult.snapshot.val()) return { ok: false, reason: 'Could not join: try again.' };
+    if (!txResult.committed || !txResult.snapshot || !txResult.snapshot.val()) return { ok: false, reason: 'Could not join: try again.' };
     const committedRoom = txResult.snapshot.val();
     updated = JSON.parse(committedRoom.players);
     numTeams = committedRoom.numTeams;
@@ -6561,6 +6575,7 @@ function renderWaitingPlayers() {
     const startBtn = document.getElementById('start-btn');
     startBtn.style.display = 'block';
     startBtn.disabled = !canStart;
+    logDebugEvent('start_button_recomputed', { canStart, numPlayers: players.length, numTeams, teamCounts, balanced });
 
     let statusMsg = '';
     if (players.length < 2) {
@@ -6572,6 +6587,15 @@ function renderWaitingPlayers() {
       statusMsg = `${players.length} player(s) ready. Teams balanced ✓`;
     }
     document.getElementById('waiting-status').textContent = statusMsg;
+  } else {
+    // Previously missing entirely - this branch only ever showed the
+    // button, never hid it again, so a client who lost host status (e.g.
+    // stepping down after a migration) would keep seeing a stale,
+    // visible Start button from before. Harmless to tap (startGame()
+    // guards on isHost), but confusing to see at all.
+    document.getElementById('start-btn').style.display = 'none';
+    document.getElementById('waiting-status').textContent =
+      players.length < 2 ? 'Waiting for at least 2 players…' : `${players.length} player(s) in the room.`;
   }
 }
 
@@ -6582,14 +6606,17 @@ function broadcastLobbyState() {
 
 function startGame() {
   unlockSpeaker();
-  if (!isHost) return;
-  if (players.length < 2) { setError('waiting-error','Need at least 2 players.'); return; }
-
-  // Ensure teams are balanced
   const teamCounts = Array(numTeams).fill(0);
   players.forEach(p => { if (p.team < numTeams) teamCounts[p.team]++; });
   const minPlayers = Math.min(...teamCounts);
   const maxPlayers = Math.max(...teamCounts);
+  logDebugEvent('start_game_clicked', {
+    isHostAtClick: isHost, numPlayers: players.length, numTeams, teamCounts, minPlayers, maxPlayers,
+  });
+  if (!isHost) return;
+  if (players.length < 2) { setError('waiting-error','Need at least 2 players.'); return; }
+
+  // Ensure teams are balanced
   if (minPlayers === 0 || minPlayers !== maxPlayers) {
     const teamNames = teamCounts.map((n,i) => `${TEAM_NAMES[i]}: ${n}`).join(', ');
     setError('waiting-error', `Teams must be equal before starting. (${teamNames})`);
@@ -9221,6 +9248,17 @@ function becomeHost() {
     if (!d || d.timestamp < migratedHostStartTime) return;
     applyMove(d.move, d.fromId);
   });
+  // Confirmed root cause of "Start button stuck" when it happens after a
+  // host migration specifically: the Start button is hidden by default
+  // and only ever revealed inside renderWaitingPlayers()'s isHost branch.
+  // Migrating in doesn't run that function on its own, so a client who
+  // becomes host while still in the lobby (as opposed to the one who
+  // originally created the room) would never actually see the button at
+  // all - the underlying host state was completely correct and stable,
+  // there was just nothing telling their UI about it. Only relevant
+  // before the game has started; if migration happens mid-game the
+  // waiting-lobby elements aren't visible anyway.
+  if (!fbGameStarted) renderWaitingPlayers();
 }
 
 function stepDownAsHost() {
@@ -9228,6 +9266,11 @@ function stepDownAsHost() {
   isHost = false;
   stopTurnTimer();
   startHostDisconnectWatchdog(); // resume watching, in case the new host also disconnects later
+  // Symmetric with becomeHost() - without this, a client who just lost
+  // host status would keep seeing a stale, visible Start button from
+  // when they still were host (harmless to tap - startGame() guards on
+  // isHost - but confusing to see at all).
+  if (!fbGameStarted) renderWaitingPlayers();
 }
 
 function startHostDisconnectWatchdog() {
@@ -9272,15 +9315,37 @@ function stopHostDisconnectWatchdog() {
 // watchHostId()'s listener reacts to the resulting write instead, so
 // there's exactly one code path that ever promotes a client to host,
 // not two that could theoretically race with each other.
+//
+// applyLocally=false is load-bearing, not a tweak. By default Firebase
+// applies a transaction's result to the LOCAL cache immediately and
+// fires value listeners with that optimistic value, before the server
+// has confirmed anything. That meant every client attempting migration
+// briefly saw its OWN id as hostId, so watchHostId() fired becomeHost()
+// on all of them - including the ones whose transaction was about to be
+// rejected. Captured directly in a real 3200-event log: two clients both
+// became host within 600ms of each other, and the losing one stayed
+// falsely host for 39 SECONDS until its rejection finally arrived and
+// stepped it down. Two simultaneous hosts both run turn timers and both
+// apply moves, which is exactly the "timer haywire"/desync class of
+// symptom. Suppressing the local apply means listeners only ever see
+// server-confirmed host changes.
 async function attemptHostMigration(disconnectedHostId) {
   if (isHost || !roomRef) return;
   logDebugEvent('host_migration_attempted', { disconnectedHostId });
   try {
-    const result = await roomRef.child('hostId').transaction(currentHostId => {
-      if (currentHostId === disconnectedHostId) return myId;
-      return; // already changed - abort, someone else got there first
+    const result = await new Promise((resolve, reject) => {
+      roomRef.child('hostId').transaction(
+        currentHostId => {
+          if (currentHostId === disconnectedHostId) return myId;
+          return; // already changed - abort, someone else got there first
+        },
+        (error, committed, snapshot) => {
+          if (error) reject(error); else resolve({ committed, snapshot });
+        },
+        false // applyLocally - see comment above; this is the actual fix for the dual-host bug
+      );
     });
-    logDebugEvent('host_migration_result', { committed: result.committed, resultingHostId: result.snapshot?.val ? result.snapshot.val() : null });
+    logDebugEvent('host_migration_result', { committed: result.committed, resultingHostId: result.snapshot ? result.snapshot.val() : null });
   } catch(e) { logDebugEvent('host_migration_threw', { error: e.message }); /* non-fatal - the watchdog will simply try again on the next presence tick */ }
 }
 
@@ -11269,9 +11334,20 @@ function renderBoard() {
           if (GS.lastMove.jackWild) chip.classList.add('jack-wild-anim');
         }
         const ownerId = GS.chipOwners?.[r]?.[c];
-        const ownerPlayer = ownerId
-          ? players.find(p => p.id === ownerId)
-          : players.find(p => p.team === chipTeam);
+        // Falls back to any current teammate when the stored owner id
+        // doesn't resolve - not just when it's missing entirely. Chip
+        // ownership is recorded as a player id, but ids are not stable
+        // across a rejoin (joinGameRoom mints a fresh one unless the
+        // returning-player match hits) or a roster change, so a chip
+        // placed earlier in the game can easily reference someone no
+        // longer in the players array. Without this second fallback that
+        // rendered as a completely blank chip - confirmed against a
+        // reported screenshot where every chip on the board had lost its
+        // letter after the player set changed. The team is still known
+        // and correct in that case, so showing a teammate's initial is
+        // both accurate at team level and far better than nothing.
+        const ownerPlayer = (ownerId ? players.find(p => p.id === ownerId) : null)
+          || players.find(p => p.team === chipTeam);
         const initial = (!isLastPlaced && ownerPlayer) ? ownerPlayer.name.charAt(0).toUpperCase() : '';
         overlay.append(chip);
         cell.append(overlay);
@@ -11524,7 +11600,7 @@ function selectCard(idx) {
 
 function onCellClick(row, col) {
   // Prime timer sounds async — don't block the tap response
-  setTimeout(primeTimerSounds, 0);
+  setTimeout(() => primeTimerSounds('cellclick'), 0);
   if (!GS || GS.phase === 'done') return;
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
   if (!myTurn) return;
