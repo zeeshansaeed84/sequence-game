@@ -4063,6 +4063,17 @@ function updateAIChatToggleUI() {
     el.src = dataUri;
     el.preload = 'auto';
     el.id = 'snd-' + key;
+    // Silent by default from the moment the element exists, not just
+    // during priming - playSound() is the only place that ever unmutes,
+    // right before its own intentional play() call. See primeTimerSounds
+    // for why this matters: toggling mute/volume off again right after a
+    // muted priming cycle turned out not to be reliably safe on every
+    // device (a real, heard case had zero actual playSound() calls in its
+    // log - the sound played DURING priming itself, not from a genuine
+    // trigger) - keeping elements silent at rest by default removes that
+    // window entirely rather than trying to close it more carefully.
+    el.muted = true;
+    el.volume = 0;
     container.appendChild(el);
     audioEls[key] = el;
   }
@@ -4098,6 +4109,11 @@ function playSound(name) {
   const el = audioEls[name];
   if (!el) return;
   el.currentTime = 0;
+  // The only place that ever makes an element audible - see
+  // buildAudioElements and primeTimerSounds for why elements are silent
+  // by default at all other times.
+  el.muted = false;
+  el.volume = 1;
   el.play().catch(() => {});
 }
 
@@ -4105,7 +4121,7 @@ function playSound(name) {
 // iOS blocks audio.play() from setTimeout — but if we call play()+pause() during a
 // gesture, iOS marks the element as "user-activated" and allows later timer-triggered plays.
 //
-// Confirmed root cause of sounds randomly audible on lobby load: this used
+// Confirmed root cause of an earlier version of this same bug: this used
 // to fire on every single pointerdown with no guard against overlapping
 // calls. Rapid taps (e.g. swiping through the How to Play tutorial) could
 // start a second priming cycle for the same sound before the first one's
@@ -4114,7 +4130,19 @@ function playSound(name) {
 // that a SECOND, newer priming call was still actively playing, briefly
 // making it genuinely audible. Confirmed structurally with a direct
 // reproduction (70 overlapping in-flight calls when fired rapidly) before
-// writing this fix, not fixed on theory alone.
+// writing that fix.
+//
+// That fix wasn't sufficient, though - a real, captured log showed a
+// heard sound with zero play_sound_called events anywhere in it, meaning
+// it happened DURING the muted priming cycle itself, not from a genuine
+// trigger. Muting immediately before play() isn't strictly guaranteed to
+// apply before any audio output begins on every device, so this no
+// longer restores audibility after priming at all - elements stay muted
+// at rest by default (see buildAudioElements), and only playSound()
+// itself ever unmutes, right before its own intentional play() call.
+// Priming still defensively re-mutes before its own play() below, in
+// case a prior real playSound() call left an element unmuted - that's
+// the one case this needs to actively correct for, not just rely on default state.
 let lastPrimeTime = 0;
 const primingInFlight = new Set();
 function primeTimerSounds(trigger) {
@@ -4122,22 +4150,22 @@ function primeTimerSounds(trigger) {
   if (now - lastPrimeTime < 1000) return; // already primed within the last second - no need on every single tap
   lastPrimeTime = now;
   ['Sequence_complete_', 'Lose', 'Win', 'Chip_removal_jack', 'Chip_placement'].forEach(name => {
-    if (primingInFlight.has(name)) return; // a priming call for this exact sound is already mid-flight - this is the actual overlap that caused the bug
+    if (primingInFlight.has(name)) return; // a priming call for this exact sound is already mid-flight - this is the actual overlap that caused the earlier bug
     const el = audioEls[name];
     if (!el) return;
     primingInFlight.add(name);
     logSoundEvent('sound_priming_started', { name, trigger: trigger || 'unknown', msSincePageLoad: Date.now() - pageLoadTime });
-    const originalVolume = el.volume;
     el.muted = true;
-    el.volume = 0; // belt-and-suspenders alongside muted - the mute property isn't strictly guaranteed to apply before playback output begins on every browser, this closes that gap independently
+    el.volume = 0;
     el.currentTime = 0;
     el.play().then(() => {
       el.pause();
-      el.muted = false;
-      el.volume = originalVolume;
       el.currentTime = 0;
+      // Deliberately NOT restoring muted/volume here - see the comment
+      // above this function for why. The element stays silent at rest;
+      // only playSound() ever makes it audible again.
       logSoundEvent('sound_priming_completed', { name, trigger: trigger || 'unknown', msSincePageLoad: Date.now() - pageLoadTime });
-    }).catch(() => { el.muted = false; el.volume = originalVolume; logSoundEvent('sound_priming_rejected', { name, trigger: trigger || 'unknown' }); }).finally(() => { primingInFlight.delete(name); });
+    }).catch(() => { logSoundEvent('sound_priming_rejected', { name, trigger: trigger || 'unknown' }); }).finally(() => { primingInFlight.delete(name); });
   });
 }
 
@@ -4159,6 +4187,8 @@ function playWinMusic(onEnded) {
   if (!el) { onEnded?.(); return; }
   el.loop = false;
   el.currentTime = 0;
+  el.muted = false;
+  el.volume = 1;
   el.onended = () => { el.onended = null; onEnded?.(); };
   el.play().catch(() => { onEnded?.(); });
 }
