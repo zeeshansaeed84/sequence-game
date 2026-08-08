@@ -4315,10 +4315,10 @@ let fbGameStarted = false;
 // passively waiting for the next natural push from Firebase.
 
 async function forceResyncGameState(reason) {
-  // Also re-affirm our own presence — keeps presence data accurate for
-  // whoever's watching the room, even though nothing in gameplay currently
-  // reacts to it (see registerPresence's own comment for why it's kept
-  // around anyway).
+  // Also re-affirm our own presence. This matters more than it used to: the
+  // host-disconnect watchdog reads presence directly to decide whether to
+  // migrate host authority away, so a stale "absent" flag left behind by a
+  // background cycle is not cosmetic - it can cost this client the host role.
   registerPresence();
   if (!roomRef || !GS || GS.phase === 'done') return;
   try {
@@ -4331,6 +4331,25 @@ async function forceResyncGameState(reason) {
       GS = freshGS;
       if (GS.moveSeq === 1) GS.lastRemoved = null;
       renderGame();
+    }
+    // Re-arm the turn timer if I'm the host. This is load-bearing, not
+    // defensive: mobile browsers throttle or fully suspend setTimeout in a
+    // backgrounded tab, so a host that backgrounds mid-turn silently loses
+    // its pending turn timer and NOTHING else ever re-arms it - scheduleTurnTimer
+    // is otherwise only called when a move is applied, and no move can be
+    // applied precisely because the turn isn't advancing. Confirmed against
+    // a captured log where the game froze at moveSeq 9 immediately after the
+    // host backgrounded, and a spectator joining 90 minutes later still saw
+    // moveSeq 9. If the deadline already elapsed while we were away, skip
+    // straight away rather than granting a fresh full turn length - otherwise
+    // backgrounding would be a way to hand yourself unlimited extra time.
+    if (isHost && GS && GS.phase !== 'done') {
+      const deadlinePassed = GS.turnDeadline && Date.now() >= GS.turnDeadline;
+      logDebugEvent('host_timer_rearmed_on_visible', {
+        currentTurn: GS.currentTurn, moveSeq: GS.moveSeq, deadlinePassed: !!deadlinePassed,
+        msPastDeadline: GS.turnDeadline ? Date.now() - GS.turnDeadline : null,
+      });
+      if (deadlinePassed) skipTurn(); else scheduleTurnTimer();
     }
   } catch(e) { /* best-effort — next natural update will still arrive eventually */ }
 }
@@ -6872,6 +6891,14 @@ function leaveGame() {
     db.ref('sq_groups/' + currentGroupId + '/activeGames/' + roomCode).remove().catch(() => {});
   }
   roomRef = null;
+  // Clear roomCode too - it was previously left set after leaving, so this
+  // client's diagnostic logging kept writing into a room it was no longer
+  // part of. Confirmed in a captured log: a player who had left continued
+  // emitting sound events into that room's timeline for minutes, with no
+  // accompanying gamestate or host events, which made the real sequence of
+  // events harder to read. Safe to clear because every reader of roomCode
+  // (createGameRoom, joinGameRoom, spectateGame) sets it fresh first.
+  roomCode = '';
   fbGameStarted = false;
   players = [];
   GS = null;
@@ -9197,7 +9224,19 @@ function stopTurnTimer() {
 // just "who currently has authority to run the timer," using presence
 // data that already exists (registerPresence()'s onDisconnect hook).
 let hostDisconnectGraceTimer = null;
-let HOST_DISCONNECT_GRACE_MS = 8000; // avoids migrating over a brief blip/tab-background cycle
+// 45s, raised from an original 8s on direct log evidence. Backgrounding a
+// mobile app drops the Firebase socket, which fires the presence
+// onDisconnect hook even though the client is perfectly alive and about to
+// come straight back. At 8s that produced migrations over nothing: in one
+// captured log the "disconnected" host logged a real user interaction just
+// 5 SECONDS before another client declared it gone and took over, and it
+// was still logging interactions afterwards. Each needless migration
+// resets turn-timer authority and, chained a few times, is exactly how a
+// game ends up stuck. The cost of waiting longer is small now that a host
+// returning to the foreground re-arms its own timer (see
+// forceResyncGameState) - a genuinely departed host still gets replaced,
+// just after a delay that real backgrounding can't fake.
+let HOST_DISCONNECT_GRACE_MS = 45000;
 
 // Runs for EVERY client, host or not - reacts to hostId itself changing,
 // which covers BOTH directions of a migration in one place: a non-host
