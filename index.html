@@ -1977,6 +1977,11 @@
     padding: 3px 10px 1px;
     gap: 8px;
     position: relative;
+    /* Sized for the LARGER "YOUR TURN" state so the row height is identical
+       in both states. Without this the row would grow and shrink on every
+       turn change, nudging the whole board up and down - a distracting
+       twitch on a phone, where vertical space is already tight. */
+    min-height: 21px;
   }
 
   .hand-label-line {
@@ -2011,6 +2016,11 @@
      more clearly and matches the game's existing accent palette. */
   .hand-label.my-turn {
     color: #ffc93c;
+    /* Noticeably larger than the resting 0.6rem so the turn change reads as
+       an event at a glance, not just a word swap. The row's min-height above
+       absorbs the size difference so nothing below it moves. */
+    font-size: 0.82rem;
+    letter-spacing: 0.16em;
     animation: hand-label-pulse 1.5s ease-in-out infinite;
   }
   .hand-label-line.my-turn .hand-label-bar {
