@@ -2002,6 +2002,30 @@
     background: rgba(255,255,255,0.35);
   }
 
+  /* "It's your turn" state for the hand label. This row is the one piece of
+     horizontal space on mobile that ISN'T contested by the score badges, so
+     it can carry real text where the info bar's turn-info can't - that one is
+     hidden on mobile precisely because even the fixed string "YOUR TURN"
+     clipped to "YO…" in the tight 3-team layout. Gold rather than the info
+     bar's red: this sits on the dark blue hand area, where warm gold reads far
+     more clearly and matches the game's existing accent palette. */
+  .hand-label.my-turn {
+    color: #ffc93c;
+    animation: hand-label-pulse 1.5s ease-in-out infinite;
+  }
+  .hand-label-line.my-turn .hand-label-bar {
+    background: rgba(255,201,60,0.5);
+  }
+  @keyframes hand-label-pulse {
+    0%, 100% { opacity: 1;   text-shadow: 0 0 7px rgba(255,201,60,0.6); }
+    50%      { opacity: 0.6; text-shadow: 0 0 2px rgba(255,201,60,0.2); }
+  }
+  /* The colour swap alone still conveys the state, so players who've asked
+     for reduced motion lose nothing but the movement. */
+  @media (prefers-reduced-motion: reduce) {
+    .hand-label.my-turn { animation: none; text-shadow: 0 0 7px rgba(255,201,60,0.6); }
+  }
+
   /* Timer floats absolutely from the white info bar, hanging down to
      overlap the label row / top of the cards area below — same visual
      spot as before, just re-anchored since timer-wrap now lives inside
@@ -11256,6 +11280,24 @@ function renderTopBar() {
     turnEl.textContent = cp ? `${cp.name}'s turn` : '';
     turnEl.style.color = '#1a2080';
   }
+
+  // Mobile's actual turn signal. The hand-label row is full-width and
+  // uncontested by the score badges, so unlike turn-info above it can carry
+  // readable text on a phone - which matters because on mobile the badge
+  // highlight and the "ting" were previously the ONLY cues, and in a
+  // multi-player team game a player genuinely could not tell whether the
+  // highlighted team badge meant THEIR turn or a teammate's. Sitting directly
+  // above the cards also puts it exactly where the player's attention is
+  // already going. Guarded on phase: a finished game must never sit there
+  // claiming it's still your turn.
+  const myTurnNow = !!isMe && GS.phase !== 'done';
+  const handLabelEl = document.querySelector('.hand-label');
+  const handLabelLineEl = document.querySelector('.hand-label-line');
+  if (handLabelEl) {
+    handLabelEl.textContent = myTurnNow ? 'YOUR TURN' : 'YOUR HAND';
+    handLabelEl.classList.toggle('my-turn', myTurnNow);
+  }
+  if (handLabelLineEl) handLabelLineEl.classList.toggle('my-turn', myTurnNow);
 }
 
 // Wide-screen sidebar: one slot per team, each showing only that team's own
