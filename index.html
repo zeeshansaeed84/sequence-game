@@ -1999,6 +1999,13 @@
     color: white;
     letter-spacing: 0.14em;
     white-space: nowrap;
+    /* This used to hold only fixed strings ("YOUR HAND"), but now carries
+       "<NAME>'S TURN" too, and names are arbitrary length. Without a cap,
+       nowrap would let a long name push into the countdown timer that sits
+       absolutely positioned at the right of this same row. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
   }
 
   .hand-label-bar {
@@ -5214,6 +5221,23 @@ function startVsAI() {
   myName = document.getElementById('player-name').value.trim();
   if (!myName) { setError('lobby-error','Enter your name first.'); return; }
   setError('lobby-error', '');
+
+  // A VS AI game is entirely local, so clear any multiplayer identity left
+  // over from a previous room rather than assuming the player got here via
+  // a path that already tidied up. Confirmed cause of AI games showing up
+  // under an old multiplayer room code in the diagnostic logs: roomCode
+  // survived into the AI game, and logSoundEvent deliberately does NOT skip
+  // AI mode (sound bugs aren't multiplayer-specific), so local AI sound
+  // events were filed against a room this player had already left.
+  // isSpectator matters even more than the logging: left set, it would hide
+  // this player's own hand in their own AI game.
+  fbOff();
+  roomRef = null;
+  roomCode = '';
+  currentGroupId = null;
+  isSpectator = false;
+  fbGameStarted = false;
+
   aiMode = true;
   isHost = true;
   myId = 'human';
@@ -10276,21 +10300,41 @@ const CHAT_PRESETS = [
   { text: "Where are the Jacks?!?", emoji: "🤯", cat: "Reactions" },
   { text: "You've got a Jackpot", emoji: "🎰", cat: "Reactions" },
   { text: "Ha ha ha!", emoji: "😂", cat: "Reactions" },
-  { text: "Hurry up!", emoji: "⌛️", cat: "Social" },
+  { text: "Hurry up!", emoji: "⌛️", cat: "Social", targetsCurrentPlayer: true },
   { text: "Don't! … let it go!", emoji: "🙏🏽", cat: "Social" },
   { text: "Don't let it go!", emoji: "✋🏼", cat: "Social" },
 ];
+
+// Single source of truth for a preset's actual text, used by BOTH the picker
+// buttons and the send path - resolving it in two places would let the label
+// you tapped differ from the message that actually got sent.
+// "Hurry up!" becomes "<name>, hurry up!" so a distracted player is named
+// directly rather than everyone wondering who the nudge was aimed at.
+// Stays generic when it's your own turn (nudging yourself reads oddly), when
+// the game is over, or when there's no current player to name.
+function resolvePresetText(preset) {
+  if (!preset) return '';
+  if (preset.targetsCurrentPlayer && GS && GS.phase !== 'done') {
+    const cp = players[GS.currentTurn];
+    if (cp && cp.id !== myId) return `${cp.name}, hurry up!`;
+  }
+  return preset.text;
+}
 
 function toggleChatPicker() {
   const backdrop = document.getElementById('chat-picker-backdrop');
   if (!backdrop) return;
   if (backdrop.style.display === 'flex') { closeChatPicker(); return; }
   const grid = document.getElementById('chat-picker-grid');
-  if (grid && !grid.dataset.init) {
+  if (grid) {
+    // Rebuilt on every open rather than cached once: a preset can now embed
+    // the current player's name, which changes every turn. The old
+    // init-once guard would have frozen whoever was on the clock the very
+    // first time this was opened and named them for the rest of the session.
+    // escapeHtml because a player-supplied name now reaches innerHTML.
     grid.innerHTML = CHAT_PRESETS.map((p, i) =>
-      `<button class="chat-preset-btn" onclick="sendChatPreset(${i})"><span>${p.text}</span><span class="chat-preset-emoji">${p.emoji}</span></button>`
+      `<button class="chat-preset-btn" onclick="sendChatPreset(${i})"><span>${escapeHtml(resolvePresetText(p))}</span><span class="chat-preset-emoji">${p.emoji}</span></button>`
     ).join('');
-    grid.dataset.init = '1';
   }
   backdrop.style.display = 'flex';
 }
@@ -10310,12 +10354,10 @@ function toggleWideChatPresets() {
   const grid = document.getElementById('wide-preset-grid');
   if (!grid) return;
   if (grid.classList.contains('open')) { closeWideChatPresets(); return; }
-  if (!grid.dataset.init) {
-    grid.innerHTML = CHAT_PRESETS.map((p, i) =>
-      `<button class="wide-preset-btn" onclick="sendChatPreset(${i})">${p.text} ${p.emoji}</button>`
-    ).join('');
-    grid.dataset.init = '1';
-  }
+  // Rebuilt per open for the same reason as the mobile picker above.
+  grid.innerHTML = CHAT_PRESETS.map((p, i) =>
+    `<button class="wide-preset-btn" onclick="sendChatPreset(${i})">${escapeHtml(resolvePresetText(p))} ${p.emoji}</button>`
+  ).join('');
   grid.classList.add('open');
 }
 
@@ -10327,7 +10369,7 @@ function closeWideChatPresets() {
 function sendChatPreset(idx) {
   const preset = CHAT_PRESETS[idx];
   if (!preset || !myId) return;
-  const text = `${preset.text} ${preset.emoji}`;
+  const text = `${resolvePresetText(preset)} ${preset.emoji}`;
   closeChatPicker();
   closeWideChatPresets();
   showChatBubble(myId, text); // show on my own screen immediately
@@ -11304,7 +11346,19 @@ function renderTopBar() {
   const handLabelEl = document.querySelector('.hand-label');
   const handLabelLineEl = document.querySelector('.hand-label-line');
   if (handLabelEl) {
-    handLabelEl.textContent = myTurnNow ? 'YOUR TURN' : 'YOUR HAND';
+    // When it isn't your turn, name whoever IS on the clock rather than
+    // falling back to a static "YOUR HAND". In a multi-team game the badge
+    // highlight only identifies the TEAM, so a player genuinely could not
+    // tell which teammate everyone was waiting on - and that's precisely
+    // the person you'd want to nudge. Falls back to "YOUR HAND" once the
+    // game is over, when nobody is on the clock at all.
+    let labelText = 'YOUR HAND';
+    if (myTurnNow) {
+      labelText = 'YOUR TURN';
+    } else if (cp && GS.phase !== 'done') {
+      labelText = `${cp.name.toUpperCase()}'S TURN`;
+    }
+    handLabelEl.textContent = labelText;
     handLabelEl.classList.toggle('my-turn', myTurnNow);
   }
   if (handLabelLineEl) handLabelLineEl.classList.toggle('my-turn', myTurnNow);
