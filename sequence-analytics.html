@@ -157,7 +157,14 @@
     <div class="stat-card"><div class="stat-value" id="s-jack-expected">7.69</div><div class="stat-label">Expected (8 jacks / 104 cards)</div></div>
     <div class="stat-card"><div class="stat-value" id="s-jack-verdict">—</div><div class="stat-label">Verdict</div></div>
   </div>
-  <div id="jack-detail" style="font-size:0.8em;opacity:0.75;margin:-8px 0 20px;line-height:1.5"></div>
+  <div id="jack-detail" style="font-size:0.8em;opacity:0.75;margin:-8px 0 12px;line-height:1.5"></div>
+
+  <div id="jack-vsai-block" style="border-left:3px solid rgba(224,176,64,0.35);padding:10px 0 10px 14px;margin:0 0 20px">
+    <div style="font-size:0.85em;font-weight:600;letter-spacing:0.04em;opacity:0.9;margin-bottom:6px">
+      Head-to-head check · VS AI games only <span id="jack-vsai-verdict" style="font-weight:700"></span>
+    </div>
+    <div id="jack-vsai-detail" style="font-size:0.8em;opacity:0.75;line-height:1.5"></div>
+  </div>
 
   <div class="section-title">Recent Accounts</div>
   <div class="table-wrap">
@@ -401,24 +408,53 @@ async function loadData() {
   // conflate luck with the Hard AI deliberately holding jacks back as a
   // finishing move.
   const jackGames = completed.filter(g => Array.isArray(g.jackReport) && g.jackReport.length);
-  let humanJacks = 0, humanCards = 0, aiJacks = 0, aiCards = 0;
-  jackGames.forEach(g => {
-    g.jackReport.forEach(row => {
-      if (row.isAI) { aiJacks += row.jacks || 0; aiCards += row.cards || 0; }
-      else          { humanJacks += row.jacks || 0; humanCards += row.cards || 0; }
-    });
-  });
+  const EXPECTED_P = 8 / 104; // 8 jacks in a 104-card double deck
 
-  const per100 = (j, c) => c ? (j / c * 100) : null;
-  const humanRate = per100(humanJacks, humanCards);
-  const aiRate = per100(aiJacks, aiCards);
+  // Shared tally + significance maths, so the pooled and VS-AI-only views
+  // can't drift apart. A two-proportion z-test rather than a fixed gap
+  // threshold: how large a difference counts as meaningful depends on how
+  // much data sits behind it, and an earlier fixed ±0.8-per-100 band wrongly
+  // flagged the AI's smaller (inherently noisier) sample as bias.
+  function tallyJacks(gamesSubset) {
+    let hj = 0, hc = 0, aj = 0, ac = 0, withAI = 0, humanOnly = 0;
+    gamesSubset.forEach(g => {
+      let hasAI = false;
+      g.jackReport.forEach(row => {
+        if (row.isAI) { hasAI = true; aj += row.jacks || 0; ac += row.cards || 0; }
+        else          { hj += row.jacks || 0; hc += row.cards || 0; }
+      });
+      if (hasAI) withAI++; else humanOnly++;
+    });
+    const humanRate = hc ? hj / hc * 100 : null;
+    const aiRate    = ac ? aj / ac * 100 : null;
+    let gap = null, z = null, withinNoise = null;
+    if (humanRate !== null && aiRate !== null) {
+      gap = aiRate - humanRate;
+      const se = Math.sqrt(EXPECTED_P * (1 - EXPECTED_P) * (1 / hc + 1 / ac)) * 100;
+      z = se ? gap / se : 0;
+      withinNoise = Math.abs(z) < 2; // ~95% of fair outcomes fall inside ±2 SD
+    }
+    return { hj, hc, aj, ac, withAI, humanOnly, humanRate, aiRate, gap, z, withinNoise,
+             games: gamesSubset.length };
+  }
+
+  const verdictLabel = (t) => t.withinNoise === null ? '—'
+    : (t.withinNoise ? 'No bias' : (t.gap > 0 ? 'AI ahead' : 'Human ahead'));
+
+  const pooled = tallyJacks(jackGames);
+  // Paired view: only games where a human and an AI actually sat at the same
+  // table, drawing alternately from the same shuffled deck. Less data than the
+  // pooled view, but it's the sharpest test of the actual claim ("the AI gets
+  // better cards than me in MY game") since it can't be affected by mixing in
+  // human-only games.
+  const vsAiOnly = tallyJacks(jackGames.filter(g => g.jackReport.some(r => r.isAI)));
 
   const setJack = (id, val) => {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
   };
-  setJack('s-jack-human', humanRate === null ? '—' : humanRate.toFixed(2));
-  setJack('s-jack-ai',    aiRate === null    ? '—' : aiRate.toFixed(2));
+  setJack('s-jack-human', pooled.humanRate === null ? '—' : pooled.humanRate.toFixed(2));
+  setJack('s-jack-ai',    pooled.aiRate === null    ? '—' : pooled.aiRate.toFixed(2));
 
   const jackScope = document.getElementById('jack-scope-note');
   if (jackScope) {
@@ -428,41 +464,71 @@ async function loadData() {
   }
 
   // Deliberately withholds a verdict on small samples. A handful of games
-  // can easily show a 20%+ gap from pure chance, and showing that as a
+  // can easily show a large gap from pure chance, and showing that as a
   // result would invite exactly the wrong conclusion - the opposite of what
   // this section is for.
   const MIN_GAMES_FOR_VERDICT = 20;
   const verdictEl = document.getElementById('s-jack-verdict');
   const detailEl = document.getElementById('jack-detail');
+  const vsAiVerdictEl = document.getElementById('jack-vsai-verdict');
+  const vsAiDetailEl = document.getElementById('jack-vsai-detail');
+
   if (!jackGames.length) {
     if (verdictEl) verdictEl.textContent = '—';
     if (detailEl) detailEl.textContent = 'No games with jack data yet. Play a few games — each completed game adds to this.';
-  } else if (jackGames.length < MIN_GAMES_FOR_VERDICT || humanRate === null || aiRate === null) {
+  } else if (jackGames.length < MIN_GAMES_FOR_VERDICT || pooled.humanRate === null || pooled.aiRate === null) {
     if (verdictEl) { verdictEl.textContent = 'Too early'; verdictEl.style.fontSize = '1.1rem'; }
     if (detailEl) {
       detailEl.textContent = `Only ${jackGames.length} of ${MIN_GAMES_FOR_VERDICT} games needed before these numbers mean much — `
-        + `small samples swing widely by chance. So far: human ${humanJacks} jacks from ${humanCards} cards, `
-        + `AI ${aiJacks} jacks from ${aiCards} cards.`;
+        + `small samples swing widely by chance. So far: human ${pooled.hj} jacks from ${pooled.hc} cards, `
+        + `AI ${pooled.aj} jacks from ${pooled.ac} cards.`;
     }
   } else {
-    const gap = aiRate - humanRate;
-    // ±0.8 per 100 is a deliberately loose band. With a few hundred cards
-    // per side, normal sampling noise comfortably covers this range, so
-    // anything inside it is not evidence of anything.
-    const withinNoise = Math.abs(gap) <= 0.8;
     if (verdictEl) {
       verdictEl.style.fontSize = '1.1rem';
-      verdictEl.textContent = withinNoise ? 'No bias' : (gap > 0 ? 'AI ahead' : 'Human ahead');
-      verdictEl.style.color = withinNoise ? '' : '#e0b040';
+      verdictEl.textContent = verdictLabel(pooled);
+      verdictEl.style.color = pooled.withinNoise ? '' : '#e0b040';
     }
     if (detailEl) {
-      detailEl.innerHTML = `Across <strong>${jackGames.length}</strong> games: human drew <strong>${humanJacks}</strong> jacks from `
-        + `<strong>${humanCards}</strong> cards (${humanRate.toFixed(2)} per 100); AI drew <strong>${aiJacks}</strong> jacks from `
-        + `<strong>${aiCards}</strong> cards (${aiRate.toFixed(2)} per 100). Difference: `
-        + `<strong>${gap >= 0 ? '+' : ''}${gap.toFixed(2)}</strong> per 100 in the AI's favour. `
-        + (withinNoise
-            ? `That's within normal sampling noise — no evidence the AI is dealt more jacks.`
-            : `That's outside the expected noise band; worth re-checking as more games accumulate.`);
+      const modeNote = pooled.humanOnly
+        ? ` <em>Card totals differ because ${pooled.humanOnly} of these were human-vs-human games, which add human rows but no AI ones — the per-100 rates correct for that.</em>`
+        : '';
+      detailEl.innerHTML = `<strong>All games pooled.</strong> Across <strong>${pooled.games}</strong> games `
+        + `(<strong>${pooled.withAI}</strong> vs AI, <strong>${pooled.humanOnly}</strong> human-only): `
+        + `human drew <strong>${pooled.hj}</strong> jacks from <strong>${pooled.hc}</strong> cards (${pooled.humanRate.toFixed(2)} per 100); `
+        + `AI drew <strong>${pooled.aj}</strong> jacks from <strong>${pooled.ac}</strong> cards (${pooled.aiRate.toFixed(2)} per 100). `
+        + `Difference <strong>${pooled.gap >= 0 ? '+' : ''}${pooled.gap.toFixed(2)}</strong> per 100 `
+        + `= <strong>${pooled.z >= 0 ? '+' : ''}${pooled.z.toFixed(2)}</strong> standard deviations. `
+        + (pooled.withinNoise
+            ? `Anything within ±2 SD is normal chance variation — no evidence either side is favoured.`
+            : `That's beyond ±2 SD, which would be unusual by chance alone — worth a closer look.`)
+        + modeNote;
+    }
+  }
+
+  // ── Paired VS-AI-only view ──────────────────────
+  if (vsAiVerdictEl && vsAiDetailEl) {
+    if (!vsAiOnly.games) {
+      vsAiVerdictEl.textContent = '';
+      vsAiDetailEl.textContent = 'No VS AI games recorded yet.';
+    } else if (vsAiOnly.games < MIN_GAMES_FOR_VERDICT || vsAiOnly.humanRate === null) {
+      vsAiVerdictEl.textContent = '· Too early';
+      vsAiVerdictEl.style.color = '';
+      vsAiDetailEl.textContent = `${vsAiOnly.games} of ${MIN_GAMES_FOR_VERDICT} VS AI games needed before this comparison means much. `
+        + `So far: human ${vsAiOnly.hj} jacks from ${vsAiOnly.hc} cards, AI ${vsAiOnly.aj} from ${vsAiOnly.ac}.`;
+    } else {
+      vsAiVerdictEl.textContent = '· ' + verdictLabel(vsAiOnly);
+      vsAiVerdictEl.style.color = vsAiOnly.withinNoise ? '' : '#e0b040';
+      vsAiDetailEl.innerHTML = `Same human and AI at the same table, drawing from the same deck — the cleanest test of the claim. `
+        + `Across <strong>${vsAiOnly.games}</strong> VS AI games: human <strong>${vsAiOnly.hj}</strong> jacks from `
+        + `<strong>${vsAiOnly.hc}</strong> cards (${vsAiOnly.humanRate.toFixed(2)} per 100); AI <strong>${vsAiOnly.aj}</strong> from `
+        + `<strong>${vsAiOnly.ac}</strong> (${vsAiOnly.aiRate.toFixed(2)} per 100). `
+        + `Difference <strong>${vsAiOnly.gap >= 0 ? '+' : ''}${vsAiOnly.gap.toFixed(2)}</strong> per 100 `
+        + `= <strong>${vsAiOnly.z >= 0 ? '+' : ''}${vsAiOnly.z.toFixed(2)}</strong> SD. `
+        + (vsAiOnly.withinNoise ? `Within normal variation.` : `Beyond ±2 SD — worth a closer look.`)
+        + (pooled.withinNoise === vsAiOnly.withinNoise
+            ? ` <em>Agrees with the pooled result above.</em>`
+            : ` <em>Note: this disagrees with the pooled result above — treat both as provisional until more games accumulate.</em>`);
     }
   }
 
