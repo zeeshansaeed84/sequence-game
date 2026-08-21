@@ -150,6 +150,15 @@
     <div class="stat-card"><div class="stat-value" id="s-hard-rate">—</div><div class="stat-label">Hard (Zaytro) · AI Win %</div></div>
   </div>
 
+  <div class="section-title">Jack Distribution · Human vs AI <span id="jack-scope-note" style="font-weight:400;font-size:0.75em;opacity:0.7"></span></div>
+  <div class="stats-grid" id="jack-stats-grid">
+    <div class="stat-card"><div class="stat-value" id="s-jack-human">—</div><div class="stat-label">Human · Jacks per 100 cards</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-jack-ai">—</div><div class="stat-label">AI · Jacks per 100 cards</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-jack-expected">7.69</div><div class="stat-label">Expected (8 jacks / 104 cards)</div></div>
+    <div class="stat-card"><div class="stat-value" id="s-jack-verdict">—</div><div class="stat-label">Verdict</div></div>
+  </div>
+  <div id="jack-detail" style="font-size:0.8em;opacity:0.75;margin:-8px 0 20px;line-height:1.5"></div>
+
   <div class="section-title">Recent Accounts</div>
   <div class="table-wrap">
     <table>
@@ -378,6 +387,84 @@ async function loadData() {
       label.textContent = `${level.charAt(0).toUpperCase()+level.slice(1)} (${TIER_SON_NAME[level]}) · AI Win % (n=${levelGames.length})`;
     }
   });
+
+  // ── Jack distribution: human vs AI ──────────────
+  // Added to test a recurring player perception that the AI is dealt more
+  // jacks. The shuffle/deal/draw code was audited and simulated over 200k
+  // deals first (every seat within 0.4% of theoretical), so this exists to
+  // check that against real play rather than because a bias is expected.
+  //
+  // Normalised per 100 cards ACQUIRED, not raw jack counts: players don't
+  // draw equal numbers of cards in a game, so raw counts would simply make
+  // whoever took more turns look luckier. Counts jacks acquired (opening
+  // hand + draws) rather than jacks played, since played-counts would
+  // conflate luck with the Hard AI deliberately holding jacks back as a
+  // finishing move.
+  const jackGames = completed.filter(g => Array.isArray(g.jackReport) && g.jackReport.length);
+  let humanJacks = 0, humanCards = 0, aiJacks = 0, aiCards = 0;
+  jackGames.forEach(g => {
+    g.jackReport.forEach(row => {
+      if (row.isAI) { aiJacks += row.jacks || 0; aiCards += row.cards || 0; }
+      else          { humanJacks += row.jacks || 0; humanCards += row.cards || 0; }
+    });
+  });
+
+  const per100 = (j, c) => c ? (j / c * 100) : null;
+  const humanRate = per100(humanJacks, humanCards);
+  const aiRate = per100(aiJacks, aiCards);
+
+  const setJack = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  setJack('s-jack-human', humanRate === null ? '—' : humanRate.toFixed(2));
+  setJack('s-jack-ai',    aiRate === null    ? '—' : aiRate.toFixed(2));
+
+  const jackScope = document.getElementById('jack-scope-note');
+  if (jackScope) {
+    jackScope.textContent = jackGames.length
+      ? `(${jackGames.length} game${jackGames.length === 1 ? '' : 's'} recorded)`
+      : '(no games recorded yet — only games completed since this was added are counted)';
+  }
+
+  // Deliberately withholds a verdict on small samples. A handful of games
+  // can easily show a 20%+ gap from pure chance, and showing that as a
+  // result would invite exactly the wrong conclusion - the opposite of what
+  // this section is for.
+  const MIN_GAMES_FOR_VERDICT = 20;
+  const verdictEl = document.getElementById('s-jack-verdict');
+  const detailEl = document.getElementById('jack-detail');
+  if (!jackGames.length) {
+    if (verdictEl) verdictEl.textContent = '—';
+    if (detailEl) detailEl.textContent = 'No games with jack data yet. Play a few games — each completed game adds to this.';
+  } else if (jackGames.length < MIN_GAMES_FOR_VERDICT || humanRate === null || aiRate === null) {
+    if (verdictEl) { verdictEl.textContent = 'Too early'; verdictEl.style.fontSize = '1.1rem'; }
+    if (detailEl) {
+      detailEl.textContent = `Only ${jackGames.length} of ${MIN_GAMES_FOR_VERDICT} games needed before these numbers mean much — `
+        + `small samples swing widely by chance. So far: human ${humanJacks} jacks from ${humanCards} cards, `
+        + `AI ${aiJacks} jacks from ${aiCards} cards.`;
+    }
+  } else {
+    const gap = aiRate - humanRate;
+    // ±0.8 per 100 is a deliberately loose band. With a few hundred cards
+    // per side, normal sampling noise comfortably covers this range, so
+    // anything inside it is not evidence of anything.
+    const withinNoise = Math.abs(gap) <= 0.8;
+    if (verdictEl) {
+      verdictEl.style.fontSize = '1.1rem';
+      verdictEl.textContent = withinNoise ? 'No bias' : (gap > 0 ? 'AI ahead' : 'Human ahead');
+      verdictEl.style.color = withinNoise ? '' : '#e0b040';
+    }
+    if (detailEl) {
+      detailEl.innerHTML = `Across <strong>${jackGames.length}</strong> games: human drew <strong>${humanJacks}</strong> jacks from `
+        + `<strong>${humanCards}</strong> cards (${humanRate.toFixed(2)} per 100); AI drew <strong>${aiJacks}</strong> jacks from `
+        + `<strong>${aiCards}</strong> cards (${aiRate.toFixed(2)} per 100). Difference: `
+        + `<strong>${gap >= 0 ? '+' : ''}${gap.toFixed(2)}</strong> per 100 in the AI's favour. `
+        + (withinNoise
+            ? `That's within normal sampling noise — no evidence the AI is dealt more jacks.`
+            : `That's outside the expected noise band; worth re-checking as more games accumulate.`);
+    }
+  }
 
   // ── Games table ─────────────────────────────────
   // Table shows only the most recent TABLE_DISPLAY_LIMIT games for
