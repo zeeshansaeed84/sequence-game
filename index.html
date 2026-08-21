@@ -5443,6 +5443,7 @@ function aiTakeTurn() {
     // keeps the behavior consistent regardless of how many cells happen to
     // qualify, rather than probabilistically flip-flopping cell by cell.
     const wildSurpriseRoll = Math.random();
+    const preventLossCandidates = []; // cells that stop an opponent winning next turn (score 95000)
     hand.forEach((card, cardIdx) => {
       if (!isTwoEyedJack(card)) return;
       for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
@@ -5452,9 +5453,23 @@ function aiTakeTurn() {
           GS.board[r][c].type==='card' && GS.board[r][c].suit===nc.suit && GS.board[r][c].rank===nc.rank);
         const score = evalWildJack(r, c, aiTeam, GS, diff, reachable, hand, cardIdx, wildSurpriseRoll, players.length);
         if (score === 100000) completionCandidates.push({cardIdx, row:r, col:c});
+        if (score === 95000)  preventLossCandidates.push({cardIdx, row:r, col:c});
         if (score > bestWildScore) { bestWildScore = score; bestWildMove = {cardIdx, dead:false, row:r, col:c}; }
       }
     });
+
+    // Completing a sequence that does NOT actually win the game is worth
+    // less than stopping an opponent who wins on their next turn — a
+    // sequence banked one move before losing is worth nothing. Resolved
+    // here rather than inside evalWildJack because that function sees a
+    // single cell at a time and can't tell whether a winning completion
+    // exists elsewhere on the board; this loop has seen them all.
+    const myCompletionWinsGame = ((GS.sequences?.[aiTeam] || 0) + 1) >= (GS.seqToWin || 2);
+    if (preventLossCandidates.length && bestWildScore === 100000 && !myCompletionWinsGame) {
+      const pick = preventLossCandidates[0];
+      bestWildMove = { cardIdx: pick.cardIdx, dead:false, row: pick.row, col: pick.col };
+      bestWildScore = 95000;
+    }
 
     // Prefer SPREADING jacks across separate lines over stacking them into
     // one. If there are multiple ways to complete a sequence right now, and
@@ -5462,7 +5477,12 @@ function aiTakeTurn() {
     // alternative normal-card finisher — save the flexible jack resource for
     // the line that genuinely needs it, since the "easier" line can likely
     // still be finished later with an ordinary card instead.
-    if (completionCandidates.length > 1 && numTwoEyedJacksInHand >= 2) {
+    //
+    // Gated on bestWildScore === 100000 so it only ever re-picks BETWEEN
+    // completions. evalWildJack can now return 110000 for a block that
+    // prevents an opponent winning outright; without this guard that block
+    // would be silently overwritten by a lower-scoring completion here.
+    if (completionCandidates.length > 1 && numTwoEyedJacksInHand >= 2 && bestWildScore === 100000) {
       let pick = completionCandidates[0];
       let pickHasAltFinisher = true;
       for (const cand of completionCandidates) {
@@ -5959,7 +5979,9 @@ function evalRemoval(r, c, oppTeam, threat, diff, gs, aiTeam, hand) {
 // Evaluate wild jack placement — must justify wasting the card
 function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx, surpriseRoll, numPlayers) {
   // If a normal card can reach this cell, NEVER use the wild jack here
-  // Jacks are too valuable to waste on reachable cells
+  // Jacks are too valuable to waste on reachable cells. This applies to
+  // defensive use below as well — if an ordinary card can block the cell,
+  // block with that and keep the jack.
   if (reachable) return 0;
 
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
@@ -5970,6 +5992,32 @@ function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx, surpriseRo
     if (count > maxFriendly) { maxFriendly = count; bestGaps = gaps; }
   }
 
+  // ── Defensive evaluation ────────────────────────────────────────
+  // Added because this function used to score ONLY the AI's own line, so a
+  // cell an opponent needed to complete a sequence was worth exactly 0 and
+  // the AI would never block with a wild jack — while evalPlacement has
+  // scored blocking with normal cards all along. Uses genuineThreatAt for
+  // the same reason evalPlacement does: a run that's already dead-ended, or
+  // sits beside a completed sequence, isn't a real threat to defend against.
+  const oppTeams = [...new Set(players.map(p => p.team))].filter(t => t !== team);
+  let maxOppThreat = 0, threatTeam = null;
+  for (const opp of oppTeams) {
+    const run = genuineThreatAt(r, c, opp, gs);
+    if (run > maxOppThreat) { maxOppThreat = run; threatTeam = opp; }
+  }
+  const seqToWinNow = gs.seqToWin || 2;
+  const oppCompletionWinsGame = threatTeam !== null &&
+    ((gs.sequences?.[threatTeam] || 0) + 1) >= seqToWinNow;
+
+  // Losing the game outranks ordinary offense, but NOT winning it outright.
+  // Scored just below the completion ceiling rather than above it: this
+  // function only sees one cell, so it cannot tell whether the AI has a
+  // winning completion available somewhere else on the board. The caller
+  // resolves that ordering, since it sees every candidate.
+  if (maxOppThreat >= 4 && oppCompletionWinsGame) {
+    return 95000;
+  }
+
   if (maxFriendly >= 5) {
     // Completing move — always the AI's default, favored use of a two-eyed
     // jack. Base score left at a flat ceiling; tie-breaking between MULTIPLE
@@ -5977,6 +6025,15 @@ function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx, surpriseRo
     // caller, which prefers spreading jacks across separate lines rather
     // than piling both into the one line that gets scanned first.
     return 100000;
+  }
+
+  // Opponent is one cell from completing a sequence that does NOT win them
+  // the game outright. Worth spending a jack on when there's no own-sequence
+  // completion available (handled above), scored to sit above the caller's
+  // wildMinScore so it can actually be chosen, and roughly in line with the
+  // 9000 that evalPlacement gives a normal card for the same block.
+  if (maxOppThreat >= 4) {
+    return diff==='hard' ? 9000 : diff==='medium' ? 5000 : 0; // easy AI still doesn't spot this
   }
 
   if (maxFriendly === 4) {
@@ -6004,7 +6061,7 @@ function evalWildJack(r, c, team, gs, diff, reachable, hand, cardIdx, surpriseRo
     if (!hasJackFollowUp && !hasCardFollowUp) return 0;
     return diff==='easy' ? 7000 : diff==='medium' ? 7500 : 8000;
   }
-  // Anything below 4: never worth wasting a wild jack
+  // Anything below 4, with no opponent threat: never worth wasting a wild jack
   return 0;
 }
 
