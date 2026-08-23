@@ -3899,7 +3899,7 @@
     <p id="quit-confirm-msg"></p>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
       <button class="btn btn-primary" onclick="closeQuitConfirm()">Keep Playing</button>
-      <button class="btn btn-danger" onclick="closeQuitConfirm();leaveGame()">Yes, Quit</button>
+      <button class="btn btn-danger" id="quit-confirm-yes" onclick="handleQuitConfirmed()">Yes, Quit</button>
     </div>
   </div>
 </div>
@@ -6951,14 +6951,51 @@ function onRematchUpdate(rematchData) {
 // always claiming a consequence that might not be real — see
 // hasAnySequenceCompleted() and the aiMode check, matching the exact same
 // gate leaveGame()'s own forfeit trigger uses.
+// Optional action to run once the player confirms quitting. Lets the quit
+// modal be reused for "quit this game and join the one you were invited to"
+// rather than duplicating a near-identical confirmation dialog.
+let pendingAfterQuit = null;
+
 function confirmQuit() {
+  pendingAfterQuit = null; // plain quit - no follow-up
   if (isSpectator || !GS || GS.phase === 'done') { leaveGame(); return; }
 
   const forfeitApplies = !aiMode && hasAnySequenceCompleted();
+  document.getElementById('quit-confirm-title').textContent = 'Quit Game?';
+  document.getElementById('quit-confirm-yes').textContent = 'Yes, Quit';
   document.getElementById('quit-confirm-msg').textContent = forfeitApplies
     ? 'Quitting now will forfeit the game to your opponent(s). Are you sure you want to quit?'
     : 'Are you sure you want to quit this game?';
   document.getElementById('quit-confirm-modal').classList.add('open');
+}
+
+// Accepting a challenge while already in a game. Rather than silently
+// refusing (the previous behaviour, which also left a stale Accept button
+// on screen because the banner only re-rendered when Firebase pushed an
+// update), this reuses the normal quit confirmation so the consequences -
+// including forfeiting - are stated before anything happens.
+function confirmQuitThenAccept(fromUsername, fromDisplayName) {
+  const forfeitApplies = !aiMode && hasAnySequenceCompleted();
+  const who = fromDisplayName || fromUsername;
+  document.getElementById('quit-confirm-title').textContent = 'Leave this game?';
+  document.getElementById('quit-confirm-yes').textContent = 'Quit & Join';
+  document.getElementById('quit-confirm-msg').textContent =
+    `Joining ${who}'s game means quitting the one you're in. ` +
+    (forfeitApplies
+      ? 'That will forfeit it to your opponent(s).'
+      : 'Are you sure?');
+  pendingAfterQuit = () => acceptInviteNow(fromUsername);
+  document.getElementById('quit-confirm-modal').classList.add('open');
+}
+
+// Single exit point for the modal's confirm button, so the follow-up action
+// can't be skipped or double-run.
+function handleQuitConfirmed() {
+  const after = pendingAfterQuit;
+  pendingAfterQuit = null;
+  closeQuitConfirm();
+  leaveGame();
+  if (after) after();
 }
 
 function closeQuitConfirm() {
@@ -7957,20 +7994,47 @@ function renderInviteBanner(invites) {
   // a simple banner rather than a stacked list - a rare edge case (more
   // than one pending challenge at once) for a first functional pass.
   const invite = invites.sort((a, b) => b.createdAt - a.createdAt)[0];
-  const acceptBtn = isCurrentlyInGame()
-    ? '' // mid-game - only decline is offered; see acceptGameInvite for the actual enforcement
-    : `<button class="friends-icon-btn accept" onclick="handleAcceptInvite('${escapeHtml(invite.fromUsername)}')" title="Accept">${ICON_CHECK}</button>`;
   bannerEl.innerHTML = `
     <span class="invite-banner-text"><strong>${escapeHtml(invite.fromDisplayName)}</strong> challenged you to a game!</span>
-    ${acceptBtn}
+    <button class="friends-icon-btn accept" onclick="handleAcceptInvite('${escapeHtml(invite.fromUsername)}', '${escapeHtml(invite.fromDisplayName || '')}')" title="Accept">${ICON_CHECK}</button>
     <button class="friends-icon-btn decline" onclick="handleDeclineInvite('${escapeHtml(invite.fromUsername)}')" title="Decline">${ICON_X}</button>`;
   bannerEl.style.display = 'flex';
 }
 
-async function handleAcceptInvite(fromUsername) {
+async function handleAcceptInvite(fromUsername, fromDisplayName) {
+  // Already in a game: confirm the cost first rather than refusing outright.
+  // The invite is checked for validity BEFORE offering to quit, so a player
+  // can't forfeit a game only to find the challenge had already expired or
+  // been withdrawn. It could still lapse while the modal is open, which
+  // acceptInviteNow reports clearly.
+  if (isCurrentlyInGame()) {
+    const still = await inviteStillValid(fromUsername);
+    if (!still.ok) { toast(still.reason); return; }
+    confirmQuitThenAccept(fromUsername, fromDisplayName);
+    return;
+  }
+  await acceptInviteNow(fromUsername);
+}
+
+async function acceptInviteNow(fromUsername) {
   const r = await acceptGameInvite(fromUsername);
   if (!r.ok) { toast(r.reason); return; }
   document.getElementById('invite-banner').style.display = 'none';
+}
+
+// Cheap pre-flight check so quitting is only ever offered for an invite
+// that's actually still joinable.
+async function inviteStillValid(fromUsername) {
+  if (!currentAccount || !fbInit() || !db) return { ok: false, reason: "Can't connect right now." };
+  try {
+    const snap = await db.ref('sq_invites/' + currentAccount.username + '/' + fromUsername).once('value');
+    if (!snap.exists()) return { ok: false, reason: 'That invite is no longer available.' };
+    const inv = snap.val();
+    if (Date.now() - (inv.createdAt || 0) >= INVITE_EXPIRY_MS) {
+      return { ok: false, reason: 'That invite has expired.' };
+    }
+    return { ok: true };
+  } catch(e) { return { ok: false, reason: "Couldn't check that invite — try again." }; }
 }
 
 async function handleDeclineInvite(fromUsername) {
