@@ -6797,6 +6797,10 @@ function resetRematchUI() {
   if (statsBox) statsBox.style.display = 'none';
   const oldDiffRow = document.getElementById('my-stats-diff-row');
   if (oldDiffRow) oldDiffRow.remove();
+  // Same reason as the difficulty row above — this is inserted rather than
+  // replaced, so without removing it a rematch would stack a second copy.
+  const oldModeRow = document.getElementById('my-stats-mode-row');
+  if (oldModeRow) oldModeRow.remove();
   const streakBox = document.getElementById('streak-congrats-box');
   if (streakBox) streakBox.style.display = 'none';
 }
@@ -12190,7 +12194,21 @@ function computeMyStats(games) {
     byDifficulty[level] = Math.round((levelWins / levelGames.length) * 100);
   });
 
-  return { totalGames, wins, losses, draws, winRate, streak, streakType, maxWinStreak, byDifficulty };
+  // Win rate split by mode. The headline winRate above pools everything,
+  // which blends two quite different achievements — beating a Hard bot and
+  // beating another person — so someone who mostly plays one mode is really
+  // just seeing that mode's rate in disguise. Only counts games that
+  // actually carry a mode field: older records predating it are left out
+  // rather than silently lumped into one side and skewing it.
+  const byMode = {};
+  [['vs_ai','vsAI'], ['multiplayer','multiplayer']].forEach(([modeValue, key]) => {
+    const modeGames = games.filter(g => g.mode === modeValue);
+    if (!modeGames.length) return;
+    const modeWins = modeGames.filter(g => g.outcome === 'win').length;
+    byMode[key] = { pct: Math.round((modeWins / modeGames.length) * 100), games: modeGames.length };
+  });
+
+  return { totalGames, wins, losses, draws, winRate, streak, streakType, maxWinStreak, byDifficulty, byMode };
 }
 
 // Fetches this player's raw game history from Firebase — keyed by the
@@ -12266,6 +12284,19 @@ async function renderMyStats() {
   });
   if (diffHtml) {
     grid.insertAdjacentHTML('afterend', `<div class="my-stats-diff-row" id="my-stats-diff-row">${diffHtml}</div>`);
+  }
+
+  // Mode split. Deliberately only rendered when BOTH modes have games:
+  // with only one, this row would just restate the headline win rate in a
+  // second place, and its whole purpose is the comparison between them.
+  // Game counts are shown alongside because these two samples are often
+  // very unequal in size, and a bare percentage hides that.
+  if (s.byMode.vsAI && s.byMode.multiplayer) {
+    const modeHtml =
+      `<div class="my-stats-diff-item"><div class="lvl">VS AI · ${s.byMode.vsAI.games}</div><div class="pct">${s.byMode.vsAI.pct}%</div></div>` +
+      `<div class="my-stats-diff-item"><div class="lvl">MULTIPLAYER · ${s.byMode.multiplayer.games}</div><div class="pct">${s.byMode.multiplayer.pct}%</div></div>`;
+    const anchor = document.getElementById('my-stats-diff-row') || grid;
+    anchor.insertAdjacentHTML('afterend', `<div class="my-stats-diff-row" id="my-stats-mode-row">${modeHtml}</div>`);
   }
 
   box.style.display = 'block';
