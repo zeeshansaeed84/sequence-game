@@ -4194,6 +4194,14 @@ function primeTimerSounds(trigger) {
     if (primingInFlight.has(name)) return; // a priming call for this exact sound is already mid-flight - this is the actual overlap that caused the earlier bug
     const el = audioEls[name];
     if (!el) return;
+    // Never touch a sound that's actually playing. Priming mutes, rewinds
+    // and pauses the element, which for live playback means silencing it
+    // mid-way AND swallowing its 'ended' event. That broke the win modal:
+    // it's shown only from playWinMusic's onended callback, so tapping
+    // anything during the win music (the chat button, via the global
+    // pointerdown primer) paused the Win element and the modal never
+    // appeared - the game simply froze on the board.
+    if (!el.paused) return;
     primingInFlight.add(name);
     logSoundEvent('sound_priming_started', { name, trigger: trigger || 'unknown', msSincePageLoad: Date.now() - pageLoadTime });
     el.muted = true;
@@ -4223,15 +4231,35 @@ function stopTickSound() {
 
 // Win music plays once — modal appears after it ends
 function playWinMusic(onEnded) {
-  if (!soundEnabled) { onEnded?.(); return; }
+  // The win modal is shown from this callback, so it MUST run exactly once
+  // no matter what happens to the audio. Relying on 'ended' alone made the
+  // entire end-of-game flow hostage to the audio element: anything that
+  // paused, reset or errored it (see primeTimerSounds) silently swallowed
+  // the event and left the player stuck on the board with no modal and no
+  // way to start the next game. The timeout is a floor, not a race - it's
+  // set past the clip's own length so normal playback still finishes first.
+  let fired = false;
+  const fireOnce = () => {
+    if (fired) return;
+    fired = true;
+    onEnded?.();
+  };
+
+  if (!soundEnabled) { fireOnce(); return; }
   const el = audioEls['Win'];
-  if (!el) { onEnded?.(); return; }
+  if (!el) { fireOnce(); return; }
   el.loop = false;
   el.currentTime = 0;
   el.muted = false;
   el.volume = 1;
-  el.onended = () => { el.onended = null; onEnded?.(); };
-  el.play().catch(() => { onEnded?.(); });
+  el.onended = () => { el.onended = null; fireOnce(); };
+
+  // Fallback: duration is often unknown until metadata loads, so fall back
+  // to a generous fixed ceiling rather than skipping the safety net.
+  const clipMs = (isFinite(el.duration) && el.duration > 0) ? el.duration * 1000 : 8000;
+  setTimeout(fireOnce, clipMs + 1500);
+
+  el.play().catch(() => { fireOnce(); });
 }
 
 function stopWinMusic() {
