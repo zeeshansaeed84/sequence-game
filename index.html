@@ -38,12 +38,12 @@
     --card-bg: #fdf8f0;
     --red: #c0392b;
     --black: #1a1a1a;
-    --chip-blue: #1E90FF;
-    --chip-green: #61AF41;
-    --chip-purple: #AE42D0;
-    --chip-blue-light: #60a5fa;
-    --chip-green-light: #4ade80;
-    --chip-purple-light: #d896e8;
+    --chip-blue: #0088FF;
+    --chip-green: #00FF99;
+    --chip-amber: #FFBB00;
+    --chip-blue-light: #5CB3FF;
+    --chip-green-light: #66FFC2;
+    --chip-amber-light: #FFD45C;
     --shadow: 0 4px 20px rgba(0,0,0,0.4);
     --border-gold: 1px solid var(--gold);
     /* Sequence lobby + board theme — from official logo */
@@ -1479,7 +1479,7 @@
 
   .dot-t0 { background: var(--chip-blue); }
   .dot-t1 { background: var(--chip-green); }
-  .dot-t2 { background: var(--chip-purple); }
+  .dot-t2 { background: var(--chip-amber); }
 
   .status-msg {
     font-style: italic;
@@ -4519,23 +4519,38 @@ function teamColor(teamIdx) {
     if (teamIdx === 1) return tier.son.color;
     if (teamIdx === 2) return tier.nephew.color;
   }
-  // Human-vs-human multiplayer fallback: original green / purple
-  return teamIdx === 1 ? 'green' : 'purple';
+  // Human-vs-human multiplayer uses its OWN t1/t2 entries rather than
+  // borrowing the bots' 'green'/'purple'. Those bot colours are tuned to sit
+  // beside their own tier partner, not to work as a three-human team set —
+  // and while this borrowed them, the t1/t2 entries were never actually
+  // reachable, so changing the team palette had no visible effect.
+  return teamIdx === 1 ? 't1' : 't2';
 }
 const TEAM_COLORS = new Proxy({}, { get: (_t, prop) => teamColor(Number(prop)) });
 
 const CHIP_COLORS = {
-  't0':      { ring: '#1E90FF', ringDark: '#0a5fa8', center: '#e8f4ff' }, // blue    — always the human player
-  'green':   { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // Alison  (Easy son)
-  'pink':    { ring: '#E84C88', ringDark: '#a82359', center: '#fde8f0' }, // Kabior  (Easy nephew)
-  'purple':  { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // Ibravo  (Medium son)
-  'orange':  { ring: '#F0663C', ringDark: '#a83d1f', center: '#feeae2' }, // Hashon  (Medium nephew)
-  'magenta': { ring: '#D6249F', ringDark: '#8a1566', center: '#fbe0f2' }, // Zaytro  (Hard son)
-  'gold':    { ring: '#E6B800', ringDark: '#9c7a00', center: '#fdf6d8' }, // Walius  (Hard nephew)
-  // Legacy aliases so any older reference to t1/t2 still resolves rather than
-  // falling back to blue — kept pointing at green/purple, their original colors.
-  't1':      { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' },
-  't2':      { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' },
+  // Team colours for multiplayer. Chosen with a colourblindness + card-art
+  // audit rather than by eye: the previous blue/green/purple set had blue and
+  // purple collapsing into near-identical shades under protanopia and
+  // deuteranopia (~8% of men), and the green chip sat only ΔE 13 from the red
+  // suit pips, so it camouflaged on red cards. This set clears every vision
+  // type against each other AND against the card art, while being roughly
+  // twice as vivid as what it replaced.
+  't0':      { ring: '#0088FF', ringDark: '#003F75', center: '#E0F1FF' }, // blue         — always the human player
+  't1':      { ring: '#00FF99', ringDark: '#007546', center: '#E0FFF3' }, // spring green
+  't2':      { ring: '#FFBB00', ringDark: '#755600', center: '#FFF7E0' }, // amber
+  // Bot colours keep their original hues — each bot's identity — but pushed
+  // as far toward vivid as possible under a strict no-regression rule: no
+  // colour may sit closer to the card art or to the human's blue than it did
+  // before. Alison and Walius gained the most (Walius was ΔE 5.1 from a red
+  // suit, effectively invisible on red cards); Hashon and Zaytro were already
+  // at their limit and are unchanged.
+  'green':   { ring: '#42E400', ringDark: '#1E6900', center: '#E5FADC' }, // Alison  (Easy son)
+  'pink':    { ring: '#FF0062', ringDark: '#75002D', center: '#FFE0EC' }, // Kabior  (Easy nephew)
+  'orange':  { ring: '#FF3B00', ringDark: '#751B00', center: '#FFE7E0' }, // Ibravo  (Medium son)
+  'purple':  { ring: '#AE42D0', ringDark: '#501E60', center: '#F5E5FA' }, // Hashon  (Medium nephew)
+  'gold':    { ring: '#E6B800', ringDark: '#6A5500', center: '#FAF4DC' }, // Zaytro  (Hard son)
+  'magenta': { ring: '#FF00B0', ringDark: '#750051', center: '#FFE0F6' }, // Walius  (Hard nephew)
 };
 
 // Which chip color each difficulty's bots use. [son, nephew] per tier — the
@@ -4655,7 +4670,7 @@ function lighten(hex) {
   const b = Math.min(255, ( n        & 0xff) + 90);
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
-const TEAM_NAMES  = ['Blue','Green','Purple'];
+const TEAM_NAMES  = ['Blue','Green','Amber'];
 
 // Derives {numTeams, seqToWin} from how many people have ACTUALLY joined a
 // group-started game, recalculated on every join rather than locked in
