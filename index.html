@@ -4567,6 +4567,23 @@ const AI_TIER = {
 };
 
 let _chipId = 0;
+// Relative luminance of a hex colour, used to decide whether a chip's inlay
+// markings should be white (dark ring) or a deep tint of the ring's own hue
+// (light ring). 0.42 is roughly the point where white markings drop below
+// ~2.6:1 contrast and start disappearing into the ring.
+function hexLuminance(hex) {
+  const h = hex.replace('#','');
+  const rgb = [0,2,4].map(i => parseInt(h.slice(i,i+2),16)/255)
+                     .map(v => v <= 0.04045 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4));
+  return 0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2];
+}
+function isLightRing(hex) { return hexLuminance(hex) > 0.42; }
+function darkenHex(hex, factor) {
+  const h = hex.replace('#','');
+  const rgb = [0,2,4].map(i => Math.round(parseInt(h.slice(i,i+2),16) * (1 - factor)));
+  return '#' + rgb.map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2,'0')).join('');
+}
+
 function buildChipSVG(colorClass, initial, size, showDot = false, inverted = false) {
   const c = CHIP_COLORS[colorClass] || CHIP_COLORS['blue'];
   // Every call needs a globally-unique id here, not just colorClass+size —
@@ -4591,7 +4608,27 @@ function buildChipSVG(colorClass, initial, size, showDot = false, inverted = fal
   const ringColour   = inverted ? 'white'   : `url(#rg${id})`;
   const centreColour = inverted ? c.ring     : `url(#cg${id})`;
   const textColour   = inverted ? 'white'   : '#111111';
-  const markColour   = inverted ? c.ring     : 'white';
+
+  // The inlay squares and dashes used to be flat white on every chip, which
+  // works on a dark ring but disappears on a light one: white-on-amber is
+  // 1.7:1 and white-on-spring-green 1.3:1, so those chips lost their
+  // poker-chip texture entirely and read as flat slabs of colour — the main
+  // reason bright chips looked garish rather than "vivid". On a light ring
+  // the marks now use a deep tint of that ring's OWN hue instead, which
+  // restores the detailing without shifting the chip's colour at all, so
+  // every colourblind and card-contrast figure is untouched.
+  // A NORMAL chip draws its markings on the coloured ring; an INVERTED
+  // (completed-sequence) chip draws them on a white ring, so the two need
+  // opposite treatment. In both cases the old fixed colour vanished on light
+  // chips: white-on-spring-green was 1.3:1, and spring-green-on-white was
+  // equally unreadable when inverted.
+  const markColour = inverted
+    ? (isLightRing(c.ring) ? darkenHex(c.ring, 0.45) : c.ring)   // on the white ring
+    : (isLightRing(c.ring) ? '#111111' : 'white');               // on the coloured ring
+  // The crown sits on the chip CENTRE, which for an inverted chip is the full
+  // team colour — so a white crown disappeared on light teams exactly like the
+  // markings did. Matches the near-black used for the initial on normal chips.
+  const crownColour = (inverted && isLightRing(c.ring)) ? '#111111' : 'white';
 
   // 4 square inlays at cardinal positions
   const marks = [];
@@ -4645,11 +4682,11 @@ function buildChipSVG(colorClass, initial, size, showDot = false, inverted = fal
     // 3 peaks: left, centre, right
     const path = `M${x0},${y1} L${x0},${y0+ch*0.45} L${x0+cw*0.25},${y0+ch*0.68} L${cx-cw*0.07},${y0+ch*0.22} L${cx},${y0} L${cx+cw*0.07},${y0+ch*0.22} L${x1-cw*0.25},${y0+ch*0.68} L${x1},${y0+ch*0.45} L${x1},${y1} Z`;
     return `<g opacity="0.95">
-      <path d="${path}" fill="white"/>
-      <circle cx="${x0}" cy="${y0+ch*0.45}" r="${dotR}" fill="white"/>
-      <circle cx="${cx}" cy="${y0}" r="${dotR}" fill="white"/>
-      <circle cx="${x1}" cy="${y0+ch*0.45}" r="${dotR}" fill="white"/>
-      <rect x="${x0}" y="${y1-ch*0.25}" width="${cw}" height="${ch*0.25}" rx="${(size*0.02).toFixed(1)}" fill="white"/>
+      <path d="${path}" fill="${crownColour}"/>
+      <circle cx="${x0}" cy="${y0+ch*0.45}" r="${dotR}" fill="${crownColour}"/>
+      <circle cx="${cx}" cy="${y0}" r="${dotR}" fill="${crownColour}"/>
+      <circle cx="${x1}" cy="${y0+ch*0.45}" r="${dotR}" fill="${crownColour}"/>
+      <rect x="${x0}" y="${y1-ch*0.25}" width="${cw}" height="${ch*0.25}" rx="${(size*0.02).toFixed(1)}" fill="${crownColour}"/>
     </g>`;
   })() :
     initial ? `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
