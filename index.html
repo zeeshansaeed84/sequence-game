@@ -4536,21 +4536,21 @@ const CHIP_COLORS = {
   // suit pips, so it camouflaged on red cards. This set clears every vision
   // type against each other AND against the card art, while being roughly
   // twice as vivid as what it replaced.
-  't0':      { ring: '#0088FF', ringDark: '#003F75', center: '#CEDFED' }, // blue         — always the human player
-  't1':      { ring: '#00FF99', ringDark: '#007546', center: '#B3E8D3' }, // spring green
-  't2':      { ring: '#FFBB00', ringDark: '#755600', center: '#E8DCBC' }, // amber
+  't0':      { ring: '#0088FF', ringDark: '#003F75', center: '#E6F3FF' }, // blue         — always the human player
+  't1':      { ring: '#00FF99', ringDark: '#007546', center: '#E6FFF5' }, // spring green
+  't2':      { ring: '#FFBB00', ringDark: '#755600', center: '#FFF8E6' }, // amber
   // Bot colours keep their original hues — each bot's identity — but pushed
   // as far toward vivid as possible under a strict no-regression rule: no
   // colour may sit closer to the card art or to the human's blue than it did
   // before. Alison and Walius gained the most (Walius was ΔE 5.1 from a red
   // suit, effectively invisible on red cards); Hashon and Zaytro were already
   // at their limit and are unchanged.
-  'green':   { ring: '#FF007A', ringDark: '#750038', center: '#F2D5E3' }, // Alison  (Easy son) — hot pink. Swapped with Kabior so the three SONS are all different families: the son is the only opponent in a 1-bot game, so that's the pairing that has to read instantly against the host's blue
-  'pink':    { ring: '#42E400', ringDark: '#1E6900', center: '#A5F086' }, // Kabior  (Easy nephew) — lime, taken from Alison. Deliberate trade-off: lime sits only ΔE 21 from the host blue under colourblindness, accepted because a nephew's job is to be told apart from its SON partner (ΔE 51 here), and the player tracks their own chips regardless
-  'orange':  { ring: '#00FF99', ringDark: '#007546', center: '#B3E8D3' }, // Ibravo  (Medium son) — spring green. The violet before this was technically safe but only looked ΔE 67 from the host blue, against 148 for Zaytro's gold: visibly the weakest pairing in the game. Spring green more than doubles that to 138
-  'purple':  { ring: '#FFBB00', ringDark: '#755600', center: '#E8DCBC' }, // Hashon  (Medium nephew) — amber. Sits close to Zaytro's gold, but those two are in different tiers and never share a board; what does matter is same-tier separation, and amber vs Ibravo's violet is far cleaner than purple-on-purple was
-  'gold':    { ring: '#E6B800', ringDark: '#6A5500', center: '#E8DDB0' }, // Zaytro  (Hard son)
-  'magenta': { ring: '#FF00B0', ringDark: '#750051', center: '#F5D3EA' }, // Walius  (Hard nephew)
+  'green':   { ring: '#FF007A', ringDark: '#750038', center: '#FFE6F2' }, // Alison  (Easy son) — hot pink. Swapped with Kabior so the three SONS are all different families: the son is the only opponent in a 1-bot game, so that's the pairing that has to read instantly against the host's blue
+  'pink':    { ring: '#42E400', ringDark: '#1E6900', center: '#EDFFE6' }, // Kabior  (Easy nephew) — lime, taken from Alison. Deliberate trade-off: lime sits only ΔE 21 from the host blue under colourblindness, accepted because a nephew's job is to be told apart from its SON partner (ΔE 51 here), and the player tracks their own chips regardless
+  'orange':  { ring: '#00FF99', ringDark: '#007546', center: '#E6FFF5' }, // Ibravo  (Medium son) — spring green. The violet before this was technically safe but only looked ΔE 67 from the host blue, against 148 for Zaytro's gold: visibly the weakest pairing in the game. Spring green more than doubles that to 138
+  'purple':  { ring: '#FFBB00', ringDark: '#755600', center: '#FFF8E6' }, // Hashon  (Medium nephew) — amber. Sits close to Zaytro's gold, but those two are in different tiers and never share a board; what does matter is same-tier separation, and amber vs Ibravo's violet is far cleaner than purple-on-purple was
+  'gold':    { ring: '#E6B800', ringDark: '#6A5500', center: '#FFFAE6' }, // Zaytro  (Hard son)
+  'magenta': { ring: '#FF00B0', ringDark: '#750051', center: '#FFE6F7' }, // Walius  (Hard nephew)
 };
 
 // Which chip color each difficulty's bots use. [son, nephew] per tier — the
