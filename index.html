@@ -38,12 +38,12 @@
     --card-bg: #fdf8f0;
     --red: #c0392b;
     --black: #1a1a1a;
-    --chip-blue: #0088FF;
-    --chip-green: #00FF99;
-    --chip-amber: #FFBB00;
-    --chip-blue-light: #5CB3FF;
-    --chip-green-light: #66FFC2;
-    --chip-amber-light: #FFD45C;
+    --chip-blue: #1E90FF;
+    --chip-green: #61AF41;
+    --chip-purple: #AE42D0;
+    --chip-blue-light: #60a5fa;
+    --chip-green-light: #4ade80;
+    --chip-purple-light: #d896e8;
     --shadow: 0 4px 20px rgba(0,0,0,0.4);
     --border-gold: 1px solid var(--gold);
     /* Sequence lobby + board theme — from official logo */
@@ -1479,7 +1479,7 @@
 
   .dot-t0 { background: var(--chip-blue); }
   .dot-t1 { background: var(--chip-green); }
-  .dot-t2 { background: var(--chip-amber); }
+  .dot-t2 { background: var(--chip-purple); }
 
   .status-msg {
     font-style: italic;
@@ -4529,28 +4529,19 @@ function teamColor(teamIdx) {
 const TEAM_COLORS = new Proxy({}, { get: (_t, prop) => teamColor(Number(prop)) });
 
 const CHIP_COLORS = {
-  // Team colours for multiplayer. Chosen with a colourblindness + card-art
-  // audit rather than by eye: the previous blue/green/purple set had blue and
-  // purple collapsing into near-identical shades under protanopia and
-  // deuteranopia (~8% of men), and the green chip sat only ΔE 13 from the red
-  // suit pips, so it camouflaged on red cards. This set clears every vision
-  // type against each other AND against the card art, while being roughly
-  // twice as vivid as what it replaced.
-  't0':      { ring: '#0088FF', ringDark: '#003F75', center: '#E6F3FF' }, // blue         — always the human player
-  't1':      { ring: '#00FF99', ringDark: '#007546', center: '#E6FFF5' }, // spring green
-  't2':      { ring: '#FFBB00', ringDark: '#755600', center: '#FFF8E6' }, // amber
-  // Bot colours keep their original hues — each bot's identity — but pushed
-  // as far toward vivid as possible under a strict no-regression rule: no
-  // colour may sit closer to the card art or to the human's blue than it did
-  // before. Alison and Walius gained the most (Walius was ΔE 5.1 from a red
-  // suit, effectively invisible on red cards); Hashon and Zaytro were already
-  // at their limit and are unchanged.
-  'green':   { ring: '#FF007A', ringDark: '#750038', center: '#FFE6F2' }, // Alison  (Easy son) — hot pink. Swapped with Kabior so the three SONS are all different families: the son is the only opponent in a 1-bot game, so that's the pairing that has to read instantly against the host's blue
-  'pink':    { ring: '#42E400', ringDark: '#1E6900', center: '#EDFFE6' }, // Kabior  (Easy nephew) — lime, taken from Alison. Deliberate trade-off: lime sits only ΔE 21 from the host blue under colourblindness, accepted because a nephew's job is to be told apart from its SON partner (ΔE 51 here), and the player tracks their own chips regardless
-  'orange':  { ring: '#00FF99', ringDark: '#007546', center: '#E6FFF5' }, // Ibravo  (Medium son) — spring green. The violet before this was technically safe but only looked ΔE 67 from the host blue, against 148 for Zaytro's gold: visibly the weakest pairing in the game. Spring green more than doubles that to 138
-  'purple':  { ring: '#FFBB00', ringDark: '#755600', center: '#FFF8E6' }, // Hashon  (Medium nephew) — amber. Sits close to Zaytro's gold, but those two are in different tiers and never share a board; what does matter is same-tier separation, and amber vs Ibravo's violet is far cleaner than purple-on-purple was
-  'gold':    { ring: '#E6B800', ringDark: '#6A5500', center: '#FFFAE6' }, // Zaytro  (Hard son)
-  'magenta': { ring: '#FF00B0', ringDark: '#750051', center: '#FFE6F7' }, // Walius  (Hard nephew)
+  't0':      { ring: '#1E90FF', ringDark: '#0a5fa8', center: '#e8f4ff' }, // blue    — always the human player
+  'green':   { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // Alison  (Easy son)
+  'pink':    { ring: '#E84C88', ringDark: '#a82359', center: '#fde8f0' }, // Kabior  (Easy nephew)
+  'purple':  { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // Hashon  (Medium nephew)
+  'orange':  { ring: '#F0663C', ringDark: '#a83d1f', center: '#feeae2' }, // Ibravo  (Medium son)
+  'magenta': { ring: '#D6249F', ringDark: '#8a1566', center: '#fbe0f2' }, // Walius  (Hard nephew)
+  'gold':    { ring: '#E6B800', ringDark: '#9c7a00', center: '#fdf6d8' }, // Zaytro  (Hard son)
+  // Human-vs-human multiplayer teams. These deliberately mirror the original
+  // green/purple: reverted after a colourblindness-driven palette was trialled
+  // and judged worse to actually play with. See RESTORE_original_colours.md for
+  // the trialled palette and the measurements behind it, if it's ever revisited.
+  't1':      { ring: '#61AF41', ringDark: '#3d7a27', center: '#e8f5e2' }, // green
+  't2':      { ring: '#AE42D0', ringDark: '#6e2085', center: '#f5e8fb' }, // purple
 };
 
 // Which chip color each difficulty's bots use. [son, nephew] per tier — the
@@ -4567,23 +4558,6 @@ const AI_TIER = {
 };
 
 let _chipId = 0;
-// Relative luminance of a hex colour, used to decide whether a chip's inlay
-// markings should be white (dark ring) or a deep tint of the ring's own hue
-// (light ring). 0.42 is roughly the point where white markings drop below
-// ~2.6:1 contrast and start disappearing into the ring.
-function hexLuminance(hex) {
-  const h = hex.replace('#','');
-  const rgb = [0,2,4].map(i => parseInt(h.slice(i,i+2),16)/255)
-                     .map(v => v <= 0.04045 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4));
-  return 0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2];
-}
-function isLightRing(hex) { return hexLuminance(hex) > 0.42; }
-function darkenHex(hex, factor) {
-  const h = hex.replace('#','');
-  const rgb = [0,2,4].map(i => Math.round(parseInt(h.slice(i,i+2),16) * (1 - factor)));
-  return '#' + rgb.map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2,'0')).join('');
-}
-
 function buildChipSVG(colorClass, initial, size, showDot = false, inverted = false) {
   const c = CHIP_COLORS[colorClass] || CHIP_COLORS['blue'];
   // Every call needs a globally-unique id here, not just colorClass+size —
@@ -4617,18 +4591,7 @@ function buildChipSVG(colorClass, initial, size, showDot = false, inverted = fal
   // the marks now use a deep tint of that ring's OWN hue instead, which
   // restores the detailing without shifting the chip's colour at all, so
   // every colourblind and card-contrast figure is untouched.
-  // A NORMAL chip draws its markings on the coloured ring; an INVERTED
-  // (completed-sequence) chip draws them on a white ring, so the two need
-  // opposite treatment. In both cases the old fixed colour vanished on light
-  // chips: white-on-spring-green was 1.3:1, and spring-green-on-white was
-  // equally unreadable when inverted.
-  const markColour = inverted
-    ? (isLightRing(c.ring) ? darkenHex(c.ring, 0.45) : c.ring)   // on the white ring
-    : (isLightRing(c.ring) ? '#111111' : 'white');               // on the coloured ring
-  // The crown sits on the chip CENTRE, which for an inverted chip is the full
-  // team colour — so a white crown disappeared on light teams exactly like the
-  // markings did. Matches the near-black used for the initial on normal chips.
-  const crownColour = (inverted && isLightRing(c.ring)) ? '#111111' : 'white';
+  const markColour = inverted ? c.ring : 'white';
 
   // 4 square inlays at cardinal positions
   const marks = [];
@@ -4682,11 +4645,11 @@ function buildChipSVG(colorClass, initial, size, showDot = false, inverted = fal
     // 3 peaks: left, centre, right
     const path = `M${x0},${y1} L${x0},${y0+ch*0.45} L${x0+cw*0.25},${y0+ch*0.68} L${cx-cw*0.07},${y0+ch*0.22} L${cx},${y0} L${cx+cw*0.07},${y0+ch*0.22} L${x1-cw*0.25},${y0+ch*0.68} L${x1},${y0+ch*0.45} L${x1},${y1} Z`;
     return `<g opacity="0.95">
-      <path d="${path}" fill="${crownColour}"/>
-      <circle cx="${x0}" cy="${y0+ch*0.45}" r="${dotR}" fill="${crownColour}"/>
-      <circle cx="${cx}" cy="${y0}" r="${dotR}" fill="${crownColour}"/>
-      <circle cx="${x1}" cy="${y0+ch*0.45}" r="${dotR}" fill="${crownColour}"/>
-      <rect x="${x0}" y="${y1-ch*0.25}" width="${cw}" height="${ch*0.25}" rx="${(size*0.02).toFixed(1)}" fill="${crownColour}"/>
+      <path d="${path}" fill="white"/>
+      <circle cx="${x0}" cy="${y0+ch*0.45}" r="${dotR}" fill="white"/>
+      <circle cx="${cx}" cy="${y0}" r="${dotR}" fill="white"/>
+      <circle cx="${x1}" cy="${y0+ch*0.45}" r="${dotR}" fill="white"/>
+      <rect x="${x0}" y="${y1-ch*0.25}" width="${cw}" height="${ch*0.25}" rx="${(size*0.02).toFixed(1)}" fill="white"/>
     </g>`;
   })() :
     initial ? `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
@@ -4707,7 +4670,7 @@ function lighten(hex) {
   const b = Math.min(255, ( n        & 0xff) + 90);
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
-const TEAM_NAMES  = ['Blue','Green','Amber'];
+const TEAM_NAMES  = ['Blue','Green','Purple'];
 
 // Derives {numTeams, seqToWin} from how many people have ACTUALLY joined a
 // group-started game, recalculated on every join rather than locked in
@@ -11708,14 +11671,7 @@ function renderBoard() {
       const isRecentlyRemoved = GS.lastRemoved && GS.lastRemoved.row === r && GS.lastRemoved.col === c && GS.moveSeq === GS.lastRemoved.seq;
       if (!isWild && isSeqCell) {
         cell.classList.add('in-sequence');
-        // The dashed frame is drawn on the white card, so a light team colour
-        // was nearly invisible there — spring green managed only 1.3:1. Darken
-        // light colours rather than switching to black: the frame's whole job
-        // is to show WHICH team owns the sequence, and a single neutral colour
-        // would make every team's completed lines look identical.
-        const seqRing = CHIP_HEX[TEAM_COLORS[chipTeam]] || '#1a2080';
-        cell.style.setProperty('--seq-border-color',
-          isLightRing(seqRing) ? darkenHex(seqRing, 0.45) : seqRing);
+        cell.style.setProperty('--seq-border-color', CHIP_HEX[TEAM_COLORS[chipTeam]] || '#1a2080');
       } else if (!isWild && isRecentlyRemoved) {
         cell.classList.add('recently-removed');
       }
