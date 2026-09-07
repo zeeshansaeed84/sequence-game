@@ -3,6 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, viewport-fit=cover">
+<meta name="description" content="The classic board-and-cards game. Play against AI opponents or with friends and family in real-time multiplayer.">
+<!-- Installed-app metadata. The service worker was already registered further
+     down, but without a manifest the browser never treats this as installable —
+     and a valid manifest plus service worker is exactly what Google Play's
+     Trusted Web Activity route requires. -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#141a44">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sequence">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="48x48" href="./icons/icon-48.png">
 <script>
 // Testing aid, not a real feature: load this page with ?wide=1 in the URL
 // on a real phone to force the layout to render as if the viewport were
@@ -5276,6 +5291,7 @@ function startVsAI() {
   // this player's own hand in their own AI game.
   fbOff();
   roomRef = null;
+  gameStateListenerAttached = false; // listeners are torn off with the room; allow re-attach on the next join
   roomCode = '';
   currentGroupId = null;
   isSpectator = false;
@@ -6418,6 +6434,52 @@ async function joinGame() {
 // join-code DOM field to read from. Returns {ok, reason} instead of
 // writing to a specific DOM error element directly, since callers other
 // than the join-code form need to handle failure their own way.
+// Subscribes this client to the room's authoritative game state.
+//
+// Pulled out of joinGameRoom because a MIGRATED-AWAY host needs it too. The
+// original host never had this listener: it generates the state and broadcasts
+// it, so it has no reason to listen. But when host duty moves to someone else,
+// it stops generating AND still isn't listening — so its board freezes on the
+// last state it produced, permanently, while everyone else plays on.
+//
+// Confirmed in a 642-event log from room UUBBVW: the original host recorded
+// zero gamestate_received events across 6.7 minutes and vanished from the
+// timeline the instant it stepped down, while the other clients kept updating
+// through eight more moves.
+//
+// Idempotent: a client that JOINED already has this listener, and could later
+// become host and step down again, which would otherwise stack duplicates and
+// render every update twice.
+let gameStateListenerAttached = false;
+function attachGameStateListener() {
+  if (gameStateListenerAttached || !roomRef) return;
+  gameStateListenerAttached = true;
+  fbOn(roomRef.child('gameState'), 'value', snap => {
+    if (!snap.val()) return;
+    const newGS = JSON.parse(snap.val());
+    const isFreshGame = newGS.moveSeq === 1 && GS && GS.phase === 'done';
+    const fbGameStartedBefore = fbGameStarted;
+    logDebugEvent('gamestate_received', {
+      incomingMoveSeq: newGS.moveSeq, incomingPhase: newGS.phase, incomingCurrentTurn: newGS.currentTurn,
+      localPhaseBefore: GS ? GS.phase : null, fbGameStartedBefore, isFreshGame,
+    });
+    // The host is the source of truth while it holds the role, so ignore
+    // echoes of state it just broadcast itself.
+    if (isHost) return;
+    GS = newGS;
+    if (GS.moveSeq === 1) GS.lastRemoved = null;
+    if (!fbGameStarted || isFreshGame) {
+      fbGameStarted = true;
+      document.getElementById('win-modal').classList.remove('open');
+      resetRematchUI();
+      showGameScreen();
+      registerPresence();
+    } else {
+      renderGame();
+    }
+  });
+}
+
 async function joinGameRoom(code) {
   isHost = false;
   roomCode = code;
@@ -6565,27 +6627,7 @@ async function joinGameRoom(code) {
   });
 
   // Watch game state
-  fbOn(roomRef.child('gameState'), 'value', snap => {
-    if (!snap.val()) return;
-    const newGS = JSON.parse(snap.val());
-    const isFreshGame = newGS.moveSeq === 1 && GS && GS.phase === 'done';
-    const fbGameStartedBefore = fbGameStarted;
-    logDebugEvent('gamestate_received', {
-      incomingMoveSeq: newGS.moveSeq, incomingPhase: newGS.phase, incomingCurrentTurn: newGS.currentTurn,
-      localPhaseBefore: GS ? GS.phase : null, fbGameStartedBefore, isFreshGame,
-    });
-    GS = newGS;
-    if (GS.moveSeq === 1) GS.lastRemoved = null;
-    if (!fbGameStarted || isFreshGame) {
-      fbGameStarted = true;
-      document.getElementById('win-modal').classList.remove('open');
-      resetRematchUI();
-      showGameScreen();
-      registerPresence();
-    } else {
-      renderGame();
-    }
-  });
+  attachGameStateListener();
 
   // Watch rematch requests/responses
   fbOn(roomRef.child('rematch'), 'value', snap => {
@@ -9616,6 +9658,11 @@ function stepDownAsHost() {
   isHost = false;
   stopTurnTimer();
   startHostDisconnectWatchdog(); // resume watching, in case the new host also disconnects later
+  // Start listening for state now that someone else is producing it. Without
+  // this a migrated-away host is deaf: it no longer generates game state and
+  // never subscribed to it, so its board simply stops. See
+  // attachGameStateListener for the log evidence.
+  attachGameStateListener();
   // Symmetric with becomeHost() - without this, a client who just lost
   // host status would keep seeing a stale, visible Start button from
   // when they still were host (harmless to tap - startGame() guards on
