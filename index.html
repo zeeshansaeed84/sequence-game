@@ -11701,7 +11701,27 @@ function renderLastMove() {
 
 function renderBoard() {
   const boardEl = document.getElementById('board');
-  boardEl.innerHTML = '';
+
+  // The board's CARD graphics never change once a game is dealt, but this
+  // function used to wipe the whole grid and rebuild all 100 cells on every
+  // render - 200 DOM elements created per call, measured at ~21ms, when
+  // typically only ~16 cells actually differ. That cost sits directly in the
+  // tap-to-place path, which is what players felt as lag.
+  //
+  // Now the card layer is built once per deal and reused; each render only
+  // touches the cells whose mutable state (chip, sequence highlight, removal
+  // frame) actually changed. A cheap signature of the dealt layout detects a
+  // new game and forces a full rebuild.
+  let layoutSig = '';
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+    const cd = GS.board[r][c];
+    layoutSig += cd.type === 'wild' ? 'W' : cd.rank + cd.suit[0];
+  }
+  const needsFullBuild = boardEl.children.length !== 100 || boardEl.dataset.layoutSig !== layoutSig;
+  if (needsFullBuild) {
+    boardEl.innerHTML = '';
+    boardEl.dataset.layoutSig = layoutSig;
+  }
 
   const myTurn = players[GS.currentTurn] && players[GS.currentTurn].id === myId;
   const myTeam = players[myIndex] ? players[myIndex].team : 0;
@@ -11741,12 +11761,21 @@ function renderBoard() {
       const isWild = cellData.type === 'wild';
       const isSeqCell = isSequenceCell(r, c);
 
-      const cell = document.createElement('div');
-      cell.className = 'cell';
-      if (isWild) { cell.classList.add('wild','corner','disabled'); cell.append(buildCornerCardHTML()); }
-      else {
-        cell.classList.add(cellData.suit);
-        cell.append(buildCellCardHTML(cellData.rank, cellData.suit));
+      let cell;
+      if (needsFullBuild) {
+        cell = document.createElement('div');
+        cell.className = 'cell';
+        if (isWild) { cell.classList.add('wild','corner','disabled'); cell.append(buildCornerCardHTML()); }
+        else {
+          cell.classList.add(cellData.suit);
+          cell.append(buildCellCardHTML(cellData.rank, cellData.suit));
+        }
+        // Attached once per deal rather than on every render - previously this
+        // added a fresh listener each time the board was rebuilt.
+        cell.addEventListener('click', () => onCellClick(r, c));
+        boardEl.append(cell);
+      } else {
+        cell = boardEl.children[r * 10 + c];
       }
 
       // Frame highlight — permanently for a completed sequence (team-
@@ -11758,6 +11787,29 @@ function renderBoard() {
       // A cell can never satisfy both conditions at once in practice —
       // sequence-locked chips are already protected from removal.
       const isRecentlyRemoved = GS.lastRemoved && GS.lastRemoved.row === r && GS.lastRemoved.col === c && GS.moveSeq === GS.lastRemoved.seq;
+
+      // Everything that can make this cell LOOK different. If none of it moved
+      // since the last render there is nothing to do, so skip the DOM work
+      // entirely - this is where the saving comes from.
+      const isLastPlacedCell = GS.lastMove && GS.lastMove.row === r && GS.lastMove.col === c && !isSeqCell;
+      const ownerIdForKey = GS.chipOwners?.[r]?.[c] ?? '';
+      const animHere = animateThisRender && GS.lastMove && GS.lastMove.row === r
+                       && GS.lastMove.col === c && GS.lastMove.seq === GS.moveSeq;
+      const stateKey = [chipTeam, isSeqCell ? 1 : 0, isRecentlyRemoved ? 1 : 0,
+                        isLastPlacedCell ? 1 : 0, ownerIdForKey, animHere ? GS.moveSeq : 0].join('|');
+      if (!needsFullBuild && cell.dataset.stateKey === stateKey) continue;
+      cell.dataset.stateKey = stateKey;
+
+      // Reused cells carry last render's mutable classes/overlay - clear them
+      // so the state below is applied to a clean slate. The card graphic
+      // underneath is deliberately left alone; it never changes.
+      if (!needsFullBuild) {
+        cell.querySelector('.chip-overlay')?.remove();
+        cell.classList.remove('in-sequence','recently-removed','disabled');
+        cell.style.removeProperty('--seq-border-color');
+        if (isWild) cell.classList.add('disabled');
+      }
+
       if (!isWild && isSeqCell) {
         cell.classList.add('in-sequence');
         cell.style.setProperty('--seq-border-color', CHIP_HEX[TEAM_COLORS[chipTeam]] || '#1a2080');
@@ -11813,8 +11865,6 @@ function renderBoard() {
 
       // No cell hints — player finds the spot themselves
 
-      cell.addEventListener('click', () => onCellClick(r, c));
-      boardEl.append(cell);
     }
   }
 
