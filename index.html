@@ -7174,6 +7174,13 @@ function leaveGame() {
     db.ref('sq_groups/' + currentGroupId + '/activeGames/' + roomCode).remove().catch(() => {});
   }
   roomRef = null;
+  // Must be reset here as well as in startVsAI: fbOff() above tears off every
+  // listener, so without clearing this flag the NEXT joinGameRoom sees it
+  // already true, skips attaching the gameState listener, and that player
+  // never leaves the lobby when the host starts - while the host's own screen
+  // moves on normally. Anyone who had played an earlier game in the same
+  // browser session was affected.
+  gameStateListenerAttached = false;
   // Clear roomCode too - it was previously left set after leaving, so this
   // client's diagnostic logging kept writing into a room it was no longer
   // part of. Confirmed in a captured log: a player who had left continued
