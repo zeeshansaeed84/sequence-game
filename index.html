@@ -5765,6 +5765,30 @@ function runLengthAt(r, c, t, gs) {
 // ALREADY occupied by team t (a real chip, not a hypothetical). If the pivot
 // is empty, zero gaps instead means "this IS the winning cell" — the
 // opposite conclusion, and the most dangerous case there is.
+//
+// LOCKED-OVERLAP RULE (the second thing this function has to get right):
+// a window that overlaps an already-completed sequence by 2+ cells can
+// never become a NEW sequence — the official rule is that two sequences
+// may share AT MOST ONE chip. So such a window is worth exactly zero to
+// its owner and must not register as a threat. Conversely, a window that
+// overlaps by exactly ONE cell is a perfectly legal second sequence, and
+// that shared chip counts toward it in full.
+//
+// Both halves of this used to be wrong, in opposite directions:
+//   * the occupied-pivot branch counted locked chips with no overlap limit
+//     at all, so a lone chip dropped anywhere near a completed sequence
+//     inherited that sequence's chips and read as a live 4-chain. That is
+//     what made the AI spend one-eyed jacks removing chips that threatened
+//     nothing (reported behaviour: a corner-assisted sequence in row 0,
+//     then two harmless chips nearby, two jacks wasted).
+//   * the empty-pivot branch used realLiveChips, which excluded locked
+//     cells ENTIRELY — stricter than the rules require. A cell that would
+//     complete a legal second sequence sharing one locked chip read as 3
+//     instead of 4, collapsing the AI's block urgency on an actual
+//     game-losing cell by ~8x.
+// Counting locked cells in the window and applying the <=1 rule fixes both
+// at once, and makes this consistent with bestWindow/bestWindowGaps, which
+// have always used the same lockedOverlap<=1 test.
 function genuineThreatAt(r, c, t, gs) {
   const dirs = [[0,1],[1,0],[1,1],[1,-1]];
   const pivotIsRealChip = gs.chips[r][c] === t;
@@ -5774,7 +5798,7 @@ function genuineThreatAt(r, c, t, gs) {
     // (rather than reusing bestWindowGaps, which doesn't expose which
     // window it picked — needed here to check each cell individually).
     for (let off = -4; off <= 0; off++) {
-      let gapCount = 0, blocked = false, friendlyCount = 0, realLiveChips = 0;
+      let gapCount = 0, blocked = false, friendlyCount = 0, lockedOverlap = 0;
       for (let k = 0; k < 5; k++) {
         const nr = r + (off+k)*dr, nc = c + (off+k)*dc;
         if (nr < 0 || nr >= 10 || nc < 0 || nc >= 10) { blocked = true; break; }
@@ -5792,36 +5816,43 @@ function genuineThreatAt(r, c, t, gs) {
           // 3, never reaching the >=4 threshold this measure feeds into
           // for both AI defensive scoring and the chatter system's
           // "decisive" block/removal checks.
-          if (!isPivot && (ch === t || isWild) && !isSequenceCellInState(nr, nc, gs)) realLiveChips++;
+          //
+          // A corner already locked into a completed sequence counts as a
+          // shared cell exactly like a locked chip does — checkSequences
+          // records corners in seqCells, so the <=1 rule below treats them
+          // identically. Without that, a corner sequence could be "reused"
+          // for free and every line through the corner would look live.
+          if (isSequenceCellInState(nr, nc, gs)) lockedOverlap++;
         } else if (ch !== null) {
           blocked = true; break;
         } else {
           gapCount++;
         }
       }
-      if (blocked) continue;
+      // 2+ cells shared with a completed sequence: this window can never
+      // legally become a new sequence, so it is not a threat to anyone.
+      if (blocked || lockedOverlap > 1) continue;
 
       if (pivotIsRealChip) {
-        // Original, working case: pivot is one of team t's actual chips —
-        // friendlyCount-1 (excluding the pivot) is the real run length,
-        // matching runLengthAt's convention. gapCount===0 here genuinely
-        // means "no room left" (either a live 5th cell was just taken, or
-        // the whole window is already a locked sequence) — either way,
-        // nothing further to defend, so it's correctly skipped.
+        // Pivot is one of team t's actual chips — friendlyCount-1
+        // (excluding the pivot) is the real run length, matching
+        // runLengthAt's convention. gapCount===0 here genuinely means "no
+        // room left" (the live 5th cell was just taken), so nothing
+        // further to defend.
         if (gapCount === 0) continue;
         max = Math.max(max, friendlyCount - 1);
       } else {
         // Pivot is EMPTY — being evaluated as a potential defensive cell.
+        // friendlyCount-1 excludes the hypothetical pivot, so it is the
+        // count of real chips/corners already in this window.
         if (gapCount === 0) {
-          // This exact cell would complete the window. Only a real threat
-          // if the other 4 cells are genuinely live (unlocked) chips — if
-          // they're already part of a completed sequence, this would just
-          // be a redundant overlap, not a new win.
-          if (realLiveChips >= 4) max = Math.max(max, 4);
+          // This exact cell would complete the window — the single most
+          // urgent cell on the board.
+          if (friendlyCount - 1 >= 4) max = Math.max(max, 4);
         } else if (gapCount === 1) {
-          // One other gap besides this cell — a live near-complete window
+          // One other gap besides this cell — a near-complete window
           // (mirrors "one away" elsewhere), a strong but non-maximal threat.
-          if (realLiveChips >= 3) max = Math.max(max, 3);
+          if (friendlyCount - 1 >= 3) max = Math.max(max, 3);
         }
       }
     }
